@@ -645,6 +645,7 @@ contract MyContract {
                                 <option value="">Select AI Model...</option>
                                 <option value="gemini">Google Gemini 2.0 Flash</option>
                                 <option value="openai">OpenAI GPT-4o</option>
+                                <option value="codex-gateway">Codex OAuth gateway (local)</option>
                                 <option value="gpt-4o-mini">OpenAI GPT-4o-mini</option>
                                 <option value="gpt-4.1">OpenAI GPT-4.1</option>
                                 <option value="o4">OpenAI O4</option>
@@ -771,6 +772,12 @@ contract MyContract {
                 description: 'Proven OpenAI model with strong reasoning capabilities',
                 speed: 'Medium',
                 accuracy: 'Very High'
+            },
+            'codex-gateway': {
+                name: 'Codex OAuth gateway (local)',
+                description: 'OpenAI-compatible local gateway using your Codex subscription; no fallback to another provider',
+                speed: 'Gateway-dependent',
+                accuracy: 'Selected Codex model'
             },
             'gpt-4o-mini': {
                 name: 'OpenAI GPT-4o-mini',

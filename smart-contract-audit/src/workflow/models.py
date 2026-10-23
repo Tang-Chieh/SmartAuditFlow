@@ -24,6 +24,10 @@ class ModelManager:
         
         # Initialize OpenAI
         self._init_openai()
+
+        # Initialize the local Codex OAuth gateway as a separate, explicit
+        # OpenAI-compatible provider. It is never used as an implicit fallback.
+        self._init_codex_gateway()
         
         # Initialize Gemini (OpenAI-compatible)
         self._init_gemini()
@@ -100,6 +104,39 @@ class ModelManager:
             self.initialization_errors['o4'] = str(e)
             self.initialization_errors['o3-mini'] = str(e)
             print(f"❌ Failed to initialize OpenAI: {e}")
+
+    def _init_codex_gateway(self):
+        """Initialize an explicit local Codex OAuth gateway provider.
+
+        The gateway bearer token is supplied through CODEX_GATEWAY_API_KEY;
+        this is a local gateway credential, not an OpenAI API key. Restricting
+        the URL to loopback prevents accidentally sending it to a remote host.
+        """
+        try:
+            from urllib.parse import urlparse
+            import openai
+
+            api_key = os.getenv('CODEX_GATEWAY_API_KEY')
+            base_url = os.getenv('CODEX_GATEWAY_BASE_URL', 'http://127.0.0.1:4000/v1')
+            parsed = urlparse(base_url)
+            if not api_key:
+                self.available_models['codex-gateway'] = False
+                self.initialization_errors['codex-gateway'] = 'CODEX_GATEWAY_API_KEY not found in environment'
+                return
+            if parsed.scheme != 'http' or parsed.hostname not in {'127.0.0.1', 'localhost', '::1'}:
+                self.available_models['codex-gateway'] = False
+                self.initialization_errors['codex-gateway'] = 'Codex gateway must use an http loopback URL'
+                return
+
+            self.models['codex-gateway'] = openai.OpenAI(api_key=api_key, base_url=base_url)
+            self.available_models['codex-gateway'] = True
+            print('✅ Local Codex OAuth gateway initialized (loopback only)')
+        except ImportError:
+            self.available_models['codex-gateway'] = False
+            self.initialization_errors['codex-gateway'] = 'OpenAI library not installed'
+        except Exception as e:
+            self.available_models['codex-gateway'] = False
+            self.initialization_errors['codex-gateway'] = str(e)
     
     def _init_gemini(self):
         """Initialize Gemini model (OpenAI-compatible interface)"""
@@ -241,7 +278,8 @@ class ModelManager:
                 'o4': 'o4',
                 'o3-mini': 'o3-mini',
                 'gemini': 'gemini-2.0-flash',
-                'deepseek': 'deepseek-chat'
+                'deepseek': 'deepseek-chat',
+                'codex-gateway': os.getenv('CODEX_GATEWAY_MODEL', 'openai-codex/gpt-5.6-luna')
             }
             
             actual_model = model_map.get(model_name, model_name)
@@ -324,6 +362,10 @@ class ModelManager:
         # Define fallback order based on preference
         if model_choice == 'auto':
             model_order = ['gemini', 'openai', 'gpt-4o-mini', 'gpt-4.1', 'o4', 'o3-mini', 'deepseek', 'claude', 'claude-opus-4-0', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest']
+        elif model_choice == 'codex-gateway':
+            # Explicit selection is fail-closed: never fall back to another
+            # provider, which could unexpectedly consume a paid API key.
+            model_order = ['codex-gateway']
         elif model_choice in self.available_models:
             model_order = [model_choice, 'gemini', 'openai', 'gpt-4o-mini', 'gpt-4.1', 'o4', 'o3-mini', 'deepseek', 'claude', 'claude-opus-4-0', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest']
             model_order = list(dict.fromkeys(model_order))  # Remove duplicates while preserving order
@@ -381,4 +423,3 @@ def get_model_manager() -> ModelManager:
         global_model_manager = ModelManager()
         print("🤖 Global model manager initialized")
     return global_model_manager
-

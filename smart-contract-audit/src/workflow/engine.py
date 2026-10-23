@@ -76,6 +76,8 @@ class WorkflowEngine:
                 raise Exception("Gemini model is not available. Please check your GEMINI_API_KEY.")
             elif self.model_choice == 'openai' and not available_models.get('openai'):
                 raise Exception("OpenAI model is not available. Please check your OPENAI_API_KEY.")
+            elif self.model_choice == 'codex-gateway' and not available_models.get('codex-gateway'):
+                raise Exception("Codex gateway is not available. Check CODEX_GATEWAY_API_KEY and CODEX_GATEWAY_BASE_URL.")
             elif self.model_choice == 'auto' and not (available_models.get('gemini') or available_models.get('openai')):
                 raise Exception("No AI models are available. Please check your API keys.")
             

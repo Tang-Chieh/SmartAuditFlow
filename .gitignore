@@ -77,6 +77,7 @@ hs_err_pid*
 .env.development
 .env.test
 .env.production
+smoke-results/
 
 # Dependency directories
 jspm_packages/
