@@ -100,6 +100,34 @@ class PredictionShapeTests(unittest.TestCase):
         self.assertEqual(len(result["OutputWarnings"]), 1)
         self.assertIn("mitigation", result["OutputWarnings"][0])
 
+    def test_invalid_vulnerable_code_location_is_rejected_and_warned(self):
+        invalid_refs = [
+            {
+                **self.finding,
+                "vulnerable_code": [{
+                    **self.finding["vulnerable_code"][0],
+                    "file": "src/Missing.sol",
+                }],
+            },
+            {
+                **self.finding,
+                "vulnerable_code": [{
+                    **self.finding["vulnerable_code"][0],
+                    "start_line": 61,
+                    "end_line": 62,
+                }],
+            },
+        ]
+
+        for finding in invalid_refs:
+            with self.subTest(vulnerable_code=finding["vulnerable_code"]):
+                result, _ = self._run_finalize(json.dumps([finding]))
+                self.assertEqual(result["Predictions"], [])
+                self.assertEqual(len(result["OutputWarnings"]), 1)
+                self.assertIn(
+                    "invalid vulnerable_code location", result["OutputWarnings"][0]
+                )
+
     def test_unparseable_json_does_not_become_a_fake_finding(self):
         result, _ = self._run_finalize("No valid JSON output")
         self.assertEqual(result["Predictions"], [])
