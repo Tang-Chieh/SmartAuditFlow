@@ -16,6 +16,7 @@ def get_model_status():
             'models': status,
             'gemini': status.get('gemini', False),
             'openai': status.get('openai', False),
+            'codex-gateway': status.get('codex-gateway', False),
             'gpt-4o-mini': status.get('gpt-4o-mini', False),
             'gpt-4.1': status.get('gpt-4.1', False),
             'o4': status.get('o4', False),
@@ -34,6 +35,7 @@ def get_model_status():
             'models': {
                 'gemini': False,
                 'openai': False,
+                'codex-gateway': False,
                 'gpt-4o-mini': False,
                 'gpt-4.1': False,
                 'o4': False,
@@ -52,7 +54,7 @@ def test_model(model_name):
     try:
         model_manager = get_model_manager()
         
-        if model_name not in ['gemini', 'openai', 'gpt-4o-mini', 'gpt-4.1', 'o4', 'o3-mini', 'deepseek', 'claude', 'claude-opus-4-0', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest']:
+        if model_name not in ['gemini', 'openai', 'codex-gateway', 'gpt-4o-mini', 'gpt-4.1', 'o4', 'o3-mini', 'deepseek', 'claude', 'claude-opus-4-0', 'claude-sonnet-4-0', 'claude-3-7-sonnet-latest']:
             return jsonify({
                 'status': 'error',
                 'error': f'Unknown model: {model_name}'
