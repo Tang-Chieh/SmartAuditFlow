@@ -1,0 +1,1750 @@
+// ===== BEGIN SOURCE FILE: contracts/spell/ShortLongSpell.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+import "./BasicSpell.sol";
+
+import "../interfaces/ISoftVault.sol";
+import "../interfaces/IWERC20.sol";
+import "../libraries/Paraswap/PSwapLib.sol";
+
+/**
+ * @title Short/Long Spell
+ * @author BlueberryProtocol
+ * @notice Short/Long Spell is the factory contract that
+ * defines how Blueberry Protocol interacts for leveraging
+ * an asset either long or short
+ */
+contract ShortLongSpell is BasicSpell {
+    using SafeCast for uint256;
+    using SafeCast for int256;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev WERC20
+    IWERC20 public wrapper;
+
+    /// @dev paraswap AugustusSwapper address
+    address public augustusSwapper;
+
+    /// @dev paraswap TokenTransferProxy address
+    address public tokenTransferProxy;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        IBank bank_,
+        address werc20_,
+        address weth_,
+        address augustusSwapper_,
+        address tokenTransferProxy_
+    ) external initializer {
+        if (augustusSwapper_ == address(0)) revert Errors.ZERO_ADDRESS();
+        if (tokenTransferProxy_ == address(0)) revert Errors.ZERO_ADDRESS();
+
+        augustusSwapper = augustusSwapper_;
+        tokenTransferProxy = tokenTransferProxy_;
+        wrapper = IWERC20(werc20_);
+
+        __BasicSpell_init(bank_, werc20_, weth_);
+    }
+
+    /**
+     * @notice Internal function to swap token using paraswap assets
+     * @dev Deposit isolated underlying to Blueberry Money Market,
+     *      Borrow tokens from Blueberry Money Market,
+     *      Swap borrowed token to another token
+     *      Then deposit swapped token to softvault,
+     *
+     */
+    function _deposit(
+        OpenPosParam calldata param,
+        Utils.MegaSwapSellData calldata swapData
+    ) internal {
+        Strategy memory strategy = strategies[param.strategyId];
+
+        // 1. Deposit isolated collaterals on Blueberry Money Market
+        _doLend(param.collToken, param.collAmount);
+
+        // 2. Borrow specific amounts
+        uint256 strTokenAmt = _doBorrow(param.borrowToken, param.borrowAmount);
+
+        // 3. Swap borrowed token to strategy token
+        IERC20Upgradeable swapToken = ISoftVault(strategy.vault).uToken();
+        // swapData.fromAmount = strTokenAmt;
+        PSwapLib.megaSwap(augustusSwapper, tokenTransferProxy, swapData);
+        strTokenAmt = swapToken.balanceOf(address(this)) - strTokenAmt;
+        if (strTokenAmt < swapData.expectedAmount)
+            revert Errors.SWAP_FAILED(address(swapToken));
+
+        // 4. Deposit to SoftVault directly
+        _ensureApprove(
+            address(swapToken),
+            address(strategy.vault),
+            strTokenAmt
+        );
+        ISoftVault(strategy.vault).deposit(strTokenAmt);
+
+        // 5. Validate MAX LTV
+        _validateMaxLTV(param.strategyId);
+
+        // 6. Validate Max Pos Size
+        _validateMaxPosSize(param.strategyId);
+    }
+
+    /**
+     * @notice External function to deposit assets
+     */
+    function openPosition(
+        OpenPosParam calldata param,
+        Utils.MegaSwapSellData calldata swapData
+    )
+        external
+        existingStrategy(param.strategyId)
+        existingCollateral(param.strategyId, param.collToken)
+    {
+        Strategy memory strategy = strategies[param.strategyId];
+        if (
+            address(ISoftVault(strategy.vault).uToken()) != param.borrowToken ||
+            swapData.fromToken != param.borrowToken
+        ) revert Errors.INCORRECT_LP(param.borrowToken);
+
+        // 1-3 Swap to strategy underlying token, deposit to softvault
+        _deposit(param, swapData);
+
+        // 4. Put collateral -
+        {
+            IBank.Position memory pos = bank.getCurrentPositionInfo();
+            address posCollToken = pos.collToken;
+            uint256 collSize = pos.collateralSize;
+            address burnToken = address(ISoftVault(strategy.vault).uToken());
+            if (collSize > 0) {
+                if (posCollToken != address(wrapper))
+                    revert Errors.INCORRECT_COLTOKEN(posCollToken);
+                bank.takeCollateral(collSize);
+                wrapper.burn(burnToken, collSize);
+                _doRefund(burnToken);
+            }
+        }
+
+        // 5. Put collateral - strategy token
+        address vault = strategies[param.strategyId].vault;
+        _doPutCollateral(
+            vault,
+            IERC20Upgradeable(ISoftVault(vault).uToken()).balanceOf(
+                address(this)
+            )
+        );
+    }
+
+    /**
+     * @notice Internal function to withdraw assets from SoftVault
+     * @dev Withdraw assets from Soft Vault,
+     *      Swap withdrawn assets to debt token,
+     *      Withdraw isolated collaterals from Blueberry Money Market,
+     *      Repay Debt and refund rest to user
+     */
+    function _withdraw(
+        ClosePosParam calldata param,
+        Utils.MegaSwapSellData calldata swapData
+    ) internal {
+        if (param.sellSlippage > bank.config().maxSlippageOfClose())
+            revert Errors.RATIO_TOO_HIGH(param.sellSlippage);
+
+        Strategy memory strategy = strategies[param.strategyId];
+        ISoftVault vault = ISoftVault(strategy.vault);
+        uint256 positionId = bank.POSITION_ID();
+
+        // 1. Calculate actual amount to remove
+        uint256 amountPosRemove = param.amountPosRemove;
+        if (amountPosRemove == type(uint256).max) {
+            amountPosRemove = vault.balanceOf(address(this));
+        }
+
+        // 2. Withdraw from softvault
+        vault.withdraw(amountPosRemove);
+
+        // 3. Swap strategy token to isolated collateral token
+        {
+            PSwapLib.megaSwap(augustusSwapper, tokenTransferProxy, swapData);
+        }
+
+        // 4. Withdraw isolated collateral from Bank
+        _doWithdraw(param.collToken, param.amountShareWithdraw);
+
+        // 5. Repay
+        {
+            uint256 amountRepay = param.amountRepay;
+            if (amountRepay == type(uint256).max) {
+                amountRepay = bank.currentPositionDebt(positionId);
+            }
+            _doRepay(param.borrowToken, amountRepay);
+        }
+
+        _validateMaxLTV(param.strategyId);
+
+        // 6. Refund
+        _doRefund(param.borrowToken);
+        _doRefund(param.collToken);
+    }
+
+    /**
+     * @notice External function to withdraw assets
+     */
+    function closePosition(
+        ClosePosParam calldata param,
+        Utils.MegaSwapSellData calldata swapData
+    )
+        external
+        existingStrategy(param.strategyId)
+        existingCollateral(param.strategyId, param.collToken)
+    {
+        Strategy memory strategy = strategies[param.strategyId];
+
+        if (address(ISoftVault(strategy.vault).uToken()) != swapData.fromToken)
+            revert Errors.INCORRECT_LP(swapData.fromToken);
+
+        address vault = strategies[param.strategyId].vault;
+        IBank.Position memory pos = bank.getCurrentPositionInfo();
+        address posCollToken = pos.collToken;
+        uint256 collId = pos.collId;
+        if (IWERC20(posCollToken).getUnderlyingToken(collId) != vault)
+            revert Errors.INCORRECT_UNDERLYING(vault);
+        if (posCollToken != address(werc20))
+            revert Errors.INCORRECT_COLTOKEN(posCollToken);
+
+        // 1. Take out collateral
+        bank.takeCollateral(param.amountPosRemove);
+        werc20.burn(
+            address(ISoftVault(strategy.vault).uToken()),
+            param.amountPosRemove
+        );
+
+        // 2-7. Remove liquidity
+        _withdraw(param, swapData);
+    }
+
+    /**
+     * @notice Add strategy to the spell
+     * @param swapToken Address of token for given strategy
+     * @param maxPosSize, USD price of maximum position size for given strategy, based 1e18
+     */
+    function addStrategy(
+        address swapToken,
+        uint256 maxPosSize
+    ) external onlyOwner {
+        _addStrategy(swapToken, maxPosSize);
+    }
+}
+// ===== END SOURCE FILE: contracts/spell/ShortLongSpell.sol =====
+// ===== BEGIN SOURCE FILE: contracts/utils/BlueBerryConst.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+uint256 constant DENOMINATOR = 10000;
+
+uint256 constant MIN_LIQ_THRESHOLD = 8000;
+
+uint256 constant PRICE_PRECISION = 1e18;
+
+uint256 constant MAX_PRICE_DEVIATION = 1000; // max price deviation, 10%
+
+uint32 constant MIN_TIME_GAP = 1 hours;
+
+uint32 constant MAX_TIME_GAP = 2 days;
+
+uint256 constant MAX_FEE_RATE = 2000; // max fee: 20%
+
+uint256 constant MAX_WITHDRAW_VAULT_FEE_WINDOW = 60 days;
+
+// ===== END SOURCE FILE: contracts/utils/BlueBerryConst.sol =====
+// ===== BEGIN SOURCE FILE: contracts/utils/BlueBerryErrors.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+// Common Errors
+error ZERO_AMOUNT();
+error ZERO_ADDRESS();
+error INPUT_ARRAY_MISMATCH();
+
+// Oracle Errors
+error TOO_LONG_DELAY(uint256 delayTime);
+error NO_MAX_DELAY(address token);
+error PRICE_OUTDATED(address token);
+error NO_SYM_MAPPING(address token);
+error PRICE_NEGATIVE(address token);
+
+error OUT_OF_DEVIATION_CAP(uint256 deviation);
+error EXCEED_SOURCE_LEN(uint256 length);
+error NO_PRIMARY_SOURCE(address token);
+error NO_VALID_SOURCE(address token);
+error EXCEED_DEVIATION();
+
+error TOO_LOW_MEAN(uint256 mean);
+error NO_MEAN(address token);
+error NO_STABLEPOOL(address token);
+
+error PRICE_FAILED(address token);
+error LIQ_THRESHOLD_TOO_HIGH(uint256 threshold);
+error LIQ_THRESHOLD_TOO_LOW(uint256 threshold);
+
+error ORACLE_NOT_SUPPORT(address token);
+error ORACLE_NOT_SUPPORT_LP(address lp);
+error ORACLE_NOT_SUPPORT_WTOKEN(address wToken);
+error NO_ORACLE_ROUTE(address token);
+
+error CRV_LP_ALREADY_REGISTERED(address lp);
+
+// Spell
+error NOT_BANK(address caller);
+error REFUND_ETH_FAILED(uint256 balance);
+error NOT_FROM_WETH(address from);
+error LP_NOT_WHITELISTED(address lp);
+error COLLATERAL_NOT_EXIST(uint256 strategyId, address colToken);
+error STRATEGY_NOT_EXIST(address spell, uint256 strategyId);
+error EXCEED_MAX_POS_SIZE(uint256 strategyId);
+error EXCEED_MAX_LTV();
+error INCORRECT_STRATEGY_ID(uint256 strategyId);
+
+// Ichi Spell
+error INCORRECT_LP(address lpToken);
+error INCORRECT_PID(uint256 pid);
+error INCORRECT_COLTOKEN(address colToken);
+error INCORRECT_UNDERLYING(address uToken);
+error INCORRECT_DEBT(address debtToken);
+error NOT_FROM_UNIV3(address sender);
+error SWAP_FAILED(address swapToken);
+
+// Curve Spell
+error NO_GAUGE();
+error EXISTING_GAUGE(uint256 pid, uint256 gid);
+error NO_CURVE_POOL(uint256 pid);
+error NO_LP_REGISTERED(address lp);
+
+// Vault
+error BORROW_FAILED(uint256 amount);
+error REPAY_FAILED(uint256 amount);
+error LEND_FAILED(uint256 amount);
+error REDEEM_FAILED(uint256 amount);
+
+// Wrapper
+error INVALID_TOKEN_ID(uint256 tokenId);
+error BAD_PID(uint256 pid);
+error BAD_REWARD_PER_SHARE(uint256 rewardPerShare);
+
+// Bank
+error NOT_UNDER_EXECUTION();
+error NOT_EOA(address from);
+error NOT_FROM_SPELL(address from);
+error NOT_FROM_OWNER(uint256 positionId, address sender);
+error SPELL_NOT_WHITELISTED(address spell);
+error TOKEN_NOT_WHITELISTED(address token);
+error BANK_NOT_LISTED(address token);
+error BANK_ALREADY_LISTED();
+error BANK_LIMIT();
+error BTOKEN_ALREADY_ADDED();
+error LEND_NOT_ALLOWED();
+error BORROW_NOT_ALLOWED();
+error REPAY_NOT_ALLOWED();
+error WITHDRAW_LEND_NOT_ALLOWED();
+error LOCKED();
+error NOT_IN_EXEC();
+
+error DIFF_COL_EXIST(address collToken);
+error NOT_LIQUIDATABLE(uint256 positionId);
+error BAD_POSITION(uint256 posId);
+error BAD_COLLATERAL(uint256 positionId);
+error INSUFFICIENT_COLLATERAL();
+error REPAY_EXCEEDS_DEBT(uint256 repay, uint256 debt);
+error INVALID_UTOKEN(address uToken);
+error BORROW_ZERO_SHARE(uint256 borrowAmount);
+
+// Config
+error RATIO_TOO_HIGH(uint256 ratio);
+error INVALID_FEE_DISTRIBUTION();
+error NO_TREASURY_SET();
+error FEE_WINDOW_ALREADY_STARTED();
+error FEE_WINDOW_TOO_LONG(uint256 windowTime);
+
+// Utilities
+error CAST();
+// ===== END SOURCE FILE: contracts/utils/BlueBerryErrors.sol =====
+// ===== BEGIN SOURCE FILE: contracts/utils/EnsureApprove.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+abstract contract EnsureApprove {
+    /// @dev Reset approval to zero and set again
+    function _ensureApprove(
+        address token,
+        address spender,
+        uint256 amount
+    ) internal {
+        IERC20(token).approve(spender, 0);
+        IERC20(token).approve(spender, amount);
+    }
+}
+// ===== END SOURCE FILE: contracts/utils/EnsureApprove.sol =====
+// ===== BEGIN SOURCE FILE: contracts/utils/ERC1155NaiveReceiver.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+
+contract ERC1155NaiveReceiver is IERC1155Receiver {
+    function onERC1155Received(
+        address /* operator */,
+        address /* from */,
+        uint256 /* id */,
+        uint256 /* value */,
+        bytes calldata /* data */
+    ) external pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address /* operator */,
+        address /* from */,
+        uint256[] calldata /* ids */,
+        uint256[] calldata /* values */,
+        bytes calldata /* data */
+    ) external pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
+    function supportsInterface(
+        bytes4 interfaceId
+    ) external view virtual override returns (bool) {
+        return interfaceId == type(IERC1155Receiver).interfaceId;
+    }
+}
+// ===== END SOURCE FILE: contracts/utils/ERC1155NaiveReceiver.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/HardVault.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../interfaces/IProtocolConfig.sol";
+import "../interfaces/IHardVault.sol";
+
+/**
+ * @author BlueberryProtocol
+ * @title Hard Vault
+ * @notice Hard Vault is a spot to lock LP tokens as collateral.
+ * @dev HardVault is just holding LP tokens deposited by users.
+ *      LP tokens should be listed by Blueberry team.
+ *      HardVault is ERC1155 and Underlying LP tokens are identified by casted tokenId from token address
+ * @dev HardVault is not on the road yet, need more research.
+ */
+contract HardVault is
+    OwnableUpgradeable,
+    ERC1155Upgradeable,
+    ReentrancyGuardUpgradeable,
+    EnsureApprove,
+    IHardVault
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev address of protocol config
+    IProtocolConfig public config;
+
+    event Deposited(
+        address indexed account,
+        uint256 amount,
+        uint256 shareAmount
+    );
+    event Withdrawn(
+        address indexed account,
+        uint256 amount,
+        uint256 shareAmount
+    );
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(IProtocolConfig _config) external initializer {
+        __ReentrancyGuard_init();
+        __Ownable_init();
+        __ERC1155_init("HardVault");
+
+        if (address(_config) == address(0)) revert Errors.ZERO_ADDRESS();
+        config = _config;
+    }
+
+    /// @dev Encode given underlying token address to tokenId
+    function _encodeTokenId(address uToken) internal pure returns (uint) {
+        return uint256(uint160(uToken));
+    }
+
+    /// @dev Decode given tokenId to underlyingToken address
+    function _decodeTokenId(uint tokenId) internal pure returns (address) {
+        return address(uint160(tokenId));
+    }
+
+    /// @notice Return the underlying ERC20 balance for the user.
+    /// @param token token address to get balance of
+    /// @param user user address to get balance of
+    function balanceOfERC20(
+        address token,
+        address user
+    ) external view override returns (uint256) {
+        return balanceOf(user, _encodeTokenId(token));
+    }
+
+    /// @notice Return the underlying ERC-20 for the given ERC-1155 token id.
+    /// @param tokenId token id (corresponds to token address for wrapped ERC20)
+    /// @return token underlying token address of given tokenId
+    function getUnderlyingToken(
+        uint256 tokenId
+    ) external pure override returns (address token) {
+        token = _decodeTokenId(tokenId);
+        if (_encodeTokenId(token) != tokenId)
+            revert Errors.INVALID_TOKEN_ID(tokenId);
+    }
+
+    /**
+     * @notice Deposit underlying assets on the vault and issue share token
+     * @param amount Underlying token amount to deposit
+     * @return shareAmount amount of vault share tokens minted
+     */
+    function deposit(
+        address token,
+        uint256 amount
+    ) external override nonReentrant returns (uint256 shareAmount) {
+        if (amount == 0) revert Errors.ZERO_AMOUNT();
+        IERC20Upgradeable uToken = IERC20Upgradeable(token);
+        uint256 uBalanceBefore = uToken.balanceOf(address(this));
+        uToken.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 uBalanceAfter = uToken.balanceOf(address(this));
+
+        shareAmount = uBalanceAfter - uBalanceBefore;
+        _mint(msg.sender, uint256(uint160(token)), shareAmount, "");
+
+        emit Deposited(msg.sender, amount, shareAmount);
+    }
+
+    /**
+     * @notice Withdraw underlying assets from the vault
+     * @param shareAmount Amount of vault share tokens to redeem
+     * @return withdrawAmount Amount of underlying assets withdrawn
+     */
+    function withdraw(
+        address token,
+        uint256 shareAmount
+    ) external override nonReentrant returns (uint256 withdrawAmount) {
+        if (shareAmount == 0) revert Errors.ZERO_AMOUNT();
+        IERC20Upgradeable uToken = IERC20Upgradeable(token);
+        _burn(msg.sender, _encodeTokenId(token), shareAmount);
+
+        // Cut withdraw fee if it is in withdrawVaultFee Window (2 months)
+        _ensureApprove(
+            address(uToken),
+            address(config.feeManager()),
+            shareAmount
+        );
+        withdrawAmount = config.feeManager().doCutVaultWithdrawFee(
+            address(uToken),
+            shareAmount
+        );
+        uToken.safeTransfer(msg.sender, withdrawAmount);
+
+        emit Withdrawn(msg.sender, withdrawAmount, shareAmount);
+    }
+}
+// ===== END SOURCE FILE: contracts/vault/HardVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/SoftVault.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../interfaces/IProtocolConfig.sol";
+import "../interfaces/ISoftVault.sol";
+import "../interfaces/compound/ICErc20.sol";
+
+/**
+ * @author BlueberryProtocol
+ * @title Soft Vault
+ * @notice Soft Vault is a spot where users lend and borrow tokens from/to Blueberry Money Market.
+ * @dev SoftVault is communicating with bTokens to lend and borrow underlying tokens from/to Blueberry Money Market.
+ *      Underlying tokens can be ERC20 tokens listed by Blueberry team, such as USDC, USDT, DAI, WETH, ...
+ */
+contract SoftVault is
+    OwnableUpgradeable,
+    ERC20Upgradeable,
+    ReentrancyGuardUpgradeable,
+    EnsureApprove,
+    ISoftVault
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev address of bToken for underlying token
+    ICErc20 public bToken;
+    /// @dev address of underlying token
+    IERC20Upgradeable public uToken;
+    /// @dev address of protocol config
+    IProtocolConfig public config;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        IProtocolConfig _config,
+        ICErc20 _bToken,
+        string memory _name,
+        string memory _symbol
+    ) external initializer {
+        __ReentrancyGuard_init();
+        __Ownable_init();
+        __ERC20_init(_name, _symbol);
+
+        if (address(_bToken) == address(0) || address(_config) == address(0))
+            revert Errors.ZERO_ADDRESS();
+
+        IERC20Upgradeable _uToken = IERC20Upgradeable(_bToken.underlying());
+        config = _config;
+        bToken = _bToken;
+        uToken = _uToken;
+    }
+
+    /// @dev Vault has same decimal as bToken, bToken has same decimal as underlyingToken
+    function decimals() public view override returns (uint8) {
+        return bToken.decimals();
+    }
+
+    /**
+     * @notice Deposit underlying assets on Blueberry Money Market and issue share token
+     * @param amount Underlying token amount to deposit
+     * @return shareAmount same as bToken amount received
+     */
+    function deposit(
+        uint256 amount
+    ) external override nonReentrant returns (uint256 shareAmount) {
+        if (amount == 0) revert Errors.ZERO_AMOUNT();
+        uint256 uBalanceBefore = uToken.balanceOf(address(this));
+        uToken.safeTransferFrom(msg.sender, address(this), amount);
+        uint256 uBalanceAfter = uToken.balanceOf(address(this));
+
+        uint256 cBalanceBefore = bToken.balanceOf(address(this));
+        _ensureApprove(address(uToken), address(bToken), amount);
+        if (bToken.mint(uBalanceAfter - uBalanceBefore) != 0)
+            revert Errors.LEND_FAILED(amount);
+        uint256 cBalanceAfter = bToken.balanceOf(address(this));
+
+        shareAmount = cBalanceAfter - cBalanceBefore;
+        _mint(msg.sender, shareAmount);
+
+        emit Deposited(msg.sender, amount, shareAmount);
+    }
+
+    /**
+     * @notice Withdraw underlying assets from Blueberry Money Market
+     * @dev It cuts vault withdraw fee when you withdraw within the vault withdraw window
+     * @param shareAmount Amount of bTokens to redeem
+     * @return withdrawAmount Amount of underlying assets withdrawn
+     */
+    function withdraw(
+        uint256 shareAmount
+    ) external override nonReentrant returns (uint256 withdrawAmount) {
+        if (shareAmount == 0) revert Errors.ZERO_AMOUNT();
+
+        _burn(msg.sender, shareAmount);
+
+        uint256 uBalanceBefore = uToken.balanceOf(address(this));
+        if (bToken.redeem(shareAmount) != 0)
+            revert Errors.REDEEM_FAILED(shareAmount);
+        uint256 uBalanceAfter = uToken.balanceOf(address(this));
+
+        withdrawAmount = uBalanceAfter - uBalanceBefore;
+        _ensureApprove(
+            address(uToken),
+            address(config.feeManager()),
+            withdrawAmount
+        );
+        withdrawAmount = config.feeManager().doCutVaultWithdrawFee(
+            address(uToken),
+            withdrawAmount
+        );
+        uToken.safeTransfer(msg.sender, withdrawAmount);
+
+        emit Withdrawn(msg.sender, withdrawAmount, shareAmount);
+    }
+}
+// ===== END SOURCE FILE: contracts/vault/SoftVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wrapper/WAuraPools.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../interfaces/IWAuraPools.sol";
+import "../interfaces/IERC20Wrapper.sol";
+import "../interfaces/aura/IAuraRewarder.sol";
+
+/**
+ * @title WAuraPools
+ * @author BlueberryProtocol
+ * @notice Wrapped Aura Pools is the wrapper of LP positions
+ * @dev Leveraged LP Tokens will be wrapped here and be held in BlueberryBank 
+ *      and do not generate yields. LP Tokens are identified by tokenIds 
+ *      encoded from lp token address.
+ */
+contract WAuraPools is
+    ERC1155Upgradeable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable,
+    EnsureApprove,
+    IERC20Wrapper,
+    IWAuraPools
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev Address to Aura Pools contract
+    IAuraPools public auraPools;
+    /// @dev Address to AURA token
+    IERC20Upgradeable public AURA;
+    /// @dev Mapping from gauge id to accBalPerShare
+    mapping(uint256 => uint256) public accCrvPerShares;
+    /// @dev Mapping from token id to accExtPerShare
+    mapping(uint256 => uint256[]) public accExtPerShare;
+
+    function initialize(
+        address aura_,
+        address auraPools_
+    ) external initializer {
+        __ReentrancyGuard_init();
+        __ERC1155_init("WAuraPools");
+        AURA = IERC20Upgradeable(aura_);
+        auraPools = IAuraPools(auraPools_);
+    }
+
+    /// @notice Encode pid, auraPerShare to ERC1155 token id
+    /// @param pid Pool id (16-bit)
+    /// @param auraPerShare AURA amount per share, multiplied by 1e18 (240-bit)
+    function encodeId(
+        uint256 pid,
+        uint256 auraPerShare
+    ) public pure returns (uint256 id) {
+        if (pid >= (1 << 16)) revert Errors.BAD_PID(pid);
+        if (auraPerShare >= (1 << 240))
+            revert Errors.BAD_REWARD_PER_SHARE(auraPerShare);
+        return (pid << 240) | auraPerShare;
+    }
+
+    /// @notice Decode ERC1155 token id to pid, auraPerShare
+    /// @param id Token id
+    function decodeId(
+        uint256 id
+    ) public pure returns (uint256 gid, uint256 auraPerShare) {
+        gid = id >> 240; // First 16 bits
+        auraPerShare = id & ((1 << 240) - 1); // Last 240 bits
+    }
+
+    /// @notice Get underlying ERC20 token of ERC1155 given token id
+    /// @param id Token id
+    function getUnderlyingToken(
+        uint256 id
+    ) external view override returns (address uToken) {
+        (uint256 pid, ) = decodeId(id);
+        (uToken, , , , , ) = getPoolInfoFromPoolId(pid);
+    }
+
+    function getVault(address bpt) public view returns (IBalancerVault) {
+        return IBalancerVault(IBalancerPool(bpt).getVault());
+    }
+
+    function getPoolTokens(
+        address bpt
+    )
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory balances,
+            uint256 lastChangedBlock
+        )
+    {
+        return getVault(bpt).getPoolTokens(IBalancerPool(bpt).getPoolId());
+    }
+
+    function getPool(
+        address bpt,
+        uint256 pid
+    ) external view returns (address, uint256) {
+        return getVault(bpt).getPool(bytes32(pid));
+    }
+
+    function getPoolInfoFromPoolId(
+        uint256 pid
+    )
+        public
+        view
+        returns (
+            address lptoken,
+            address token,
+            address gauge,
+            address crvRewards,
+            address stash,
+            bool shutdown
+        )
+    {
+        return auraPools.poolInfo(pid);
+    }
+
+    function _getPendingReward(
+        uint stRewardPerShare,
+        address rewarder,
+        uint amount,
+        uint lpDecimals
+    ) internal view returns (uint rewards) {
+        uint256 enRewardPerShare = IAuraRewarder(rewarder).rewardPerToken();
+        uint256 share = enRewardPerShare > stRewardPerShare
+            ? enRewardPerShare - stRewardPerShare
+            : 0;
+        rewards = (share * amount) / (10 ** lpDecimals);
+    }
+
+    /// @notice Return pending rewards from the farming pool
+    /// @dev Reward tokens can be multiple tokens
+    /// @param tokenId Token Id
+    /// @param amount amount of share
+    function pendingRewards(
+        uint256 tokenId,
+        uint256 amount
+    )
+        public
+        view
+        override
+        returns (address[] memory tokens, uint256[] memory rewards)
+    {
+        (uint256 pid, uint256 stCrvPerShare) = decodeId(tokenId);
+        (address lpToken, , , address crvRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        uint256 lpDecimals = IERC20MetadataUpgradeable(lpToken).decimals();
+        uint extraRewardsCount = IAuraRewarder(crvRewarder)
+            .extraRewardsLength();
+        tokens = new address[](extraRewardsCount + 1);
+        rewards = new uint256[](extraRewardsCount + 1);
+
+        tokens[0] = IAuraRewarder(crvRewarder).rewardToken();
+        rewards[0] = _getPendingReward(
+            stCrvPerShare,
+            crvRewarder,
+            amount,
+            lpDecimals
+        );
+
+        for (uint i = 0; i < extraRewardsCount; i++) {
+            address rewarder = IAuraRewarder(crvRewarder).extraRewards(i);
+            uint256 stRewardPerShare = accExtPerShare[tokenId][i];
+            tokens[i + 1] = IAuraRewarder(rewarder).rewardToken();
+            rewards[i + 1] = _getPendingReward(
+                stRewardPerShare,
+                rewarder,
+                amount,
+                lpDecimals
+            );
+        }
+    }
+
+    /// @notice Mint ERC1155 token for the given LP token
+    /// @param pid Aura Pool id
+    /// @param amount Token amount to wrap
+    function mint(
+        uint256 pid,
+        uint256 amount
+    ) external nonReentrant returns (uint256 id) {
+        (address lpToken, , , address crvRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        IERC20Upgradeable(lpToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+
+        _ensureApprove(lpToken, address(auraPools), amount);
+        auraPools.deposit(pid, amount, true);
+
+        uint256 crvRewardPerToken = IAuraRewarder(crvRewarder).rewardPerToken();
+        id = encodeId(pid, crvRewardPerToken);
+        _mint(msg.sender, id, amount, "");
+        // Store extra rewards info
+        uint extraRewardsCount = IAuraRewarder(crvRewarder)
+            .extraRewardsLength();
+        for (uint i = 0; i < extraRewardsCount; i++) {
+            address extraRewarder = IAuraRewarder(crvRewarder).extraRewards(i);
+            uint rewardPerToken = IAuraRewarder(extraRewarder).rewardPerToken();
+            accExtPerShare[id].push(rewardPerToken);
+        }
+    }
+
+    /// @notice Burn ERC1155 token to redeem ERC20 token back
+    /// @param id Token id to burn
+    /// @param amount Token amount to burn
+    /// @return rewardTokens Reward tokens rewards harvested
+    function burn(
+        uint256 id,
+        uint256 amount
+    )
+        external
+        nonReentrant
+        returns (address[] memory rewardTokens, uint256[] memory rewards)
+    {
+        if (amount == type(uint256).max) {
+            amount = balanceOf(msg.sender, id);
+        }
+        (uint256 pid, ) = decodeId(id);
+        _burn(msg.sender, id, amount);
+
+        (address lpToken, , , address balRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        // Claim Rewards
+        IAuraRewarder(balRewarder).withdraw(amount, true);
+        // Withdraw LP
+        auraPools.withdraw(pid, amount);
+
+        // Transfer LP Tokens
+        IERC20Upgradeable(lpToken).safeTransfer(msg.sender, amount);
+
+        // Transfer Reward Tokens
+        (rewardTokens, rewards) = pendingRewards(id, amount);
+
+        for (uint i = 0; i < rewardTokens.length; i++) {
+            IERC20Upgradeable(rewardTokens[i]).safeTransfer(
+                msg.sender,
+                rewards[i]
+            );
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wrapper/WAuraPools.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wrapper/WConvexPools.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../interfaces/IWConvexPools.sol";
+import "../interfaces/IERC20Wrapper.sol";
+import "../interfaces/convex/IRewarder.sol";
+
+/**
+ * @title WConvexPools
+ * @author BlueberryProtocol
+ * @notice Wrapped Convex Pools is the wrapper of LP positions
+ * @dev Leveraged LP Tokens will be wrapped here and be held in BlueberryBank 
+ *      and do not generate yields. LP Tokens are identified by tokenIds 
+ *      encoded from lp token address.
+ */
+contract WConvexPools is
+    ERC1155Upgradeable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable,
+    EnsureApprove,
+    IERC20Wrapper,
+    IWConvexPools
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev Address to Convex Pools contract
+    ICvxPools public cvxPools;
+    /// @dev Address to CVX token
+    IERC20Upgradeable public CVX;
+    /// @dev Mapping from gauge id to accCrvPerShare
+    mapping(uint256 => uint256) public accCrvPerShares;
+    /// @dev Mapping from token id to accExtPerShare
+    mapping(uint256 => uint256[]) public accExtPerShare;
+
+    // /// @dev Mapping from tokenId to
+    // mapping(uint256 => uint256) public
+
+    function initialize(address cvx_, address cvxPools_) external initializer {
+        __ReentrancyGuard_init();
+        __ERC1155_init("WConvexPools");
+        CVX = IERC20Upgradeable(cvx_);
+        cvxPools = ICvxPools(cvxPools_);
+    }
+
+    /// @notice Encode pid, cvxPerShare to ERC1155 token id
+    /// @param pid Pool id (16-bit)
+    /// @param cvxPerShare CVX amount per share, multiplied by 1e18 (240-bit)
+    function encodeId(
+        uint256 pid,
+        uint256 cvxPerShare
+    ) public pure returns (uint256 id) {
+        if (pid >= (1 << 16)) revert Errors.BAD_PID(pid);
+        if (cvxPerShare >= (1 << 240))
+            revert Errors.BAD_REWARD_PER_SHARE(cvxPerShare);
+        return (pid << 240) | cvxPerShare;
+    }
+
+    /// @notice Decode ERC1155 token id to pid, cvxPerShare
+    /// @param id Token id
+    function decodeId(
+        uint256 id
+    ) public pure returns (uint256 gid, uint256 cvxPerShare) {
+        gid = id >> 240; // First 16 bits
+        cvxPerShare = id & ((1 << 240) - 1); // Last 240 bits
+    }
+
+    /// @notice Get underlying ERC20 token of ERC1155 given token id
+    /// @param id Token id
+    function getUnderlyingToken(
+        uint256 id
+    ) external view override returns (address uToken) {
+        (uint256 pid, ) = decodeId(id);
+        (uToken, , , , , ) = getPoolInfoFromPoolId(pid);
+    }
+
+    function getPoolInfoFromPoolId(
+        uint256 pid
+    )
+        public
+        view
+        returns (
+            address lptoken,
+            address token,
+            address gauge,
+            address crvRewards,
+            address stash,
+            bool shutdown
+        )
+    {
+        return cvxPools.poolInfo(pid);
+    }
+
+    function _getPendingReward(
+        uint stRewardPerShare,
+        address rewarder,
+        uint amount,
+        uint lpDecimals
+    ) internal view returns (uint rewards) {
+        uint256 enRewardPerShare = IRewarder(rewarder).rewardPerToken();
+        uint256 share = enRewardPerShare > stRewardPerShare
+            ? enRewardPerShare - stRewardPerShare
+            : 0;
+        rewards = (share * amount) / (10 ** lpDecimals);
+    }
+
+    /// @notice Return pending rewards from the farming pool
+    /// @dev Reward tokens can be multiple tokens
+    /// @param tokenId Token Id
+    /// @param amount amount of share
+    function pendingRewards(
+        uint256 tokenId,
+        uint256 amount
+    )
+        public
+        view
+        override
+        returns (address[] memory tokens, uint256[] memory rewards)
+    {
+        (uint256 pid, uint256 stCrvPerShare) = decodeId(tokenId);
+        (address lpToken, , , address crvRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        uint256 lpDecimals = IERC20MetadataUpgradeable(lpToken).decimals();
+        uint extraRewardsCount = IRewarder(crvRewarder).extraRewardsLength();
+        tokens = new address[](extraRewardsCount + 1);
+        rewards = new uint256[](extraRewardsCount + 1);
+
+        tokens[0] = IRewarder(crvRewarder).rewardToken();
+        rewards[0] = _getPendingReward(
+            stCrvPerShare,
+            crvRewarder,
+            amount,
+            lpDecimals
+        );
+
+        for (uint i = 0; i < extraRewardsCount; i++) {
+            address rewarder = IRewarder(crvRewarder).extraRewards(i);
+            uint256 stRewardPerShare = accExtPerShare[tokenId][i];
+            tokens[i + 1] = IRewarder(rewarder).rewardToken();
+            rewards[i + 1] = _getPendingReward(
+                stRewardPerShare,
+                rewarder,
+                amount,
+                lpDecimals
+            );
+        }
+    }
+
+    /// @notice Mint ERC1155 token for the given LP token
+    /// @param pid Convex Pool id
+    /// @param amount Token amount to wrap
+    function mint(
+        uint256 pid,
+        uint256 amount
+    ) external nonReentrant returns (uint256 id) {
+        (address lpToken, , , address crvRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        IERC20Upgradeable(lpToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+
+        _ensureApprove(lpToken, address(cvxPools), amount);
+        cvxPools.deposit(pid, amount, true);
+
+        uint256 crvRewardPerToken = IRewarder(crvRewarder).rewardPerToken();
+        id = encodeId(pid, crvRewardPerToken);
+        _mint(msg.sender, id, amount, "");
+        // Store extra rewards info
+        uint extraRewardsCount = IRewarder(crvRewarder).extraRewardsLength();
+        for (uint i = 0; i < extraRewardsCount; i++) {
+            address extraRewarder = IRewarder(crvRewarder).extraRewards(i);
+            uint rewardPerToken = IRewarder(extraRewarder).rewardPerToken();
+            accExtPerShare[id].push(rewardPerToken);
+        }
+    }
+
+    /// @notice Burn ERC1155 token to redeem ERC20 token back
+    /// @param id Token id to burn
+    /// @param amount Token amount to burn
+    /// @return rewardTokens Reward tokens rewards harvested
+    function burn(
+        uint256 id,
+        uint256 amount
+    )
+        external
+        nonReentrant
+        returns (address[] memory rewardTokens, uint256[] memory rewards)
+    {
+        if (amount == type(uint256).max) {
+            amount = balanceOf(msg.sender, id);
+        }
+        (uint256 pid, ) = decodeId(id);
+        _burn(msg.sender, id, amount);
+
+        (address lpToken, , , address crvRewarder, , ) = getPoolInfoFromPoolId(
+            pid
+        );
+        // Claim Rewards
+        IRewarder(crvRewarder).withdraw(amount, true);
+        // Withdraw LP
+        cvxPools.withdraw(pid, amount);
+
+        // Transfer LP Tokens
+        IERC20Upgradeable(lpToken).safeTransfer(msg.sender, amount);
+
+        // Transfer Reward Tokens
+        (rewardTokens, rewards) = pendingRewards(id, amount);
+
+        for (uint i = 0; i < rewardTokens.length; i++) {
+            IERC20Upgradeable(rewardTokens[i]).safeTransfer(
+                msg.sender,
+                rewards[i]
+            );
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wrapper/WConvexPools.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wrapper/WCurveGauge.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../interfaces/IERC20Wrapper.sol";
+import "../interfaces/IWCurveGauge.sol";
+import "../interfaces/curve/ILiquidityGauge.sol";
+
+interface ILiquidityGaugeMinter {
+    function mint(address gauge) external;
+}
+
+/**
+ * @title WCurveGauge
+ * @author BlueberryProtocol
+ * @notice Wrapped Curve Gauge is the wrapper of Gauge positions
+ * @dev Leveraged LP Tokens will be wrapped here and be held in BlueberryBank 
+ *      and do not generate yields. LP Tokens are identified by tokenIds 
+ *      encoded from lp token address.
+ */
+contract WCurveGauge is
+    ERC1155Upgradeable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable,
+    EnsureApprove,
+    IERC20Wrapper,
+    IWCurveGauge
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @dev Address of Curve Registry
+    ICurveRegistry public registry;
+    /// @dev Address of Curve Gauge Controller
+    ICurveGaugeController public gaugeController;
+    /// @dev Address of CRV token
+    IERC20Upgradeable public CRV;
+    /// @dev Mapping from gauge id to accCrvPerShare
+    mapping(uint256 => uint256) public accCrvPerShares;
+
+    function initialize(
+        address crv_,
+        address crvRegistry_,
+        address gaugeController_
+    ) external initializer {
+        __ReentrancyGuard_init();
+        __ERC1155_init("WCurveGauge");
+        CRV = IERC20Upgradeable(crv_);
+        registry = ICurveRegistry(crvRegistry_);
+        gaugeController = ICurveGaugeController(gaugeController_);
+    }
+
+    /// @notice Encode pid, crvPerShare to ERC1155 token id
+    /// @param pid Pool id (16-bit)
+    /// @param crvPerShare CRV amount per share, multiplied by 1e18 (240-bit)
+    function encodeId(
+        uint256 pid,
+        uint256 crvPerShare
+    ) public pure returns (uint256 id) {
+        if (pid >= (1 << 16)) revert Errors.BAD_PID(pid);
+        if (crvPerShare >= (1 << 240))
+            revert Errors.BAD_REWARD_PER_SHARE(crvPerShare);
+        return (pid << 240) | crvPerShare;
+    }
+
+    /// @notice Decode ERC1155 token id to pid, crvPerShare
+    /// @param id Token id
+    function decodeId(
+        uint256 id
+    ) public pure returns (uint256 gid, uint256 crvPerShare) {
+        gid = id >> 240; // First 16 bits
+        crvPerShare = id & ((1 << 240) - 1); // Last 240 bits
+    }
+
+    /// @notice Get underlying ERC20 token of ERC1155 given token id
+    /// @param id Token id
+    function getUnderlyingToken(
+        uint256 id
+    ) external view override returns (address) {
+        (uint256 gid, ) = decodeId(id);
+        return getLpFromGaugeId(gid);
+    }
+
+    function getLpFromGaugeId(uint256 gid) public view returns (address) {
+        return ILiquidityGauge(gaugeController.gauges(gid)).lp_token();
+    }
+
+    /// @notice Return pending rewards from the farming pool
+    /// @dev Reward tokens can be multiple tokens
+    /// @param tokenId Token Id
+    /// @param amount amount of share
+    function pendingRewards(
+        uint256 tokenId,
+        uint256 amount
+    )
+        public
+        view
+        override
+        returns (address[] memory tokens, uint256[] memory rewards)
+    {}
+
+    /// @notice Mint ERC1155 token for the given LP token
+    /// @param gid Gauge id
+    /// @param amount Token amount to wrap
+    function mint(
+        uint256 gid,
+        uint256 amount
+    ) external nonReentrant returns (uint256) {
+        ILiquidityGauge gauge = ILiquidityGauge(gaugeController.gauges(gid));
+        if (address(gauge) == address(0)) revert Errors.NO_GAUGE();
+
+        _mintCrv(gauge, gid);
+        IERC20Upgradeable lpToken = IERC20Upgradeable(gauge.lp_token());
+        lpToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        _ensureApprove(address(lpToken), address(gauge), amount);
+        gauge.deposit(amount);
+
+        uint256 id = encodeId(gid, accCrvPerShares[gid]);
+        _mint(msg.sender, id, amount, "");
+        return id;
+    }
+
+    /// @notice Burn ERC1155 token to redeem ERC20 token back
+    /// @param id Token id to burn
+    /// @param amount Token amount to burn
+    /// @return rewards CRV rewards harvested
+    function burn(
+        uint256 id,
+        uint256 amount
+    ) external nonReentrant returns (uint256 rewards) {
+        if (amount == type(uint256).max) {
+            amount = balanceOf(msg.sender, id);
+        }
+        (uint256 gid, uint256 stCrvPerShare) = decodeId(id);
+        _burn(msg.sender, id, amount);
+        ILiquidityGauge gauge = ILiquidityGauge(gaugeController.gauges(gid));
+        require(address(gauge) != address(0), "gauge not registered");
+        _mintCrv(gauge, gid);
+        gauge.withdraw(amount);
+        IERC20Upgradeable(gauge.lp_token()).safeTransfer(msg.sender, amount);
+        uint256 stCrv = (stCrvPerShare * amount) / 1e18;
+        uint256 enCrv = (accCrvPerShares[gid] * amount) / 1e18;
+        if (enCrv > stCrv) {
+            rewards = enCrv - stCrv;
+            CRV.safeTransfer(msg.sender, rewards);
+        }
+        return rewards;
+    }
+
+    /// @notice Mint CRV reward for curve gauge
+    /// @param gauge Curve gauge to mint reward
+    function _mintCrv(ILiquidityGauge gauge, uint256 gid) internal {
+        uint256 balanceBefore = CRV.balanceOf(address(this));
+        ILiquidityGaugeMinter(gauge.minter()).mint(address(gauge));
+        uint256 balanceAfter = CRV.balanceOf(address(this));
+        uint256 gain = balanceAfter - balanceBefore;
+        uint256 supply = gauge.balanceOf(address(this));
+        if (gain > 0 && supply > 0) {
+            accCrvPerShares[gid] += (gain * 1e18) / supply;
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wrapper/WCurveGauge.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wrapper/WERC20.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../interfaces/IWERC20.sol";
+
+/**
+ * @title WERC20
+ * @author BlueberryProtocol
+ * @notice Wrapped ERC20 is the wrapper of LP positions
+ * @dev Leveraged LP Tokens will be wrapped here and be held in BlueberryBank and do not generate yields.
+ *      LP Tokens are identified by tokenIds encoded from lp token address
+ */
+contract WERC20 is ERC1155Upgradeable, ReentrancyGuardUpgradeable, IWERC20 {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize() external initializer {
+        __ReentrancyGuard_init();
+        __ERC1155_init("WERC20");
+    }
+
+    /// @dev Encode given underlying token address to tokenId
+    function _encodeTokenId(address uToken) internal pure returns (uint) {
+        return uint256(uint160(uToken));
+    }
+
+    /// @dev Decode given tokenId to underlyingToken address
+    function _decodeTokenId(uint tokenId) internal pure returns (address) {
+        return address(uint160(tokenId));
+    }
+
+    /// @dev Return the underlying ERC-20 for the given ERC-1155 token id.
+    /// @param tokenId token id (corresponds to token address for wrapped ERC20)
+    function getUnderlyingToken(
+        uint256 tokenId
+    ) external pure override returns (address token) {
+        token = _decodeTokenId(tokenId);
+        if (_encodeTokenId(token) != tokenId)
+            revert Errors.INVALID_TOKEN_ID(tokenId);
+    }
+
+    /// @notice Return pending rewards from the farming pool
+    /// @dev Reward tokens can be multiple tokens
+    /// @param tokenId Token Id
+    /// @param amount amount of share
+    function pendingRewards(
+        uint256 tokenId,
+        uint amount
+    ) public view override returns (address[] memory, uint256[] memory) {}
+
+    /// @dev Return the underlying ERC20 balance for the user.
+    /// @param token token address to get balance of
+    /// @param user user address to get balance of
+    function balanceOfERC20(
+        address token,
+        address user
+    ) external view override returns (uint256) {
+        return balanceOf(user, _encodeTokenId(token));
+    }
+
+    /// @dev Mint ERC1155 token for the given ERC20 token.
+    /// @param token token address to wrap
+    /// @param amount token amount to wrap
+    function mint(
+        address token,
+        uint256 amount
+    ) external override nonReentrant returns (uint256 id) {
+        uint256 balanceBefore = IERC20Upgradeable(token).balanceOf(
+            address(this)
+        );
+        IERC20Upgradeable(token).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+        uint256 balanceAfter = IERC20Upgradeable(token).balanceOf(
+            address(this)
+        );
+        id = _encodeTokenId(token);
+        _mint(msg.sender, id, balanceAfter - balanceBefore, "");
+    }
+
+    /// @dev Burn ERC1155 token to redeem ERC20 token back.
+    /// @param token token address to burn
+    /// @param amount token amount to burn
+    function burn(
+        address token,
+        uint256 amount
+    ) external override nonReentrant {
+        _burn(msg.sender, _encodeTokenId(token), amount);
+        IERC20Upgradeable(token).safeTransfer(msg.sender, amount);
+    }
+}
+// ===== END SOURCE FILE: contracts/wrapper/WERC20.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wrapper/WIchiFarm.sol =====
+// SPDX-License-Identifier: MIT
+/*
+██████╗ ██╗     ██╗   ██╗███████╗██████╗ ███████╗██████╗ ██████╗ ██╗   ██╗
+██╔══██╗██║     ██║   ██║██╔════╝██╔══██╗██╔════╝██╔══██╗██╔══██╗╚██╗ ██╔╝
+██████╔╝██║     ██║   ██║█████╗  ██████╔╝█████╗  ██████╔╝██████╔╝ ╚████╔╝
+██╔══██╗██║     ██║   ██║██╔══╝  ██╔══██╗██╔══╝  ██╔══██╗██╔══██╗  ╚██╔╝
+██████╔╝███████╗╚██████╔╝███████╗██████╔╝███████╗██║  ██║██║  ██║   ██║
+╚═════╝ ╚══════╝ ╚═════╝ ╚══════╝╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝
+*/
+
+pragma solidity 0.8.16;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
+import "../utils/BlueBerryErrors.sol" as Errors;
+import "../utils/EnsureApprove.sol";
+import "../libraries/BBMath.sol";
+import "../interfaces/IWIchiFarm.sol";
+import "../interfaces/IERC20Wrapper.sol";
+import "../interfaces/ichi/IIchiV2.sol";
+import "../interfaces/ichi/IIchiFarm.sol";
+
+/**
+ * @title WIchiFarm
+ * @author BlueberryProtocol
+ * @notice Wrapped IchiFarm is the wrapper of ICHI MasterChef
+ * @dev Leveraged ICHI Lp Tokens will be wrapped here and be held in BlueberryBank.
+ *      At the same time, Underlying LPs will be deposited to ICHI farming pools and generate yields
+ *      LP Tokens are identified by tokenIds encoded from lp token address and accPerShare of deposited time
+ */
+contract WIchiFarm is
+    ERC1155Upgradeable,
+    ReentrancyGuardUpgradeable,
+    EnsureApprove,
+    OwnableUpgradeable,
+    IERC20Wrapper,
+    IWIchiFarm
+{
+    using BBMath for uint256;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20Upgradeable for IIchiV2;
+
+    /// @dev address of legacy ICHI token
+    IERC20Upgradeable public ICHIv1;
+    /// @dev address of ICHI v2
+    IIchiV2 public ICHI;
+    /// @dev address of ICHI farming contract
+    IIchiFarm public ichiFarm;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        address ichi_,
+        address ichiV1,
+        address ichiFarm_
+    ) external initializer {
+        if (
+            address(ichi_) == address(0) ||
+            address(ichiV1) == address(0) ||
+            address(ichiFarm_) == address(0)
+        ) revert Errors.ZERO_ADDRESS();
+        __ReentrancyGuard_init();
+        __ERC1155_init("WIchiFarm");
+        ICHI = IIchiV2(ichi_);
+        ICHIv1 = IERC20Upgradeable(ichiV1);
+        ichiFarm = IIchiFarm(ichiFarm_);
+    }
+
+    /// @notice Encode pid, ichiPerShare to ERC1155 token id
+    /// @param pid Pool id (16-bit)
+    /// @param ichiPerShare Ichi amount per share, multiplied by 1e18 (240-bit)
+    function encodeId(
+        uint256 pid,
+        uint256 ichiPerShare
+    ) public pure returns (uint256 id) {
+        if (pid >= (1 << 16)) revert Errors.BAD_PID(pid);
+        if (ichiPerShare >= (1 << 240))
+            revert Errors.BAD_REWARD_PER_SHARE(ichiPerShare);
+        return (pid << 240) | ichiPerShare;
+    }
+
+    /// @notice Decode ERC1155 token id to pid, ichiPerShare
+    /// @param id Token id
+    function decodeId(
+        uint256 id
+    ) public pure returns (uint256 pid, uint256 ichiPerShare) {
+        pid = id >> 240; // First 16 bits
+        ichiPerShare = id & ((1 << 240) - 1); // Last 240 bits
+    }
+
+    /// @notice Return the underlying ERC-20 for the given ERC-1155 token id.
+    /// @param id Token id
+    function getUnderlyingToken(
+        uint256 id
+    ) external view override returns (address) {
+        (uint256 pid, ) = decodeId(id);
+        return ichiFarm.lpToken(pid);
+    }
+
+    /// @notice Return pending rewards from the farming pool
+    /// @param tokenId Token Id
+    /// @param amount amount of share
+    function pendingRewards(
+        uint256 tokenId,
+        uint amount
+    )
+        public
+        view
+        override
+        returns (address[] memory tokens, uint256[] memory rewards)
+    {
+        (uint256 pid, uint256 stIchiPerShare) = decodeId(tokenId);
+        uint256 lpDecimals = IERC20MetadataUpgradeable(ichiFarm.lpToken(pid))
+            .decimals();
+        (uint256 enIchiPerShare, , ) = ichiFarm.poolInfo(pid);
+        uint256 stIchi = (stIchiPerShare * amount).divCeil(10 ** lpDecimals);
+        uint256 enIchi = (enIchiPerShare * amount) / (10 ** lpDecimals);
+        uint256 ichiRewards = enIchi > stIchi ? enIchi - stIchi : 0;
+        // Convert rewards to ICHI(v2) => ICHI v1 decimal: 9, ICHI v2 Decimal: 18
+        ichiRewards *= 1e9;
+
+        tokens = new address[](1);
+        rewards = new uint256[](1);
+        tokens[0] = address(ICHI);
+        rewards[0] = ichiRewards;
+    }
+
+    /// @notice Mint ERC1155 token for the given pool id.
+    /// @param pid Pool id
+    /// @param amount Token amount to wrap
+    /// @return The token id that got minted.
+    function mint(
+        uint256 pid,
+        uint256 amount
+    ) external nonReentrant returns (uint256) {
+        address lpToken = ichiFarm.lpToken(pid);
+        IERC20Upgradeable(lpToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            amount
+        );
+
+        _ensureApprove(lpToken, address(ichiFarm), amount);
+        ichiFarm.deposit(pid, amount, address(this));
+        (uint256 ichiPerShare, , ) = ichiFarm.poolInfo(pid);
+        uint256 id = encodeId(pid, ichiPerShare);
+        _mint(msg.sender, id, amount, "");
+        return id;
+    }
+
+    /// @notice Burn ERC1155 token to redeem LP ERC20 token back plus ICHI rewards.
+    /// @param id Token id
+    /// @param amount Token amount to burn
+    /// @return The pool id that that you will receive LP token back.
+    function burn(
+        uint256 id,
+        uint256 amount
+    ) external nonReentrant returns (uint256) {
+        if (amount == type(uint256).max) {
+            amount = balanceOf(msg.sender, id);
+        }
+        (uint256 pid, ) = decodeId(id);
+        _burn(msg.sender, id, amount);
+
+        uint256 ichiRewards = ichiFarm.pendingIchi(pid, address(this));
+        ichiFarm.harvest(pid, address(this));
+        ichiFarm.withdraw(pid, amount, address(this));
+
+        // Convert Legacy ICHI to ICHI v2
+        if (ichiRewards > 0) {
+            _ensureApprove(address(ICHIv1), address(ICHI), ichiRewards);
+            ICHI.convertToV2(ichiRewards);
+        }
+
+        // Transfer LP Tokens
+        address lpToken = ichiFarm.lpToken(pid);
+        IERC20Upgradeable(lpToken).safeTransfer(msg.sender, amount);
+
+        // Transfer Reward Tokens
+        (, uint256[] memory rewards) = pendingRewards(id, amount);
+
+        if (rewards[0] > 0) {
+            ICHI.safeTransfer(msg.sender, rewards[0]);
+        }
+        return rewards[0];
+    }
+}
+// ===== END SOURCE FILE: contracts/wrapper/WIchiFarm.sol =====

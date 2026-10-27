@@ -1,0 +1,53 @@
+{
+  "repo_id": "2023-05-ussd",
+  "ground_truth": [
+    {
+      "title": "H-9: Uniswap v3 pool token balance proportion does not necessarily correspond to the price, and it is easy to manipulate.",
+      "description": "USSDRebalancer.getSupplyProportion() uses the raw USSD/DAI token balances held by a Uniswap V3 pool to calculate the rebalance amount. In Uniswap V3, those balances need not correspond to the current pool price because they include accumulated fees and can reflect liquidity placed in different price ranges. Consequently, when USSD is below peg, USSDamount can be lower than DAIamount and the subtraction in rebalance() can revert. When USSD is above peg, an attacker can use high-range single-sided DAI liquidity to inflate DAIamount, causing rebalance() to mint and sell more USSD than required to restore the peg.",
+      "impact": "Rebalancing can malfunction when the USSD/DAI balance proportion is not as expected. An attacker can manipulate that proportion so the protocol mints and sells more USSD than required to restore the peg. If the collateral asset is also manipulated, the protocol can trade at a manipulated price, causing greater damage to the protocol.",
+      "vulnerable_code": [
+        {
+          "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "getSupplyProportion()",
+          "start_line": 83,
+          "end_line": 90
+        },
+        {
+          "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "rebalance()",
+          "start_line": 92,
+          "end_line": 107
+        }
+      ],
+      "mitigation": "Replace the pool-balance-based rebalance delta with a formula that accounts for the Uniswap V3 liquidity range when calculating the amount required to restore the peg.",
+      "finding_id": "H-9",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "H-5: Price calculation susceptible to flashloan exploits",
+      "description": "USSDRebalancer.getOwnValuation() reads sqrtPriceX96 from the Uniswap V3 DAI-USSD pool's slot0() and derives the USSD valuation from the instantaneous pool price instead of a time-weighted average price. A user can temporarily move this spot price by buying or selling assets, including with flash-loaned funds, and then call rebalance() using the manipulated valuation.",
+      "impact": "The USSD price used by rebalance() can be manipulated within a transaction, allowing an attacker to trigger rebalancing with an attacker-controlled valuation.",
+      "vulnerable_code": [
+        {
+          "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "getOwnValuation()",
+          "start_line": 71,
+          "end_line": 80
+        },
+        {
+          "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "rebalance()",
+          "start_line": 92,
+          "end_line": 107
+        }
+      ],
+      "mitigation": "Use a TWAP price instead of the instantaneous slot0 price when calculating the USSD valuation.",
+      "finding_id": "H-5",
+      "review_status": "gold_verified"
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "AMM spot-price manipulation inflates stored LP valuation weights",
+    "description": "Utils.getPoolShareWeight() values LP tokens using the current Pool.baseAmount() and LP totalSupply(). Pool.baseAmount() is directly changed by public swaps through Pool._setPoolAmounts(), and Pool.sync() can also replace the recorded reserve with the current token balance. DaoVault.increaseWeight() stores this spot-derived value in the member and vault weight mappings after Dao.deposit(), and BondVault weight updates use the same calculation. The stored weight is not automatically recomputed when the pool price later returns to normal. Dao.calcReward() and Dao.harvest() then use the persisted weight to calculate and pay reserve-funded rewards, providing a concrete path from manipulated AMM state to excess reward allocation.",
+    "impact": "An attacker can temporarily increase a pool's recorded BASE reserve, trigger a vault weight update while the manipulated state is active, and retain an overstated reward weight after reversing the price movement. This can divert reserve emissions from other participants and may also distort stored governance weight used by proposal quorum and majority checks.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "getPoolShareWeight",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "swapTo",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "sync",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DaoVault.sol",
+        "contract": "DaoVault",
+        "function": "increaseWeight",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Dao.sol",
+        "contract": "Dao",
+        "function": "calcReward",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant valuation for LP weight, such as a sufficiently long TWAP or an independent oracle with freshness, deviation, and minimum-liquidity checks. Avoid persisting a weight derived from a single spot reserve state; use delayed or epoch-based snapshots for rewards and governance. Restrict or validate sync operations so arbitrary balance changes cannot directly redefine the valuation state.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "SynthVault deposits use manipulable AMM spot prices for reward weight",
+    "description": "SynthVault._deposit() calculates a synth deposit's weight through Utils.calcSpotValueInBase(), which reads the current Pool.baseAmount() and Pool.tokenAmount() and computes amount * baseAmount / tokenAmount. These reserves are mutable through public pool swaps. The resulting value is persisted in mapMemberSynth_weight, mapMemberTotal_weight, and totalWeight. SynthVault.calcReward() later uses the persisted weight to determine the member's share of reserve incentives, and harvestSingle() grants reserve funds to the pool and mints synth rewards. No TWAP, independent oracle, freshness check, deviation bound, or deposit-time price limit protects the valuation.",
+    "impact": "An attacker can move the pool reserve ratio, deposit synths while the spot price is favorable, and retain an overstated SynthVault reward weight after restoring the pool price. The attacker can consequently receive a disproportionate share of reserve-funded synth incentives, reducing rewards available to other vault participants.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "calcSpotValueInBaseWithPool",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/SynthVault.sol",
+        "contract": "SynthVault",
+        "function": "_deposit",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/SynthVault.sol",
+        "contract": "SynthVault",
+        "function": "calcReward",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/SynthVault.sol",
+        "contract": "SynthVault",
+        "function": "harvestSingle",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Calculate synth deposit weight from a sufficiently long TWAP or independent oracle rather than instantaneous pool reserves. Add oracle freshness, maximum-deviation, and minimum-liquidity checks, and consider delaying activation of newly deposited weight until the valuation has remained within the permitted range.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-003",
+    "title": "Swap entry points lack minimum-output protection against reserve manipulation",
+    "description": "Router.swapTo(), buyTo(), and sellTo(), together with Pool.swapTo(), calculate swap output from the pool's current baseAmount and tokenAmount but accept no caller-supplied minimum output or maximum price bound. An attacker can execute a preceding swap that moves these reserves against a victim's trade. The victim's transaction then executes at the manipulated spot price and transfers the calculated output without checking whether it remains acceptable. The same issue applies to multi-hop and asymmetric swap paths that ultimately call Pool.swapTo() or Pool.swap().",
+    "impact": "Victims can receive materially less of the requested asset after an attacker-induced reserve movement. The absence of a slippage bound permits sandwich-style price manipulation to settle successfully rather than reverting when the execution price is unfavorable.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Router.sol",
+        "contract": "Router",
+        "function": "swapTo",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Router.sol",
+        "contract": "Router",
+        "function": "buyTo",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Router.sol",
+        "contract": "Router",
+        "function": "sellTo",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "swapTo",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Add a minAmountOut parameter to every swap and liquidity-related swap path, and require the final output to meet that bound. Propagate the bound through every leg of multi-hop and synth conversions, and add a deadline or equivalent freshness constraint so stale transactions cannot execute after an attacker has moved the reserves.",
+    "severity": "Medium"
+  }
+]

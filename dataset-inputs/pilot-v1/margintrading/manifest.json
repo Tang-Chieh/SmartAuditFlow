@@ -1,0 +1,292 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "margintrading",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "ec6beb584386f9d72f4a236e3df7cfae90678e41",
+  "actual_git_head": "ec6beb584386f9d72f4a236e3df7cfae90678e41",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 17,
+  "excluded_solidity_file_count": 11,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 25520,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 25520,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/interfaces/ILiquidityPool.sol",
+          "sha256": "08435660852a99ad83e3457c84e1cf77e981ba7997b1234f102c4a81d154a776",
+          "source_bytes_utf8": 6353,
+          "source_line_count": 185,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 186
+        },
+        {
+          "file": "contracts/interfaces/IMarginAccount.sol",
+          "sha256": "6c7883d35f1efe6ee98fd4bfb4931f3e414ead87c7705126817b9ef03ae9d2ed",
+          "source_bytes_utf8": 13760,
+          "source_line_count": 334,
+          "imports": [
+            "./modularSwapRouter/IModularSwapRouter.sol"
+          ],
+          "bundle_marker_line": 188,
+          "bundle_source_start_line": 189,
+          "bundle_source_end_line": 522
+        },
+        {
+          "file": "contracts/interfaces/IMarginAccountManager.sol",
+          "sha256": "156477cc0d0abc83ed4c560ec9426d5827dc3585823882cc39912d60279b7b1f",
+          "source_bytes_utf8": 1082,
+          "source_line_count": 29,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol"
+          ],
+          "bundle_marker_line": 524,
+          "bundle_source_start_line": 525,
+          "bundle_source_end_line": 553
+        },
+        {
+          "file": "contracts/interfaces/IMarginTrading.sol",
+          "sha256": "786b505abacf7b9d59359e5ae2ea478d831f68b07c2ff24313000fca694076c5",
+          "source_bytes_utf8": 9978,
+          "source_line_count": 273,
+          "imports": [
+            "./modularSwapRouter/IModularSwapRouter.sol"
+          ],
+          "bundle_marker_line": 555,
+          "bundle_source_start_line": 556,
+          "bundle_source_end_line": 828
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/hegic/IHegicStrategy.sol",
+          "sha256": "7d1b7edc7f055435955bef9f3fecf77433955a93c932b9ecdf6c7e93baee1235",
+          "source_bytes_utf8": 471,
+          "source_line_count": 18,
+          "imports": [],
+          "bundle_marker_line": 830,
+          "bundle_source_start_line": 831,
+          "bundle_source_end_line": 848
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/hegic/IOperationalTreasury.sol",
+          "sha256": "3e33da098b6dfee93296042e5057d470d8c3bbe93e95e2ed70234cb52464908e",
+          "source_bytes_utf8": 1195,
+          "source_line_count": 40,
+          "imports": [
+            "./IHegicStrategy.sol"
+          ],
+          "bundle_marker_line": 850,
+          "bundle_source_start_line": 851,
+          "bundle_source_end_line": 890
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/IModularSwapRouter.sol",
+          "sha256": "d21ed6bd2b7a9215f3342dc1bad3771235c878eaded13c456bd43012d2a3946c",
+          "source_bytes_utf8": 6468,
+          "source_line_count": 141,
+          "imports": [],
+          "bundle_marker_line": 892,
+          "bundle_source_start_line": 893,
+          "bundle_source_end_line": 1033
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/IPositionManagerERC20.sol",
+          "sha256": "6a72d85aad9bc7060ce30bf12210af725b9f27f2c0e6713d37c10138e28b66fd",
+          "source_bytes_utf8": 2231,
+          "source_line_count": 50,
+          "imports": [],
+          "bundle_marker_line": 1035,
+          "bundle_source_start_line": 1036,
+          "bundle_source_end_line": 1085
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/IPositionManagerERC721.sol",
+          "sha256": "de67926cb4abd4f8d83510362cde93a2624cd31802969922739b8e93e3567420",
+          "source_bytes_utf8": 1647,
+          "source_line_count": 47,
+          "imports": [],
+          "bundle_marker_line": 1087,
+          "bundle_source_start_line": 1088,
+          "bundle_source_end_line": 1134
+        },
+        {
+          "file": "contracts/interfaces/modularSwapRouter/uniswap/IQuoter.sol",
+          "sha256": "831234856addec431759694acf56c59e5e43b4e9b062f782eea4d9b9525b8b6a",
+          "source_bytes_utf8": 2750,
+          "source_line_count": 51,
+          "imports": [],
+          "bundle_marker_line": 1136,
+          "bundle_source_start_line": 1137,
+          "bundle_source_end_line": 1187
+        },
+        {
+          "file": "contracts/LiquidityPool.sol",
+          "sha256": "d9adbca1ce2becf328708bcfef4f7fb45e958848ab62f8227a68f67de2ffc3cf",
+          "source_bytes_utf8": 9997,
+          "source_line_count": 245,
+          "imports": [
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol",
+            "@prb/math/src/UD60x18.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol"
+          ],
+          "bundle_marker_line": 1189,
+          "bundle_source_start_line": 1190,
+          "bundle_source_end_line": 1434
+        },
+        {
+          "file": "contracts/MarginAccount.sol",
+          "sha256": "b8726785b77858be10ceefff3386c1542a3bc3c30b13bb26f5d6ebfcb6b56d82",
+          "source_bytes_utf8": 14698,
+          "source_line_count": 302,
+          "imports": [
+            "./interfaces/modularSwapRouter/IModularSwapRouter.sol",
+            "./interfaces/IMarginAccount.sol",
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "./interfaces/ILiquidityPool.sol",
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1436,
+          "bundle_source_start_line": 1437,
+          "bundle_source_end_line": 1738
+        },
+        {
+          "file": "contracts/MarginAccountManager.sol",
+          "sha256": "eca56a6d7ddab6cd406d6347f621b79cba9a1819b5be1679428cf8df7148061c",
+          "source_bytes_utf8": 951,
+          "source_line_count": 30,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/ERC721.sol",
+            "./interfaces/IMarginAccountManager.sol"
+          ],
+          "bundle_marker_line": 1740,
+          "bundle_source_start_line": 1741,
+          "bundle_source_end_line": 1770
+        },
+        {
+          "file": "contracts/MarginTrading.sol",
+          "sha256": "6ec1266e2f29e38abbdadf3e1669bd66dfec2699ae136bb9bbfbb67281ce6819",
+          "source_bytes_utf8": 9803,
+          "source_line_count": 203,
+          "imports": [
+            "./interfaces/modularSwapRouter/IModularSwapRouter.sol",
+            "./interfaces/IMarginAccountManager.sol",
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "./interfaces/IMarginAccount.sol",
+            "./interfaces/IMarginTrading.sol"
+          ],
+          "bundle_marker_line": 1772,
+          "bundle_source_start_line": 1773,
+          "bundle_source_end_line": 1975
+        },
+        {
+          "file": "contracts/modularSwapRouter/hegic/HegicModule.sol",
+          "sha256": "09abecf7ece2e10559f6d48de2c2730098ff8a9ab6d92ee1aa3564492afc91b8",
+          "source_bytes_utf8": 4832,
+          "source_line_count": 110,
+          "imports": [
+            "../../interfaces/modularSwapRouter/IPositionManagerERC721.sol",
+            "../../interfaces/modularSwapRouter/IPositionManagerERC20.sol",
+            "../../interfaces/modularSwapRouter/hegic/IHegicStrategy.sol",
+            "../../interfaces/modularSwapRouter/hegic/IOperationalTreasury.sol",
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1977,
+          "bundle_source_start_line": 1978,
+          "bundle_source_end_line": 2087
+        },
+        {
+          "file": "contracts/modularSwapRouter/ModularSwapRouter.sol",
+          "sha256": "36265b2457f30aeda87c6e41423aa6b6725c829a905a0302685b28c8c1ae3c0b",
+          "source_bytes_utf8": 7588,
+          "source_line_count": 174,
+          "imports": [
+            "../interfaces/modularSwapRouter/IPositionManagerERC721.sol",
+            "../interfaces/modularSwapRouter/IPositionManagerERC20.sol",
+            "../interfaces/modularSwapRouter/IModularSwapRouter.sol",
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "../interfaces/IMarginTrading.sol"
+          ],
+          "bundle_marker_line": 2089,
+          "bundle_source_start_line": 2090,
+          "bundle_source_end_line": 2263
+        },
+        {
+          "file": "contracts/modularSwapRouter/uniswap/UniswapModule.sol",
+          "sha256": "7fe61c85a8d2ce2e9b869ed79e5da6fcb1c8d3570d5426060bfb27c3dc4903c1",
+          "source_bytes_utf8": 5496,
+          "source_line_count": 148,
+          "imports": [
+            "../../interfaces/modularSwapRouter/IPositionManagerERC20.sol",
+            "../../interfaces/modularSwapRouter/uniswap/IQuoter.sol",
+            "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol",
+            "@openzeppelin/contracts/access/AccessControl.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 2265,
+          "bundle_source_start_line": 2266,
+          "bundle_source_end_line": 2413
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mock/BytesLib.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/LiquidotyPoolMock.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MarginTradingMock.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockERC20.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockHegicStrategy.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockOperationTreasury.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockPositionsManager.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/Path.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/QuoterMock.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/SwapRouterMock.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/USDCMock.sol",
+      "reason": "out_of_scope_directory:mock"
+    }
+  ],
+  "source_repo_dir": "MarginTrading"
+}

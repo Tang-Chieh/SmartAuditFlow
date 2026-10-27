@@ -1,0 +1,1056 @@
+{
+  "artifact_version": "0.3",
+  "judge_config": {
+    "threshold": 0.5,
+    "weight_profile": {
+      "I": 0.2,
+      "L": 0.2,
+      "M": 0.2,
+      "R": 0.4,
+      "profile_id": "end-to-end-v2"
+    }
+  },
+  "judge_metadata": {
+    "api": "responses",
+    "auth_mode": "injected",
+    "batch_size": 10,
+    "calls": [
+      {
+        "ground_truth_id": "H-03",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2021-04-marginswap",
+        "response_id": "resp_498997d9d85b4638b823a7ed6753a285",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2011,
+          "output_tokens": 714,
+          "total_tokens": 2725
+        }
+      },
+      {
+        "ground_truth_id": "H-05",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-07-spartan",
+        "response_id": "resp_95198ce2953240dcb5d76fe1df6504b9",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2300,
+          "output_tokens": 951,
+          "total_tokens": 3251
+        }
+      },
+      {
+        "ground_truth_id": "H-06",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-07-spartan",
+        "response_id": "resp_c892bd6db700425aa7b517b36320ef3d",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2295,
+          "output_tokens": 1014,
+          "total_tokens": 3309
+        }
+      },
+      {
+        "ground_truth_id": "M-14",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-07-spartan",
+        "response_id": "resp_ec8611476fb94335aad1526d7cca6fe0",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2255,
+          "output_tokens": 892,
+          "total_tokens": 3147
+        }
+      },
+      {
+        "ground_truth_id": "H-10",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-08-notional",
+        "response_id": "resp_82f1ef66c5da48baaa19743dc7ee17b6",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2772,
+          "output_tokens": 1074,
+          "total_tokens": 3846
+        }
+      },
+      {
+        "ground_truth_id": "M-07",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-08-notional",
+        "response_id": "resp_89baf2857ae54ad083947b6c5e8b80f3",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2651,
+          "output_tokens": 916,
+          "total_tokens": 3567
+        }
+      },
+      {
+        "ground_truth_id": "M-22",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-11-malt",
+        "response_id": "resp_a0e703cab41a43d98c3deefce37e2f3a",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2500,
+          "output_tokens": 895,
+          "total_tokens": 3395
+        }
+      },
+      {
+        "ground_truth_id": "M-25",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-11-malt",
+        "response_id": "resp_df26faf63b7c441c8715511901abd001",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2406,
+          "output_tokens": 1128,
+          "total_tokens": 3534
+        }
+      },
+      {
+        "ground_truth_id": "M-30",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2021-11-malt",
+        "response_id": "resp_c909c9ebdaaf4044bfb5aef2a5a11457",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2571,
+          "output_tokens": 1328,
+          "total_tokens": 3899
+        }
+      },
+      {
+        "ground_truth_id": "H-06",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002",
+          "SAF-bundle-0001-003",
+          "SAF-bundle-0001-004"
+        ],
+        "repo_id": "2021-12-vader",
+        "response_id": "resp_82a1bf96c2c9440bb66df607a940cf7d",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 3611,
+          "output_tokens": 1737,
+          "total_tokens": 5348
+        }
+      },
+      {
+        "ground_truth_id": "H-04",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002",
+          "SAF-bundle-0001-003",
+          "SAF-bundle-0001-004"
+        ],
+        "repo_id": "2021-12-vader",
+        "response_id": "resp_d40f4d9b20c146e8a332c0b4f35c1ad1",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 3470,
+          "output_tokens": 2319,
+          "total_tokens": 5789
+        }
+      },
+      {
+        "ground_truth_id": "H-07",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002",
+          "SAF-bundle-0001-003",
+          "SAF-bundle-0001-004"
+        ],
+        "repo_id": "2021-12-vader",
+        "response_id": "resp_97905188e41145db8885a0fb95eec1cc",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 3504,
+          "output_tokens": 1148,
+          "total_tokens": 4652
+        }
+      },
+      {
+        "ground_truth_id": "M-06",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002",
+          "SAF-bundle-0001-003",
+          "SAF-bundle-0001-004"
+        ],
+        "repo_id": "2021-12-vader",
+        "response_id": "resp_0a83ac006a794e09baea178e527c73ce",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 3456,
+          "output_tokens": 1542,
+          "total_tokens": 4998
+        }
+      },
+      {
+        "ground_truth_id": "H-05",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2022-01-behodler",
+        "response_id": "resp_603bd22fc07b47ee9152a892eb481424",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 1839,
+          "output_tokens": 384,
+          "total_tokens": 2223
+        }
+      },
+      {
+        "ground_truth_id": "H-07",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2022-01-behodler",
+        "response_id": "resp_1c7aac4b823b4c9092c052768d1beb3a",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 1830,
+          "output_tokens": 631,
+          "total_tokens": 2461
+        }
+      },
+      {
+        "ground_truth_id": "M-7",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2022-09-notional",
+        "response_id": "resp_c1743bca8a19400f8c6208e2b12ff93b",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2154,
+          "output_tokens": 523,
+          "total_tokens": 2677
+        }
+      },
+      {
+        "ground_truth_id": "H-4",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002",
+          "SAF-bundle-0001-003"
+        ],
+        "repo_id": "2023-04-blueberry",
+        "response_id": "resp_91caf07070f6441ca679fd4961bba411",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2631,
+          "output_tokens": 1013,
+          "total_tokens": 3644
+        }
+      },
+      {
+        "ground_truth_id": "H-9",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2023-05-ussd",
+        "response_id": "resp_7ee95fe1f97e45d9a2a25f9ee4bc09e3",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2013,
+          "output_tokens": 638,
+          "total_tokens": 2651
+        }
+      },
+      {
+        "ground_truth_id": "H-5",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2023-05-ussd",
+        "response_id": "resp_06107ecd9cee46599bd97ab256477844",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 1894,
+          "output_tokens": 335,
+          "total_tokens": 2229
+        }
+      },
+      {
+        "ground_truth_id": "M-13",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2023-06-lybra",
+        "response_id": "resp_1b3e14dac50d4b55b6b955318e743030",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2147,
+          "output_tokens": 280,
+          "total_tokens": 2427
+        }
+      },
+      {
+        "ground_truth_id": "H-3",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2023-06-real-wagmi",
+        "response_id": "resp_14c18f6dd76b4101b1cac1baacc27688",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2052,
+          "output_tokens": 300,
+          "total_tokens": 2352
+        }
+      },
+      {
+        "ground_truth_id": "M-19",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2024-03-revert-lend",
+        "response_id": "resp_46fa28fa026c4acf8cdbce7d27c64f51",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2020,
+          "output_tokens": 929,
+          "total_tokens": 2949
+        }
+      },
+      {
+        "ground_truth_id": "H-1",
+        "prediction_ids": [
+          "SAF-bundle-0001-001"
+        ],
+        "repo_id": "2024-03-woofi-swap",
+        "response_id": "resp_ca1a0f83fd1446e39b8e80f2e7e72263",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2084,
+          "output_tokens": 594,
+          "total_tokens": 2678
+        }
+      },
+      {
+        "ground_truth_id": "M-01",
+        "prediction_ids": [
+          "SAF-bundle-0001-001",
+          "SAF-bundle-0001-002"
+        ],
+        "repo_id": "2024-04-panoptic",
+        "response_id": "resp_eedf615ff27d4b6cb7d3b4505a26ecaf",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2289,
+          "output_tokens": 850,
+          "total_tokens": 3139
+        }
+      }
+    ],
+    "max_concurrency": 1,
+    "model": "openai-codex/gpt-5.6-luna",
+    "prompt_version": "benchmark-judge-v3",
+    "temperature": 0.0
+  },
+  "manifest_sha256": "d7d6571a054cd4a9b11d74c6efe44faa1d75bb68d29d0c9f6b7da949a4334d0a",
+  "repositories": [
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-03",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies the root cause: forced pricing relies on a manipulable current Uniswap-style AMM spot quote derived from live reserves, allowing flash-loan reserve distortion.\nL: Correctly localizes the vulnerable PriceAware.getCurrentPriceInPeg and getPriceFromAMM path, and also identifies relevant liquidation callers and downstream swap execution.\nI: Correctly describes manipulated prices affecting liquidation eligibility, collateral/debt valuation, liquidation accounting, and potentially causing protocol losses, consistent with the ground-truth impact on borrowing and liquidations.\nM: Correctly recommends replacing the raw spot quote with a manipulation-resistant TWAP or independent oracle and consistently using the validated price. The additional slippage protections are also relevant hardening.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        }
+      ],
+      "repo_id": "2021-04-marginswap"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-05",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies the broadly related issue of manipulating an AMM spot valuation, but describes persisted vault/reward weights rather than realise() treating manipulated LP valuation differences as a premium and burning Synth-held LP tokens.\nL: References Utils and pool reserve operations, but not Synth.realise(), calcLiquidityHoldings(), or calcActualSynthUnits(); it localizes an adjacent valuation path rather than the vulnerable path.\nI: Describes excess reward allocation and possible governance distortion, not burning Synth-held LP tokens followed by redemption for a larger share of pool assets.\nM: TWAP/oracle-based valuation is directionally capable of preventing instantaneous-price manipulation, but the proposed mitigation is framed around vault weights and does not directly cover the realise() valuation path; the snapshot and sync restrictions are also not the ground-truth fix.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 2,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        },
+        {
+          "ground_truth_id": "H-05",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Recognizes that AMM reserves can be manipulated through swaps, but identifies missing slippage bounds as the vulnerability rather than realise() using the manipulable instantaneous reserve ratio to burn LP tokens.\nL: Correctly identifies Pool swap operations as a possible manipulation mechanism, but misses Synth.realise(), calcLiquidityHoldings(), and calcActualSynthUnits(), which are the vulnerable valuation path.\nI: Describes victims receiving poor swap execution, not the attacker causing Synth-held LP tokens to be burned and redeeming personal LP tokens for value extracted from other LP holders.\nM: Minimum-output checks, deadlines, and slippage protection do not prevent the realise() LP-burn vulnerability; no mitigation is provided for manipulation-resistant LP valuation.",
+          "scores": {
+            "I": 0,
+            "L": 2,
+            "M": 0,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies the broad causal mechanism of manipulating an AMM spot valuation, persisting an inflated weight, and using it for rewards, but describes LP/DaoVault/BondVault weighting rather than SynthVault's synth-to-BASE conversion. L: Identifies an adjacent Utils spot-weight path and reward calculation, but not SynthVault._deposit() or Utils.calcSpotValueInBase()/calcSpotValueInBaseWithPool(). I: Correctly captures inflated persisted weight diverting reserve-funded rewards, with only scope/asset and vault differences; the governance-weight claim is additional and not the ground-truth impact. M: TWAP or an independent manipulation-resistant valuation, avoiding single-spot persisted weights, and delayed snapshots would prevent the ground-truth vulnerability.",
+          "scores": {
+            "I": 3,
+            "L": 2,
+            "M": 4,
+            "R": 2
+          },
+          "weighted_score": 0.65
+        },
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Describes missing slippage protection and sandwichable swaps, which is unrelated to the ground-truth stored SynthVault reward-weight manipulation. L: Localizes Router and Pool swap functions rather than SynthVault._deposit() and the Utils spot-value functions. I: Describes victims receiving unfavorable swap output, not inflated SynthVault weight and excess BASE reward allocation. M: Minimum-output bounds and deadlines address swap slippage, not the vulnerable deposit-time spot valuation and persisted reward weight.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "M-14",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies the broadly related issue of manipulating AMM spot reserves and using the manipulated value, but describes LP-weight valuation rather than the ground-truth reserve-dependent BASE allocation in DAO.bond(). L: Names Utils and DAO-related functions, but not calcSwapValueInBase/calcSwapValueInBaseWithPool or the DAO.bond() path; the localized functions concern a different valuation flow. I: Describes excess reward/governance weight allocation, not theft of BondVault's BASE incentive through manipulated bonding. M: TWAP/oracle-based valuation is directionally relevant, but the proposed changes are scoped to LP weights and do not specifically ensure the bond BASE incentive is checked before commitment.",
+          "scores": {
+            "I": 1,
+            "L": 1,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        },
+        {
+          "ground_truth_id": "M-14",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Recognizes that current pool reserves can be manipulated, but identifies missing swap slippage protection rather than the vulnerable calculation of bond allocation from manipulated reserves. L: Points to Router and Pool swap functions, which may be used to manipulate reserves, but omits DAO.bond() and the Utils calcSwapValueInBase functions that contain the ground-truth vulnerable path. I: Describes sandwich victims receiving poor swap execution, not an attacker causing DAO bonding to commit BASE at a manipulated rate and recovering a disproportionate share. M: Minimum-output parameters and deadlines protect swap users but do not prevent manipulation of the reserve-dependent bond incentive calculation or validate it against a TWAP.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 0,
+            "R": 1
+          },
+          "weighted_score": 0.15000000000000002
+        }
+      ],
+      "repo_id": "2021-07-spartan"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-10",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies manipulable current market reserves and fCash pricing, but describes an unbounded nToken redemption path rather than the ground-truth flaw in risk-adjusted liquidity-token collateral valuation and the asymmetric fCash haircut. L: Localizes Market.removeLiquidity/calculateTrade and redemption callers, but misses AssetHandler.getLiquidityTokenValue, getHaircutCashClaims, and _calcToken. I: Describes unfavorable or favorable redemption execution and value transfer, not temporary reduction of a direct LP's collateral value and liquidation eligibility; at most this is a generic loss-of-value consequence. M: Minimum redemption output and redemption price checks do not fix collateral valuation; no effective TWAP-based liquidity-token collateral valuation is proposed.",
+          "scores": {
+            "I": 1,
+            "L": 1,
+            "M": 0,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-10",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Correctly identifies that getLiquidityTokenValue derives value from manipulable current reserve ratios while the fCash component uses a lagged oracle, but omits the material asymmetric haircut mechanism and instead frames it as mint overvaluation. L: Correctly names AssetHandler.getLiquidityTokenValue and the valuation path, though it omits the more specific getHaircutCashClaims and _calcToken operations. I: Claims excess nToken minting and dilution rather than the ground-truth collateral reduction causing an otherwise adequately collateralized account to become liquidatable; this is not the same exploit outcome. M: Using a manipulation-resistant TWAP or independent reference for liquidity-token valuation, with deviation checks, would prevent the ground-truth reserve-manipulation vulnerability.",
+          "scores": {
+            "I": 0,
+            "L": 3,
+            "M": 4,
+            "R": 2
+          },
+          "weighted_score": 0.55
+        },
+        {
+          "ground_truth_id": "M-07",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies a related market-manipulation issue involving AMM state and mentions `lastImpliedRate`, but the causal flaw is not the lagged rate-oracle update causing fCash valuation to reduce collateral value. L: Correctly references `Market.calculateTrade`, which is part of the ground-truth code, but localizes the issue to nToken redemption and omits `_updateRateOracle` and the liquidation valuation path. I: Describes unfavorable or favorable redemption execution, not making a near-threshold account appear undercollateralized and forcing liquidation. M: Slippage limits and execution-price checks may protect redemption, but do not fix the lagged oracle-window vulnerability in fCash valuation; the oracle reference suggestion is only weakly related.",
+          "scores": {
+            "I": 0,
+            "L": 2,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        },
+        {
+          "ground_truth_id": "M-07",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Identifies a related transient market-state manipulation issue, but attributes it to spot liquidity-token valuation during nToken minting rather than the lagged `lastImpliedRate` oracle used in fCash valuation. L: References broad market valuation, minting, and ERC1155 callback paths, but not the ground-truth `Market.calculateTrade` and `_updateRateOracle` path. I: Claims excess nToken issuance and dilution, not forced liquidation of an account near the collateralization threshold. M: A longer or manipulation-resistant TWAP and deviation checks are directionally relevant to reducing short-lived manipulation, but the proposed checks target spot reserve valuation and do not specifically correct the lagged rate-oracle window used for liquidation eligibility.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 2,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        }
+      ],
+      "repo_id": "2021-08-notional"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "M-22",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies manipulation of live Uniswap reserves/spot pricing as the causal flaw, but applies it to stabilization sizing rather than the ground-truth early-exit settlement path. L: Mentions UniswapHandler and AMM operations, but does not identify maltMarketPrice(), _calculateMaltRequiredForExit(), or exitEarly(); the listed stabilization functions are a different code path. I: Correctly describes attacker-controlled AMM manipulation causing protocol value transfer and incorrect calculations, but omits the specific early-exit payout and minted-Malt extraction consequence. M: TWAP/oracle pricing and execution bounds are directionally effective, but the proposed controls are scoped to stabilization and do not explicitly fix the escape-hatch price dependency.",
+          "scores": {
+            "I": 2,
+            "L": 1,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.45
+        },
+        {
+          "ground_truth_id": "M-22",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Correctly identifies that maltMarketPrice() derives price from manipulable current Uniswap reserves and that this price controls early-exit settlement. L: Correctly localizes maltMarketPrice(), _calculateMaltRequiredForExit(), exitEarly(), and the related sale path; earlyExitReturn() is also a relevant dependent view. I: Correctly describes reserve manipulation causing incorrect early-exit payouts and minted Malt, enabling excessive collateral extraction, with the same zero-slippage-bound context. M: Replacing the spot price with a validated TWAP or independent oracle, with freshness/deviation checks and bounded execution, directly prevents the ground-truth vulnerability.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "M-25",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies that live Uniswap reserves, rather than a manipulation-resistant price, determine stabilization trade sizing after the moving-average decision. L: Correctly localizes _calculateTradeSize and the related stabilization/distribution and swap paths. I: Correctly describes flash-loan reserve manipulation causing excessive minting/selling, distorted stabilization, and protocol value loss, including incorrectly sized auctions. M: TWAP/oracle pricing, deviation checks, trade caps, and bounded swap outputs would prevent the ground-truth reserve-manipulation vulnerability.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "M-25",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Identifies the broadly related issue of manipulable AMM spot pricing, but attributes it to the escape-hatch valuation path rather than the stabilization trade-size calculation that causes the ground-truth finding. L: Names relevant UniswapHandler and sellMalt operations, but misses the vulnerable _calculateTradeSize path and focuses on unrelated AuctionEscapeHatch functions. I: Describes a plausible financial consequence from AMM manipulation, such as excessive collateral payout, but not the ground-truth consequence of draining reward tokens through excessive stabilization minting and selling. M: TWAP/oracle pricing is directionally applicable, but the proposed mitigation is scoped to early-exit valuation and does not explicitly repair stabilization trade-size calculation; it is therefore incomplete for the ground-truth path.",
+          "scores": {
+            "I": 2,
+            "L": 2,
+            "M": 2,
+            "R": 1
+          },
+          "weighted_score": 0.4
+        },
+        {
+          "ground_truth_id": "M-30",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies attacker manipulation of AMM spot reserves/prices as the central issue, but misses the ground-truth mechanism of recording those spot values into MaltDataLab moving averages. L: Names adjacent AMM, stabilization, and auction paths, but not MaltDataLab.trackMaltPrice(), trackPoolReserves(), trackPool(), or MovingAverage.update(); this is relevant adjacent localization rather than the actual vulnerable path. I: Correctly describes manipulated stabilization sizing, auction amounts, collateral use, value extraction, and protocol instability, which overlaps the ground-truth consequences. M: TWAP/oracle pricing, deviation checks, and slippage limits are directionally appropriate, but the proposal does not replace the spot-derived samples in MaltDataLab and therefore does not fully remove the ground-truth flaw across its affected consumers.",
+          "scores": {
+            "I": 3,
+            "L": 2,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.55
+        },
+        {
+          "ground_truth_id": "M-30",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Correctly recognizes manipulable AMM spot pricing as the security mechanism, but attributes it to direct escape-hatch valuation rather than the ground-truth spot observations being written into moving averages. L: Identifies AuctionEscapeHatch and UniswapHandler price/sell functions, which are adjacent consumers of manipulated economic data, but omits the actual MaltDataLab tracking functions and MovingAverage.update(). I: Correctly identifies incorrect auction/exit valuation, excessive collateral payout, distorted participation accounting, and potential value extraction, materially matching the ground-truth auction and valuation impact. M: A validated TWAP or independent oracle with deviation and slippage checks would address spot manipulation in the described exit path, but it does not itself fix MaltDataLab's recording of attacker-controlled spot observations across the protocol.",
+          "scores": {
+            "I": 3,
+            "L": 2,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.55
+        }
+      ],
+      "repo_id": "2021-11-malt"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies the broad category of manipulating AMM reserves, but describes synth pricing rather than the impermanent-loss calculation and reserve reimbursement flaw. L: References VaderPoolV2 and VaderRouterV2, but only mintSynth, burnSynth, and swap; it misses the burn/removeLiquidity/calculateLoss path. I: Describes distorted synth issuance/redemption and pool depletion, not artificially inflated IL compensation or reserve extraction. M: TWAP/oracle hardening is directionally related, but the proposed changes are scoped to synth pricing and do not fix IL reimbursement.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Mentions reserve manipulation and slippage, but identifies a liquidity-minting dilution issue rather than manipulable redemption values being fed into calculateLoss. L: Uses related pool/router contracts and _mint/mint functions, but misses _burn, VaderPoolV2.burn, VaderMath.calculateLoss, and removeLiquidity. I: Describes depositors receiving fewer LP units, not LPs obtaining excessive VADER reimbursement from the reserve. M: Minimum-output and oracle controls are relevant hardening concepts, but the proposed mitigation is directed at liquidity deposits and does not address the ground-truth reimbursement calculation.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-003",
+          "rationale": "R: Correctly identifies that redemption amounts derived from manipulable current reserves/balances are passed to calculateLoss, enabling inflated coveredLoss. L: Correctly localizes BasePoolV2._burn, VaderPoolV2.burn, VaderMath-related loss flow, and router/reserve reimbursement; the additional legacy-path references do not detract. I: Correctly describes reserve-funded VADER reimbursement being overstated through temporary AMM manipulation and potentially extracting reserve assets. M: TWAP/independent-oracle valuation, freshness/deviation controls, caps, and delayed validated observations effectively prevent the ground-truth flaw.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "H-06",
+          "prediction_id": "SAF-bundle-0001-004",
+          "rationale": "R: Identifies a related price-manipulation/oracle-validation category, but the claimed root cause is attacker-influenced LBT weights and stale observations, not current pool reserves being used by calculateLoss during LP redemption. L: Locates LiquidityBasedTWAP and downstream price consumers rather than BasePoolV2._burn, VaderPoolV2.burn, VaderMath.calculateLoss, and VaderRouterV2.removeLiquidity. I: It does identify possible distorted reserve-funded IL reimbursement, but attributes it to a different attacker capability and pricing path, so only the general consequence matches. M: TWAP/oracle freshness and deviation controls are directionally relevant, but as proposed for LBT they do not directly correct the redemption-time IL calculation.",
+          "scores": {
+            "I": 2,
+            "L": 1,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.30000000000000004
+        },
+        {
+          "ground_truth_id": "H-04",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Claims manipulable AMM spot pricing in VaderPoolV2, not the skipped-pair liquidity-weight corruption in LiquidityBasedTWAP.syncVaderPrice().\nL: Localizes mintSynth, burnSynth, and swap, none of which is the vulnerable syncVaderPrice() path.\nI: Describes reserve-ratio manipulation of synth issuance/redemption, not incomplete TWAP weights, zero aggregate/division failure, or blocked dependent queries.\nM: Oracle/TWAP substitution and reserve checks address a separate spot-price issue and do not fix the corrupted liquidity-weight aggregation.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "H-04",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Claims liquidity-deposit slippage from reserve manipulation, unrelated to the TWAP skipped-pair weight-reset flaw.\nL: Only identifies liquidity minting and router/pool functions; it does not identify LiquidityBasedTWAP.syncVaderPrice().\nI: Describes reduced LP units for depositors rather than biased or reverting VADER price queries and blocked USDV/reimbursement operations.\nM: Minimum LP and deposit-ratio protections do not address TWAP liquidity-weight preservation or aggregate corruption.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "H-04",
+          "prediction_id": "SAF-bundle-0001-003",
+          "rationale": "R: Identifies the broadly related category of manipulating values used for impermanent-loss reimbursement, but not the actual skipped-pair weight/zero-total mechanism in LiquidityBasedTWAP.\nL: Correctly identifies downstream burn and VaderReserve.reimburseImpermanentLoss paths, but misses the vulnerable LiquidityBasedTWAP.syncVaderPrice() function.\nI: Correctly describes a ground-truth consequence: distorted or overstated reserve-funded impermanent-loss reimbursement. It omits the zero-aggregate revert and broader dependent-query blocking.\nM: Using an independent oracle or validated valuation could protect reimbursement consumers, but the proposed changes do not repair the corrupted TWAP weights and are incomplete for the underlying flaw.",
+          "scores": {
+            "I": 3,
+            "L": 2,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.4
+        },
+        {
+          "ground_truth_id": "H-04",
+          "prediction_id": "SAF-bundle-0001-004",
+          "rationale": "R: Recognizes incomplete/partially updated liquidity observations and attacker-influenced weights, but does not identify the specific skipped-pair behavior where prior weight is neither preserved nor included, allowing the aggregate to become zero.\nL: Includes the correct LiquidityBasedTWAP.syncVaderPrice() path and adjacent update functions, though it does not localize the exact skipped-pair weight-copy and aggregate-update operation.\nI: Correctly describes biased aggregate VADER/USDV prices and downstream issuance, redemption, and reimbursement effects. It does not explicitly mention forced reverts or blocked operations.\nM: Coherent complete updates, bounded/fresh observations, and time-weighted liquidity observations are directionally sound and a complete-update requirement could prevent the skipped-pair corruption, although explicit preservation of prior weights is omitted.",
+          "scores": {
+            "I": 3,
+            "L": 3,
+            "M": 3,
+            "R": 1
+          },
+          "weighted_score": 0.55
+        },
+        {
+          "ground_truth_id": "H-07",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies that minting and burning use manipulable current pool reserves via VaderMath.calculateSwap. L: Correctly localizes VaderPoolV2.mintSynth and burnSynth, with the relevant reserve-based pricing path. I: Correctly describes reserve-price manipulation leading to over-issuance, over-redemption, and native-reserve depletion. M: Oracle/TWAP pricing, validation bounds, and redemption limits directly address the vulnerability; the extra balance check is also sound.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "H-07",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Identifies a broadly related AMM reserve-manipulation/slippage category, but the claimed flaw concerns LP minting rather than synth minting and burning. L: Points to related pool/router contracts but not the vulnerable VaderPoolV2.mintSynth or burnSynth functions. I: Describes reduced LP issuance to depositors, not extraction of native assets through synth redemption. M: Minimum-LP and liquidity-deposit controls do not fix synth pricing; the oracle suggestion is only broadly related and is not applied to the affected synth paths.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-07",
+          "prediction_id": "SAF-bundle-0001-003",
+          "rationale": "R: Recognizes manipulable AMM state and reserve-funded loss, but describes impermanent-loss reimbursement rather than reserve-based synth mint/burn pricing. L: Uses adjacent VaderPoolV2/BasePool redemption code, but identifies burn and reimbursement paths instead of VaderPoolV2.mintSynth and burnSynth. I: Claims distorted VADER reimbursement, not attacker extraction of native assets via synth minting and redemption. M: Oracle-based IL valuation does not correct the synth mint/burn pricing path, although it is directionally related to manipulation resistance.",
+          "scores": {
+            "I": 0,
+            "L": 2,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        },
+        {
+          "ground_truth_id": "H-07",
+          "prediction_id": "SAF-bundle-0001-004",
+          "rationale": "R: Mentions attacker-influenced AMM data and oracle/TWAP weaknesses, but the root cause is a separate LiquidityBasedTWAP weighting and freshness issue. L: Localizes LiquidityBasedTWAP, USDV, and Chainlink functions, none of which are the vulnerable VaderPoolV2.mintSynth or burnSynth paths. I: Describes biased USDV/VADER pricing and reimbursement, not native-reserve extraction through synth operations. M: Improving LBT observations would not fix synth functions that directly use current pool reserves; the proposed oracle hardening is only generally related.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.15000000000000002
+        },
+        {
+          "ground_truth_id": "M-06",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Describes manipulable AMM spot pricing for synth issuance/redemption, not liquidity-weight manipulation in LiquidityBasedTWAP. L: Localizes VaderPoolV2, BasePoolV2, and router functions rather than LiquidityBasedTWAP._updateUSDVPrice. I: Claims synth over-issuance, over-redemption, and pool depletion, which is not the ground-truth oracle consequence. M: TWAP/oracle protections for synth operations do not address the USDV pair liquidity-weight calculation.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "M-06",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Identifies reserve manipulation affecting LP minting, not reserve-derived oracle weighting. L: Localizes liquidity-minting functions instead of LiquidityBasedTWAP._updateUSDVPrice. I: Describes reduced LP units for depositors, unrelated to reliance on a faulty or deprecated feed. M: LP slippage and minimum-mint protections do not fix manipulated oracle liquidity weights.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "M-06",
+          "prediction_id": "SAF-bundle-0001-003",
+          "rationale": "R: Concerns manipulation of impermanent-loss reimbursement during LP redemption, not the causal USDV oracle weighting flaw. L: Identifies pool burn and reserve reimbursement paths, not the vulnerable LiquidityBasedTWAP update path. I: Claims reserve-funded reimbursement extraction, whereas the ground truth concerns an oracle relying on one pair and potentially a faulty external feed. M: TWAP valuation for impermanent-loss reimbursement does not directly correct the USDV liquidity-weight computation.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        },
+        {
+          "ground_truth_id": "M-06",
+          "prediction_id": "SAF-bundle-0001-004",
+          "rationale": "R: Correctly identifies that a single synchronization-time reserve snapshot determines pair liquidity weights, allowing manipulated reserves to dominate the aggregate oracle. L: Explicitly identifies LiquidityBasedTWAP._updateUSDVPrice and syncUSDVPrice, the ground-truth path; the additional VADER paths are not harmful. I: Correctly describes biased aggregate prices and notes the missing Chainlink freshness checks, but broadens the outcome to excess issuance/redemption and reimbursement without clearly stating the ground-truth condition that the dominated pair's faulty/deprecated feed must be relied upon; direct loss is not established. M: Time-weighted reserve-value observations, freshness/deviation checks, minimum-liquidity thresholds, and bounded/coherent updates are directionally effective against the snapshot-weight attack, though the proposal omits the specific invariant-and-fair-asset-price reserve calculation and is therefore not fully complete.",
+          "scores": {
+            "I": 3,
+            "L": 4,
+            "M": 3,
+            "R": 4
+          },
+          "weighted_score": 0.9000000000000001
+        }
+      ],
+      "repo_id": "2021-12-vader"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-05",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies attacker manipulation of instantaneous FLAN/stablecoin AMM balances, the resulting manipulation of priceBefore and tiltedPrice, and the insufficiency of the per-call acceptableHighestPrice cap. L: Correctly localizes the issue to FlanBackstop.purchasePyroFlan and its price-derived minting path. I: Correctly describes excess PyroFlan issuance, dilution, and potential attacker value extraction; the stated downstream extraction paths are consistent with the ground-truth consequence. M: Correctly proposes a TWAP or independent oracle and appropriately retains the price ceiling only as a secondary control.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "H-07",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: The prediction identifies a broadly related issue—same-transaction manipulation of AMM-derived pricing—but it does not identify the ground-truth flaw in LimboDAO's calculation of EYE-based LP value from underlying EYE balance divided by total supply.\nL: It localizes the issue to FlanBackstop.purchasePyroFlan, whereas the vulnerable paths are LimboDAO.setEYEBasedAssetStake() and LimboDAO.burnAsset().\nI: It describes excess PyroFlan issuance and dilution, not the ground-truth consequence of receiving excess fate for an LP asset, with disproportionate voting power and possible conversion to Flan.\nM: TWAPs, independent oracles, and deviation checks are directionally relevant to preventing spot-price manipulation, but the proposed mitigation is scoped to the unrelated PyroFlan purchase path and does not specifically fix LimboDAO's LP valuation formula.",
+          "scores": {
+            "I": 1,
+            "L": 0,
+            "M": 2,
+            "R": 1
+          },
+          "weighted_score": 0.25
+        }
+      ],
+      "repo_id": "2022-01-behodler"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2022-01-sandclock"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2022-08-sentiment"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "M-7",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: The prediction describes oracle/manipulated-pool-state risk during deposits, not the ground-truth flaw where newly minted strategy tokens immediately participate in rewards from reinvestReward due to non-snapshot accounting. L: It mentions the relevant strategy-token conversion function, but primarily localizes the issue to deposit and Balancer join paths and omits the vulnerable reward-reinvestment path and BPT redemption conversion. I: It claims generic dilution and potentially favorable share issuance, but does not identify the actual capability to front-run reinvestReward and immediately steal a disproportionate share of newly reinvested BPT rewards. M: Oracle validation and conservative minBPT checks do not fix the missing deposit-duration snapshots or same-block entry/exit vulnerability.",
+          "scores": {
+            "I": 1,
+            "L": 2,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.15000000000000002
+        }
+      ],
+      "repo_id": "2022-09-notional"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2022-11-paraspace"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2022-11-telcoin"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2023-03-olympus"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-4",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies Curve-state manipulation and LP-related pricing risk, but the root cause is missing output protection during redemption rather than manipulation of underlying-token prices used by CurveOracle.getPrice(). L: Localizes CurveSpell/ConvexSpell/AuraSpell close paths, not CurveOracle.getPrice(). I: Describes user value loss and reduced proceeds, but not the ground-truth consequence of corrupting LP valuation and profiting through that valuation. M: Minimum-output controls address redemption slippage, not the oracle's manipulated underlying-token price input; the optional TWAP/oracle check is not applied to CurveOracle.getPrice().",
+          "scores": {
+            "I": 1,
+            "L": 0,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        },
+        {
+          "ground_truth_id": "H-4",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Concerns manipulated reward-token swaps and zero AMM slippage limits, which is unrelated to the ground-truth minimum underlying-token price calculation in CurveOracle. L: Identifies closePositionFarm functions rather than CurveOracle.getPrice(). I: States generic financial loss and poor execution, but not incorrect Curve LP valuation or profit from exploiting that valuation. M: amountOutMin, deadlines, and swap-route controls do not fix the vulnerable oracle pricing mechanism; TWAP validation is mentioned only for swap execution.",
+          "scores": {
+            "I": 1,
+            "L": 0,
+            "M": 1,
+            "R": 0
+          },
+          "weighted_score": 0.1
+        },
+        {
+          "ground_truth_id": "H-4",
+          "prediction_id": "SAF-bundle-0001-003",
+          "rationale": "R: Recognizes that Curve pool state can be manipulated to affect LP-related pricing, but identifies manipulated LP minting rather than CurveOracle's minimum underlying-token price multiplied by virtual price. L: Localizes CurveSpell.openPositionFarm and ConvexSpell.openPositionFarm, not CurveOracle.getPrice. I: Describes receiving less collateral and a weaker position, not the incorrect LP USD valuation and attacker profit at other users' expense. M: Minimum LP output and oracle/TWAP checks on deposits do not directly correct CurveOracle's underlying price inputs; the proposed controls would not by themselves fix the reported vulnerability.",
+          "scores": {
+            "I": 1,
+            "L": 0,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.2
+        }
+      ],
+      "repo_id": "2023-04-blueberry"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-9",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: The prediction correctly identifies that getSupplyProportion() uses manipulable live Uniswap V3 pool data for rebalance sizing. However, it primarily attributes the flaw to slot0 spot-price valuation and omits the ground-truth mechanism that raw token balances diverge from price because of fees and liquidity ranges, including the resulting subtraction revert and over-minting condition.\nL: It identifies the correct USSDRebalancer functions, including getSupplyProportion() and rebalance(), which are the vulnerable path. The additional getOwnValuation() and swap-function references are adjacent or secondary rather than harmful to localization.\nI: It correctly describes attacker-influenced rebalancing that can mint and sell excess USSD, manipulate collateral movements, and cause adverse asset exchange. It does not clearly state the specific balance-proportion failure modes, but the primary security consequence is substantially covered.\nM: TWAP/oracle validation and slippage protections address the separately described spot-price and execution-price concerns, but do not by themselves replace the raw pool-balance-based rebalance delta or account for Uniswap V3 liquidity ranges. The mitigation is therefore only partially effective for the ground-truth vulnerability.",
+          "scores": {
+            "I": 3,
+            "L": 4,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.65
+        },
+        {
+          "ground_truth_id": "H-5",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies reliance on Uniswap V3 slot0().sqrtPriceX96 as a manipulable spot price without TWAP protection, including flash-loan/temporary pool-price manipulation. L: Correctly localizes the primary vulnerable path to USSDRebalancer.getOwnValuation() and rebalance(); the additional swap-related locations are relevant to the described propagation. I: Correctly states that an attacker can manipulate the valuation and induce attacker-influenced minting, burning, collateral sales, and swaps, matching the ground-truth consequence. M: Recommends replacing the spot price with a TWAP or independent oracle and adds sound validation and slippage protections; the proposed mitigation prevents the ground-truth vulnerability.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        }
+      ],
+      "repo_id": "2023-05-ussd"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "M-13",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: The prediction concerns Curve spot-price manipulation in reward conversion, not manipulation of live WETH/LBR balances during a flash swap. L: It localizes Configurator.distributeRewards and related reward functions, whereas the vulnerable path is EUSDMiningIncentives.stakedLBRLpValue(), isOtherEarningsClaimable(), and purchaseOtherEarnings(). I: It describes distorted reward conversion and skipped distributions, not redirecting a victim's protected accumulated mining reward to an attacker through manipulated LP-value eligibility. M: Oracle/TWAP and swap-execution mitigations do not address the use of live pair balances for LP valuation; the relevant fix is using recorded pair reserves via getReserves().",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 0,
+            "R": 0
+          },
+          "weighted_score": 0.0
+        }
+      ],
+      "repo_id": "2023-06-lybra"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-3",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Correctly identifies the root cause: attacker-manipulable Uniswap V3 spot `slot0` data is used to value positions, optimize deposits, and calculate LP issuance. L: Correctly localizes the path through `deposit()`, `getSlots()`, `_getReserves()`, and `LiquidityAmounts.getAmountsForLiquidity()`, including the relevant LP minting calculation. I: Correctly describes distorted reserve/share calculations, incorrect LP issuance, and dilution or value transfer affecting existing liquidity providers. M: Correctly recommends manipulation-resistant TWAP/oracle pricing, deviation and freshness checks, and consistent use of the protected reference across valuation, optimization, and minting.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        }
+      ],
+      "repo_id": "2023-06-real-wagmi"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2023-06-tokemak"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2023-08-dopex"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2024-03-abracadabra-money"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "M-19",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies a related spot-price manipulation mechanism and correctly notes that permissive price verification can allow valuation distortion. However, it centers on the conditional zero-duration TWAP configuration and jointly manipulable reference pool, whereas the ground truth's core flaw is that position amounts are calculated from the current position-pool slot0 price despite oracle-derived valuation, especially harming tight-range positions.\nL: Correctly references V3Oracle valuation, _checkPoolPrice(), and the vault health-check path, but does not localize the principal vulnerable operations in getPositionBreakdown(), _initializeState(), and _getAmounts(), where current slot0 pricing is used to calculate the position amounts.\nI: Correctly describes inflated collateral valuation enabling excess borrowing and potentially leaving the vault undercollateralized after price recovery. The claim is conditionally framed and includes additional liquidation effects, but the primary borrowing impact is materially consistent with the ground truth.\nM: The proposed minimum TWAP duration, independent oracle, and anti-self-reference controls are directionally useful, but they do not directly require amount0 and amount1 to be calculated from the oracle-derived price. Thus, the current-spot amount-calculation flaw could remain even with a nonzero TWAP.",
+          "scores": {
+            "I": 3,
+            "L": 2,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.55
+        }
+      ],
+      "repo_id": "2024-03-revert-lend"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-1",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: The prediction identifies a broadly related oracle-feasibility issue, but the ground truth is the independent per-swap limit enforcement and reuse of the already-manipulated Wooracle price across swaps, especially when no Chainlink reference exists. It does not identify that causal mechanism. L: It names the relevant WooPPV2 _sellQuote path and an oracle price function, but localizes the issue to WooracleV2/Chainlink fallback handling rather than WooracleV2_2 and the cross-swap state update/calculation path; it also omits _sellBase and the calculation functions. I: It correctly describes that manipulated pricing can cause excess pool assets to be transferred, but does not identify the ground-truth flash-loan split attack, reserve-draining outcome, or compounding price manipulation. M: Chainlink round and staleness validation does not prevent the ground-truth attack, which specifically applies to tokens lacking a Chainlink reference and exploits per-swap state updates; therefore the proposed mitigation is ineffective for this finding.",
+          "scores": {
+            "I": 2,
+            "L": 2,
+            "M": 0,
+            "R": 1
+          },
+          "weighted_score": 0.30000000000000004
+        }
+      ],
+      "repo_id": "2024-03-woofi-swap"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "M-01",
+          "prediction_id": "SAF-bundle-0001-001",
+          "rationale": "R: Identifies the broadly related issue of using an attacker-manipulable spot price instead of a TWAP, but not the factory's full-range liquidity-mint calculation during pool deployment. L: Localizes the issue to PanopticPool liquidation, SFPM swaps, and PanopticMath rather than PanopticFactory._mintFullRange. I: Describes liquidation compensation and solvency consequences, not inaccurate per-token liquidity minting and an unbalanced newly deployed pool. M: TWAP/oracle validation is directionally relevant, but the proposed mitigation is scoped to liquidation and does not fix the factory mint path.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.15000000000000002
+        },
+        {
+          "ground_truth_id": "M-01",
+          "prediction_id": "SAF-bundle-0001-002",
+          "rationale": "R: Identifies the broadly related spot-price manipulation versus TWAP problem, but not its occurrence in PanopticFactory._mintFullRange. L: Localizes the issue to forceExercise and CollateralTracker.exerciseCost instead of the factory's deploy-time liquidity calculation. I: Describes underpayment of forced-exercise compensation, not inaccurate liquidity amounts or an unbalanced newly deployed pool. M: Replacing spot with TWAP is directionally relevant, but the mitigation is stated only for forced-exercise calculations and does not address the vulnerable factory code.",
+          "scores": {
+            "I": 0,
+            "L": 0,
+            "M": 1,
+            "R": 1
+          },
+          "weighted_score": 0.15000000000000002
+        }
+      ],
+      "repo_id": "2024-04-panoptic"
+    },
+    {
+      "pairs": [],
+      "repo_id": "2025-12-panoptic"
+    }
+  ]
+}

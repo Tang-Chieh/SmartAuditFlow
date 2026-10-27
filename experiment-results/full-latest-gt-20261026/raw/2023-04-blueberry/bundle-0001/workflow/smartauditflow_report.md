@@ -1,0 +1,88 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Zero minimum output permits manipulated LP redemptions during close",
+    "description": "The Curve and Convex close flows redeem LP collateral into the position's debt token using the current Curve pool state while passing a hard-coded minimum output of zero. In `CurveSpell.closePositionFarm` and `ConvexSpell.closePositionFarm`, the position collateral is taken and burned, then `ICurvePool.remove_liquidity_one_coin(amountPosRemove, tokenIndex, 0)` determines the debt-token proceeds from attacker-influenceable pool balances. Neither path uses `ClosePosParam.sellSlippage`, a TWAP, an independent oracle quote, or another execution-price bound. An attacker can temporarily skew the Curve pool before the close transaction, causing the same LP amount to produce fewer debt tokens. If the reduced proceeds still cover the caller-specified repayment, the close succeeds and only the reduced remainder is refunded; if the close leaves a solvent remaining position, the later LTV checks do not detect the unfavorable execution. Aura's Balancer close path has the same missing-output-bound issue because `minAmountsOut` is initialized to zero for every token in `exitPool`.",
+    "impact": "A position owner can lose value when LP collateral is redeemed under manipulated Curve or Balancer state. Reduced proceeds can result in less debt repayment and a smaller refund, or can cause full-close transactions to fail when proceeds no longer cover the requested repayment.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/spell/CurveSpell.sol",
+        "contract": "CurveSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/spell/ConvexSpell.sol",
+        "contract": "ConvexSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/spell/AuraSpell.sol",
+        "contract": "AuraSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Require a caller-authorized minimum debt-token output for Curve redemptions and minimum amounts for Balancer exits, and pass those values to `remove_liquidity_one_coin` and `exitPool`. Enforce a realistic deadline and, where protocol protection is required, validate the minimum against an independent oracle or TWAP with a bounded deviation and liquidity check. Keep the post-close solvency checks as secondary controls rather than relying on them for execution-price protection.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "Reward-token swaps accept arbitrarily poor AMM execution",
+    "description": "The Curve, Convex, and Aura close flows convert harvested rewards into the debt token through a caller-supplied Uniswap-V2-compatible router and path using `swapExactTokensForTokens(rewards, 0, ..., address(this), type(uint256).max)`. The zero `amountOutMin` and unbounded deadline provide no protection against temporary reserve manipulation or sandwiching. The resulting debt-token balance is subsequently used by `_doRepay`, and any remainder is refunded through `_doRefund`. An attacker can trade against the relevant reward/debt pool before the close transaction, causing fewer debt tokens to be received for the same reward amount. If the result remains sufficient for the requested repayment, the transaction succeeds with a reduced refund or repayment; if not, a full-close transaction can revert.",
+    "impact": "The position owner may receive materially less value from reward liquidation, retain more debt after a partial close, or be unable to complete a close that requires full repayment. The missing output bound allows attacker-influenced AMM execution to directly affect repayment and refund amounts.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/spell/CurveSpell.sol",
+        "contract": "CurveSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/spell/ConvexSpell.sol",
+        "contract": "ConvexSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/spell/AuraSpell.sol",
+        "contract": "AuraSpell",
+        "function": "closePositionFarm",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Require a nonzero, user-authorized `amountOutMin` for every reward swap and use a realistic deadline. Derive or validate the minimum using an independent oracle or TWAP and bounded slippage/deviation controls, and measure the actual debt-token balance increase before repayment. Restrict routers and paths to approved routes where appropriate.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-003",
+    "title": "Caller-controlled zero LP-mint minimum permits manipulated leveraged deposits",
+    "description": "`CurveSpell.openPositionFarm` and `ConvexSpell.openPositionFarm` pass the caller-provided `minLPMint` directly to Curve `add_liquidity` without requiring a meaningful minimum or validating it against an independent quote. A caller can submit zero, while an attacker can temporarily manipulate the Curve pool's state before execution so the borrowed assets mint fewer LP tokens than expected. The reduced LP balance is then wrapped and deposited into `BlueBerryBank` as collateral while the borrowed amount remains unchanged. `_validateMaxLTV` checks the resulting collateral and debt values, but does not compare the LP amount received with an expected amount, so a transaction can succeed whenever the reduced collateral remains above the configured threshold.",
+    "impact": "The user can receive materially less LP collateral for the same borrowed assets, losing value and creating a position with a smaller collateral buffer than intended. The protocol may accept a position closer to liquidation than the user expected, provided the post-operation LTV checks still pass.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/spell/CurveSpell.sol",
+        "contract": "CurveSpell",
+        "function": "openPositionFarm",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/spell/ConvexSpell.sol",
+        "contract": "ConvexSpell",
+        "function": "openPositionFarm",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Reject zero `minLPMint` values and require a caller-signed minimum LP output derived from the intended deposit amounts and a bounded slippage tolerance. Where protocol-level protection is required, validate the expected LP output against a manipulation-resistant oracle or TWAP and enforce liquidity/deviation limits before accepting the resulting LP tokens as collateral.",
+    "severity": "Medium"
+  }
+]

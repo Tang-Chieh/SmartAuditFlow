@@ -1,0 +1,289 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2022-01-sandclock",
+  "working_directory": "sandclock",
+  "source_root_relative_to_repo": "sandclock",
+  "expected_resolved_commit": "a90ad3824955327597be00bb0bd183a9c228a4fb",
+  "actual_git_head": "a90ad3824955327597be00bb0bd183a9c228a4fb",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 18,
+  "excluded_solidity_file_count": 7,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 14507,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 14507,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/integrations/IIntegration.sol",
+          "sha256": "dbb634ead7335ab220914125512772ffd000bc19da17062b2d85280f60a06266",
+          "source_bytes_utf8": 1163,
+          "source_line_count": 36,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 37
+        },
+        {
+          "file": "contracts/lib/ERC165Query.sol",
+          "sha256": "a3fa71a4b7df5811ca42a7957e3bf63a94ed8cca2c00296cc911e60252f37837",
+          "source_bytes_utf8": 1715,
+          "source_line_count": 56,
+          "imports": [],
+          "bundle_marker_line": 39,
+          "bundle_source_start_line": 40,
+          "bundle_source_end_line": 95
+        },
+        {
+          "file": "contracts/lib/PercentMath.sol",
+          "sha256": "4ee8e1e1168aed966f6fc8e3484e896aa7785e7fdd6df4cb4cea1ea5b6f62ffa",
+          "source_bytes_utf8": 2123,
+          "source_line_count": 63,
+          "imports": [],
+          "bundle_marker_line": 97,
+          "bundle_source_start_line": 98,
+          "bundle_source_end_line": 160
+        },
+        {
+          "file": "contracts/SandclockFactory.sol",
+          "sha256": "7ee129b54415405c4dffd35eaa46ee84288fd891799fa7ee81141cbe89f8a08f",
+          "source_bytes_utf8": 1214,
+          "source_line_count": 59,
+          "imports": [
+            "@openzeppelin/contracts/utils/Context.sol",
+            "@rari-capital/solmate/src/auth/Trust.sol"
+          ],
+          "bundle_marker_line": 162,
+          "bundle_source_start_line": 163,
+          "bundle_source_end_line": 221
+        },
+        {
+          "file": "contracts/strategy/anchor/IConversionPool.sol",
+          "sha256": "a17f7c6bb4e3d8100d91c9e13df208dc534783a8ec9d575a96479c3d805167c9",
+          "source_bytes_utf8": 237,
+          "source_line_count": 8,
+          "imports": [],
+          "bundle_marker_line": 223,
+          "bundle_source_start_line": 224,
+          "bundle_source_end_line": 231
+        },
+        {
+          "file": "contracts/strategy/anchor/IEthAnchorRouter.sol",
+          "sha256": "a5b730bde0b9d39851c68f5bc403885f3055ccf79a82126fe7cab38b297caf19",
+          "source_bytes_utf8": 375,
+          "source_line_count": 12,
+          "imports": [],
+          "bundle_marker_line": 233,
+          "bundle_source_start_line": 234,
+          "bundle_source_end_line": 245
+        },
+        {
+          "file": "contracts/strategy/anchor/IExchangeRateFeeder.sol",
+          "sha256": "12de5d9d2831933cfa02a4cde963ce6f2581aa8f14c39a6421191c30d9eeabe5",
+          "source_bytes_utf8": 216,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 247,
+          "bundle_source_start_line": 248,
+          "bundle_source_end_line": 256
+        },
+        {
+          "file": "contracts/strategy/BaseStrategy.sol",
+          "sha256": "a786f4b1234064fc9828756db70b71ecab13ab7396b9d191af3dfa1e0c7867ed",
+          "source_bytes_utf8": 10253,
+          "source_line_count": 303,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@rari-capital/solmate/src/auth/Trust.sol",
+            "../lib/PercentMath.sol",
+            "../vault/IVault.sol",
+            "./IStrategy.sol",
+            "./anchor/IEthAnchorRouter.sol",
+            "./anchor/IExchangeRateFeeder.sol"
+          ],
+          "bundle_marker_line": 258,
+          "bundle_source_start_line": 259,
+          "bundle_source_end_line": 561
+        },
+        {
+          "file": "contracts/strategy/curve/ICurve.sol",
+          "sha256": "ade4cc42e87a0cc21fc4ff96623b321d0216eddafd60f042c79b3f6b9f62b4b5",
+          "source_bytes_utf8": 360,
+          "source_line_count": 17,
+          "imports": [],
+          "bundle_marker_line": 563,
+          "bundle_source_start_line": 564,
+          "bundle_source_end_line": 580
+        },
+        {
+          "file": "contracts/strategy/IStrategy.sol",
+          "sha256": "3156c43532a808a0c7c8f9b4369baa14cddeedc8368d7917608623ce1742bff2",
+          "source_bytes_utf8": 2008,
+          "source_line_count": 66,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 582,
+          "bundle_source_start_line": 583,
+          "bundle_source_end_line": 648
+        },
+        {
+          "file": "contracts/strategy/NonUSTStrategy.sol",
+          "sha256": "6f006ad060a5bf976d989ed5afe48d947f6d1d25df524656bee258075e1a5dc9",
+          "source_bytes_utf8": 4257,
+          "source_line_count": 137,
+          "imports": [
+            "./curve/ICurve.sol",
+            "./BaseStrategy.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 650,
+          "bundle_source_start_line": 651,
+          "bundle_source_end_line": 787
+        },
+        {
+          "file": "contracts/strategy/USTStrategy.sol",
+          "sha256": "dd6f53b92f5023876a0241ac83addd8ec8fdfd05f9393b420cc65470777e4d0d",
+          "source_bytes_utf8": 986,
+          "source_line_count": 37,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./BaseStrategy.sol"
+          ],
+          "bundle_marker_line": 789,
+          "bundle_source_start_line": 790,
+          "bundle_source_end_line": 826
+        },
+        {
+          "file": "contracts/Vault.sol",
+          "sha256": "d7d5c699c65d1c6c0a39a0824c4cb57238d3a1154a8d86f66036046986dceeee",
+          "source_bytes_utf8": 19635,
+          "source_line_count": 652,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/Context.sol",
+            "@openzeppelin/contracts/utils/Counters.sol",
+            "@openzeppelin/contracts/utils/Address.sol",
+            "@openzeppelin/contracts/utils/introspection/ERC165.sol",
+            "@rari-capital/solmate/src/auth/Trust.sol",
+            "./vault/IVault.sol",
+            "./vault/IVaultSponsoring.sol",
+            "./lib/PercentMath.sol",
+            "./vault/Depositors.sol",
+            "./vault/Claimers.sol",
+            "./integrations/IIntegration.sol",
+            "./strategy/IStrategy.sol",
+            "./lib/ERC165Query.sol",
+            "hardhat/console.sol"
+          ],
+          "bundle_marker_line": 828,
+          "bundle_source_start_line": 829,
+          "bundle_source_end_line": 1480
+        },
+        {
+          "file": "contracts/vault/Claimers.sol",
+          "sha256": "0e4d21a876848dafbe025a5f1e3432f48e620c158e2e7b0c09286f4771f5c6bb",
+          "source_bytes_utf8": 3353,
+          "source_line_count": 122,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/ERC721.sol",
+            "@openzeppelin/contracts/utils/Counters.sol",
+            "hardhat/console.sol",
+            "./IClaimers.sol"
+          ],
+          "bundle_marker_line": 1482,
+          "bundle_source_start_line": 1483,
+          "bundle_source_end_line": 1604
+        },
+        {
+          "file": "contracts/vault/Depositors.sol",
+          "sha256": "9533cfbd5ac39c5fd296a8057ebd40dae1ef49f99018c266fe1604266547533d",
+          "source_bytes_utf8": 1708,
+          "source_line_count": 68,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/ERC721.sol",
+            "@openzeppelin/contracts/utils/Counters.sol",
+            "hardhat/console.sol"
+          ],
+          "bundle_marker_line": 1606,
+          "bundle_source_start_line": 1607,
+          "bundle_source_end_line": 1674
+        },
+        {
+          "file": "contracts/vault/IClaimers.sol",
+          "sha256": "c62324221e2abfedb5c7760f0051339512e5b19d8d76bc34411941754c27c5c1",
+          "source_bytes_utf8": 343,
+          "source_line_count": 17,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol"
+          ],
+          "bundle_marker_line": 1676,
+          "bundle_source_start_line": 1677,
+          "bundle_source_end_line": 1693
+        },
+        {
+          "file": "contracts/vault/IVault.sol",
+          "sha256": "f9dcb03e4903ab013a4cf3ceab06b7ac087ceb018e3f64d4daf0f8a1bb6e8b9c",
+          "source_bytes_utf8": 3662,
+          "source_line_count": 144,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1695,
+          "bundle_source_start_line": 1696,
+          "bundle_source_end_line": 1839
+        },
+        {
+          "file": "contracts/vault/IVaultSponsoring.sol",
+          "sha256": "836913e9ea0350f1f0bb42e91b499faa2e4a4e6d1620caa947ab99a5dba12471",
+          "source_bytes_utf8": 1979,
+          "source_line_count": 56,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1841,
+          "bundle_source_start_line": 1842,
+          "bundle_source_end_line": 1897
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mock/MockCurvePool.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockERC20.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockEthAnchorRouter.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockExchangeRateFeeder.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockStrategy.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/mock/MockVault.sol",
+      "reason": "out_of_scope_directory:mock"
+    },
+    {
+      "file": "contracts/test/TestERC20.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ],
+  "source_repo_dir": "2022-01-sandclock"
+}

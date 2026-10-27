@@ -1,0 +1,50 @@
+{
+  "repo_id": "2024-03-woofi-swap",
+  "ground_truth": [
+    {
+      "title": "H-1: Pool can be drained",
+      "description": "WooPPV2 enforces maxNotionalSwap and maxGamma independently for each swap, then writes the swap's newPrice back to WooracleV2_2. A later swap in the same transaction reads that already-moved price as its starting state. Consequently, an attacker can split a flash-loaned WOO sale into multiple individually permitted swaps, compound the WOO price downward, and then sell a small amount of quote token at the manipulated price to receive more WOO than was borrowed. For a token without a configured Chainlink reference, WooracleV2_2 treats the nonzero internal price as in-bound, so the feasibility check does not provide an independent anchor.",
+      "impact": "An attacker can extract the pool's base-token reserves and repay the flash loan from the proceeds, retaining the excess tokens as profit.",
+      "vulnerable_code": [
+        {
+          "file": "WooPoolV2/contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_sellBase(address,uint256,uint256,address,address)",
+          "start_line": 420,
+          "end_line": 465
+        },
+        {
+          "file": "WooPoolV2/contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_sellQuote(address,uint256,uint256,address,address)",
+          "start_line": 467,
+          "end_line": 511
+        },
+        {
+          "file": "WooPoolV2/contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_calcQuoteAmountSellBase(address,uint256,IWooracleV2.State)",
+          "start_line": 591,
+          "end_line": 619
+        },
+        {
+          "file": "WooPoolV2/contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_calcBaseAmountSellQuote(address,uint256,IWooracleV2.State)",
+          "start_line": 621,
+          "end_line": 648
+        },
+        {
+          "file": "WooPoolV2/contracts/wooracle/WooracleV2_2.sol",
+          "contract": "WooracleV2_2",
+          "function": "price(address)",
+          "start_line": 243,
+          "end_line": 260
+        }
+      ],
+      "mitigation": "Explicitly declare that tokens without a Chainlink price feed are not supported.",
+      "finding_id": "H-1",
+      "review_status": "gold_verified"
+    }
+  ]
+}

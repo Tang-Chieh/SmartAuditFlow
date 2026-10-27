@@ -1,0 +1,583 @@
+{
+  "status": "completed",
+  "model": "openai-codex/gpt-5.6-luna",
+  "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+  "ground_truth_source": "fffuuuming/prototype@SCAR, fetched 2026-10-22; branch was 7 commits ahead of 8a3132c7ed3f94acddb718d951dfe2d2ceab5986. Updated-file blob SHAs are recorded in run_status.json.",
+  "ground_truth_updated_file_blob_shas": {
+    "2021-07-spartan.json": "43fcf092217508b7d7f4b600539dc8188be5469d",
+    "2022-01-sandclock.json": "8c097b69ef805c2501fd8c65b23c5db4bba0dd44",
+    "2022-11-paraspace.json": "92b08d3d7e40ba6eb3f8d82047231c53e807221c",
+    "2025-12-panoptic.json": "7c80f9ec30959201c06a10ddb4b2a7e5e3f6ebb9"
+  },
+  "ground_truth_count": 23,
+  "excluded_repositories": [
+    "margintrading"
+  ],
+  "max_tasks_per_bundle": 12,
+  "single_bundle_estimated_token_limit": 240000,
+  "token_estimator_note": "dataset manifest uses ceil(chars/4), not the model tokenizer",
+  "repos": {
+    "2021-04-marginswap": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2021-07-spartan": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 1
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 2,
+      "output_warning_count": 1,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": [
+        {
+          "bundle_id": "bundle-0001",
+          "warning": "finding[2] has an invalid vulnerable_code location"
+        }
+      ]
+    },
+    "2021-08-notional": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 2,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2021-11-malt": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 2,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2021-12-vader": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 4,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 4,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-01-behodler": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-01-sandclock": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-08-sentiment": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-09-notional": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-11-paraspace": {
+      "status": "completed",
+      "input_mode": "50k-estimated-token-bundles",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0002": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0003": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0004": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0005": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0006": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0007": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0008": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0009": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0010": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0011": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0012": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 12,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2022-11-telcoin": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-03-olympus": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-04-blueberry": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 3,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 3,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-05-ussd": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-06-lybra": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-06-real-wagmi": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2023-08-dopex": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2024-03-abracadabra-money": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2024-03-revert-lend": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "exact_duplicate_predictions_removed": 0,
+      "output_warnings": []
+    },
+    "2024-03-woofi-swap": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "workflow_nodes": [
+            "initial-analysis",
+            "audit-plan",
+            "parameter-extractor",
+            "iteration",
+            "format-converter"
+          ],
+          "model_id": "openai-codex/gpt-5.6-luna",
+          "finding_count": 1,
+          "output_warning_count": 0,
+          "output_warnings": []
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 1,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "rerun_session_ids": [
+        "4f222748-0869-4783-9981-384a41cb01e2"
+      ]
+    },
+    "2024-04-panoptic": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "workflow_nodes": [
+            "initial-analysis",
+            "audit-plan",
+            "parameter-extractor",
+            "iteration",
+            "format-converter"
+          ],
+          "model_id": "openai-codex/gpt-5.6-luna",
+          "finding_count": 2,
+          "output_warning_count": 0,
+          "output_warnings": []
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "rerun_session_ids": [
+        "84ae1114-afb6-48e6-a003-3fd375c3557e"
+      ]
+    },
+    "2023-06-tokemak": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "workflow_nodes": [
+            "initial-analysis",
+            "audit-plan",
+            "parameter-extractor",
+            "iteration",
+            "format-converter"
+          ],
+          "model_id": "openai-codex/gpt-5.6-luna",
+          "finding_count": 0,
+          "output_warning_count": 0,
+          "output_warnings": []
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "rerun_session_ids": [
+        "9856fb8a-afcc-4d47-961c-c87eba791e40"
+      ]
+    },
+    "2025-12-panoptic": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "workflow_nodes": [
+            "initial-analysis",
+            "audit-plan",
+            "parameter-extractor",
+            "iteration",
+            "format-converter"
+          ],
+          "model_id": "openai-codex/gpt-5.6-luna",
+          "finding_count": 0,
+          "output_warning_count": 0,
+          "output_warnings": []
+        }
+      },
+      "bundle_count": 1,
+      "prediction_count": 0,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "rerun_session_ids": [
+        "59d8bd09-14a3-4e81-9d4c-c1a7b15b154e"
+      ]
+    }
+  }
+}

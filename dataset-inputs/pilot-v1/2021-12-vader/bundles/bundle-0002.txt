@@ -1,0 +1,3426 @@
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/chainlink/IAggregatorV3.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity ^0.8.0;
+
+interface IAggregatorV3 {
+    function decimals() external view returns (uint8);
+
+    function description() external view returns (string memory);
+
+    function version() external view returns (uint256);
+
+    // getRoundData and latestRoundData should both raise "No data present"
+    // if they do not have data to report, instead of returning unset values
+    // which could be misinterpreted as actual reported values.
+    function getRoundData(uint80 _roundId)
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+
+    function latestRoundData()
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/chainlink/IAggregatorV3.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Callee.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity >=0.5.0;
+
+interface IUniswapV2Callee {
+    function uniswapV2Call(
+        address sender,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Callee.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2ERC20.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity =0.8.9;
+
+interface IUniswapV2ERC20 {
+    event Approval(
+        address indexed owner,
+        address indexed spender,
+        uint256 value
+    );
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    function name() external pure returns (string memory);
+
+    function symbol() external pure returns (string memory);
+
+    function decimals() external pure returns (uint8);
+
+    function totalSupply() external view returns (uint256);
+
+    function balanceOf(address owner) external view returns (uint256);
+
+    function allowance(address owner, address spender)
+        external
+        view
+        returns (uint256);
+
+    function approve(address spender, uint256 value) external returns (bool);
+
+    function transfer(address to, uint256 value) external returns (bool);
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 value
+    ) external returns (bool);
+
+    function DOMAIN_SEPARATOR() external view returns (bytes32);
+
+    function PERMIT_TYPEHASH() external pure returns (bytes32);
+
+    function nonces(address owner) external view returns (uint256);
+
+    function permit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2ERC20.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Factory.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity >=0.5.0;
+
+interface IUniswapV2Factory {
+    event PairCreated(
+        address indexed token0,
+        address indexed token1,
+        address pair,
+        uint256
+    );
+
+    function feeTo() external view returns (address);
+
+    function feeToSetter() external view returns (address);
+
+    function getPair(address tokenA, address tokenB)
+        external
+        view
+        returns (address pair);
+
+    function allPairs(uint256) external view returns (address pair);
+
+    function allPairsLength() external view returns (uint256);
+
+    function createPair(address tokenA, address tokenB)
+        external
+        returns (address pair);
+
+    function setFeeTo(address) external;
+
+    function setFeeToSetter(address) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Factory.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Pair.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity =0.8.9;
+
+import "./IUniswapV2ERC20.sol";
+
+interface IUniswapV2Pair is IUniswapV2ERC20 {
+    event Mint(address indexed sender, uint256 amount0, uint256 amount1);
+    event Burn(
+        address indexed sender,
+        uint256 amount0,
+        uint256 amount1,
+        address indexed to
+    );
+    event Swap(
+        address indexed sender,
+        uint256 amount0In,
+        uint256 amount1In,
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address indexed to
+    );
+    event Sync(uint112 reserve0, uint112 reserve1);
+
+    function MINIMUM_LIQUIDITY() external pure returns (uint256);
+
+    function factory() external view returns (address);
+
+    function token0() external view returns (address);
+
+    function token1() external view returns (address);
+
+    function getReserves()
+        external
+        view
+        returns (
+            uint112 reserve0,
+            uint112 reserve1,
+            uint32 blockTimestampLast
+        );
+
+    function price0CumulativeLast() external view returns (uint256);
+
+    function price1CumulativeLast() external view returns (uint256);
+
+    function kLast() external view returns (uint256);
+
+    function mint(address to) external returns (uint256 liquidity);
+
+    function burn(address to)
+        external
+        returns (uint256 amount0, uint256 amount1);
+
+    function swap(
+        uint256 amount0Out,
+        uint256 amount1Out,
+        address to,
+        bytes calldata data
+    ) external;
+
+    function skim(address to) external;
+
+    function sync() external;
+
+    function initialize(address, address) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Pair.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Router01.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity >=0.6.2;
+
+interface IUniswapV2Router01 {
+    function factory() external view returns (address);
+
+    function WETH() external view returns (address);
+
+    function addLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 amountADesired,
+        uint256 amountBDesired,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline
+    )
+        external
+        returns (
+            uint256 amountA,
+            uint256 amountB,
+            uint256 liquidity
+        );
+
+    function addLiquidityETH(
+        address token,
+        uint256 amountTokenDesired,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
+        address to,
+        uint256 deadline
+    )
+        external
+        payable
+        returns (
+            uint256 amountToken,
+            uint256 amountETH,
+            uint256 liquidity
+        );
+
+    function removeLiquidity(
+        address tokenA,
+        address tokenB,
+        uint256 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline
+    ) external returns (uint256 amountA, uint256 amountB);
+
+    function removeLiquidityETH(
+        address token,
+        uint256 liquidity,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
+        address to,
+        uint256 deadline
+    ) external returns (uint256 amountToken, uint256 amountETH);
+
+    function removeLiquidityWithPermit(
+        address tokenA,
+        address tokenB,
+        uint256 liquidity,
+        uint256 amountAMin,
+        uint256 amountBMin,
+        address to,
+        uint256 deadline,
+        bool approveMax,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (uint256 amountA, uint256 amountB);
+
+    function removeLiquidityETHWithPermit(
+        address token,
+        uint256 liquidity,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
+        address to,
+        uint256 deadline,
+        bool approveMax,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (uint256 amountToken, uint256 amountETH);
+
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapTokensForExactTokens(
+        uint256 amountOut,
+        uint256 amountInMax,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapExactETHForTokens(
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable returns (uint256[] memory amounts);
+
+    function swapTokensForExactETH(
+        uint256 amountOut,
+        uint256 amountInMax,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapETHForExactTokens(
+        uint256 amountOut,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable returns (uint256[] memory amounts);
+
+    function quote(
+        uint256 amountA,
+        uint256 reserveA,
+        uint256 reserveB
+    ) external pure returns (uint256 amountB);
+
+    function getAmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) external pure returns (uint256 amountOut);
+
+    function getAmountIn(
+        uint256 amountOut,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) external pure returns (uint256 amountIn);
+
+    function getAmountsOut(uint256 amountIn, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory amounts);
+
+    function getAmountsIn(uint256 amountOut, address[] calldata path)
+        external
+        view
+        returns (uint256[] memory amounts);
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Router01.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Router02.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity >=0.6.2;
+
+import "./IUniswapV2Router01.sol";
+
+interface IUniswapV2Router02 is IUniswapV2Router01 {
+    function removeLiquidityETHSupportingFeeOnTransferTokens(
+        address token,
+        uint256 liquidity,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
+        address to,
+        uint256 deadline
+    ) external returns (uint256 amountETH);
+
+    function removeLiquidityETHWithPermitSupportingFeeOnTransferTokens(
+        address token,
+        uint256 liquidity,
+        uint256 amountTokenMin,
+        uint256 amountETHMin,
+        address to,
+        uint256 deadline,
+        bool approveMax,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external returns (uint256 amountETH);
+
+    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external;
+
+    function swapExactETHForTokensSupportingFeeOnTransferTokens(
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable;
+
+    function swapExactTokensForETHSupportingFeeOnTransferTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/uniswap/IUniswapV2Router02.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/external/weth/IWETH.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.5.0;
+
+interface IWETH {
+    function deposit() external payable;
+
+    function transfer(address to, uint256 value) external returns (bool);
+
+    function withdraw(uint256) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/external/weth/IWETH.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/governance/ITimelock.sol =====
+// SPDX-License-Identifier: UNLICENSED
+
+pragma solidity =0.8.9;
+
+interface ITimelock {
+    function delay() external view returns (uint256);
+
+    function GRACE_PERIOD() external pure returns (uint256);
+
+    function acceptAdmin() external;
+
+    function queuedTransactions(bytes32 hash) external view returns (bool);
+
+    function queueTransaction(
+        address target,
+        uint256 value,
+        string calldata signature,
+        bytes calldata data,
+        uint256 eta
+    ) external returns (bytes32);
+
+    function cancelTransaction(
+        address target,
+        uint256 value,
+        string calldata signature,
+        bytes calldata data,
+        uint256 eta
+    ) external;
+
+    function executeTransaction(
+        address target,
+        uint256 value,
+        string calldata signature,
+        bytes calldata data,
+        uint256 eta
+    ) external payable returns (bytes memory);
+}
+// ===== END SOURCE FILE: contracts/interfaces/governance/ITimelock.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/lbt/ILiquidityBasedTWAP.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "../../external/libraries/FixedPoint.sol";
+
+interface ILiquidityBasedTWAP {
+    /* ========== STRUCTS ========== */
+
+    struct ExchangePair {
+        uint256 nativeTokenPriceCumulative;
+        FixedPoint.uq112x112 nativeTokenPriceAverage;
+        uint256 lastMeasurement;
+        uint256 updatePeriod;
+        uint256 pastLiquidityEvaluation;
+        address foreignAsset;
+        uint96 foreignUnit;
+    }
+
+    enum Paths {
+        VADER,
+        USDV
+    }
+
+    /* ========== FUNCTIONS ========== */
+
+    function previousPrices(uint256 i) external returns (uint256);
+
+    function maxUpdateWindow() external returns (uint256);
+
+    function getVaderPrice() external returns (uint256);
+
+    function syncVaderPrice()
+        external
+        returns (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        );
+
+    function getUSDVPrice() external returns (uint256);
+
+    function syncUSDVPrice()
+        external
+        returns (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        );
+
+    /* ========== EVENTS ========== */
+}
+// ===== END SOURCE FILE: contracts/interfaces/lbt/ILiquidityBasedTWAP.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/reserve/IVaderReserve.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+interface IVaderReserve {
+    /* ========== STRUCTS ========== */
+    /* ========== FUNCTIONS ========== */
+
+    function reimburseImpermanentLoss(address recipient, uint256 amount)
+        external;
+
+    function grant(address recipient, uint256 amount) external;
+
+    function reserve() external view returns (uint256);
+
+    /* ========== EVENTS ========== */
+
+    event GrantDistributed(address recipient, uint256 amount);
+    event LossCovered(address recipient, uint256 amount, uint256 actualAmount);
+}
+// ===== END SOURCE FILE: contracts/interfaces/reserve/IVaderReserve.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/shared/IERC20Extended.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IERC20Extended is IERC20 {
+    function name() external view returns (string memory);
+
+    function symbol() external view returns (string memory);
+
+    function mint(address to, uint256 amount) external;
+
+    function burn(uint256 amount) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/shared/IERC20Extended.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/tokens/converter/IConverter.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+interface IConverter {
+    /* ========== FUNCTIONS ========== */
+
+    function convert(bytes32[] calldata proof, uint256 amount, uint256 minVader)
+        external
+        returns (uint256 vaderReceived);
+
+    /* ========== EVENTS ========== */
+
+    event Conversion(
+        address indexed user,
+        uint256 vetherAmount,
+        uint256 vaderAmount
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/tokens/converter/IConverter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/tokens/IUSDV.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+interface IUSDV {
+    /* ========== ENUMS ========== */
+
+    enum LockTypes {
+        USDV,
+        VADER
+    }
+
+    /* ========== STRUCTS ========== */
+
+    struct Lock {
+        LockTypes token;
+        uint256 amount;
+        uint256 release;
+    }
+
+    /* ========== FUNCTIONS ========== */
+    /* ========== EVENTS ========== */
+
+    event ExchangeFeeChanged(uint256 previousExchangeFee, uint256 exchangeFee);
+    event DailyLimitChanged(uint256 previousDailyLimit, uint256 dailyLimit);
+    event LockClaimed(
+        address user,
+        LockTypes lockType,
+        uint256 lockAmount,
+        uint256 lockRelease
+    );
+    event LockCreated(
+        address user,
+        LockTypes lockType,
+        uint256 lockAmount,
+        uint256 lockRelease
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/tokens/IUSDV.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/tokens/IVader.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+interface IVader {
+    /* ========== FUNCTIONS ========== */
+
+    function createEmission(address user, uint256 amount) external;
+
+    /* ========== EVENTS ========== */
+
+    event Emission(address to, uint256 amount);
+
+    event EmissionChanged(uint256 previous, uint256 next);
+
+    event MaxSupplyChanged(uint256 previous, uint256 next);
+
+    event GrantClaimed(address indexed beneficiary, uint256 amount);
+
+    event ProtocolInitialized(address converter, address vest);
+
+    event USDVSet(address usdv);
+
+    /* ========== DEPRECATED ========== */
+
+    // function getCurrentEraEmission() external view returns (uint256);
+
+    // function getEraEmission(uint256 currentSupply)
+    //     external
+    //     view
+    //     returns (uint256);
+
+    // function calculateFee() external view returns (uint256 basisPoints);
+}
+// ===== END SOURCE FILE: contracts/interfaces/tokens/IVader.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/tokens/vesting/ILinearVesting.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+interface ILinearVesting {
+    /* ========== STRUCTS ========== */
+
+    // Struct of a vesting member, tight-packed to 256-bits
+    struct Vester {
+        uint192 amount;
+        uint64 lastClaim;
+        uint128 start;
+        uint128 end;
+    }
+
+    /* ========== FUNCTIONS ========== */
+
+    function getClaim(address _vester)
+        external
+        view
+        returns (uint256 vestedAmount);
+
+    function claim() external returns (uint256 vestedAmount);
+
+    //    function claimConverted() external returns (uint256 vestedAmount);
+
+    function begin(address[] calldata vesters, uint192[] calldata amounts)
+        external;
+
+    function vestFor(address user, uint256 amount) external;
+
+    /* ========== EVENTS ========== */
+
+    event VestingInitialized(uint256 duration);
+
+    event VestingCreated(address user, uint256 amount);
+
+    event Vested(address indexed from, uint256 amount);
+}
+// ===== END SOURCE FILE: contracts/interfaces/tokens/vesting/ILinearVesting.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/x-vader/IXVader.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity 0.8.9;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IXVader is IERC20 {
+    function getPastVotes(address account, uint256 blockNumber)
+        external
+        view
+        returns (uint256);
+
+    function getPastTotalSupply(uint256 blockNumber)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/x-vader/IXVader.sol =====
+// ===== BEGIN SOURCE FILE: contracts/lbt/LiquidityBasedTWAP.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+import "../external/libraries/UniswapV2OracleLibrary.sol";
+
+import "../interfaces/external/chainlink/IAggregatorV3.sol";
+import "../interfaces/external/uniswap/IUniswapV2Pair.sol";
+
+import "../interfaces/lbt/ILiquidityBasedTWAP.sol";
+import "../interfaces/dex-v2/pool/IVaderPoolV2.sol";
+
+contract LiquidityBasedTWAP is ILiquidityBasedTWAP, Ownable {
+    /* ========== LIBRARIES ========== */
+
+    using FixedPoint for FixedPoint.uq112x112;
+    using FixedPoint for FixedPoint.uq144x112;
+
+    /* ========== STATE VARIABLES ========== */
+
+    address public immutable vader;
+    IVaderPoolV2 public immutable vaderPool;
+
+    IUniswapV2Pair[] public vaderPairs;
+    IERC20[] public usdvPairs;
+
+    uint256 public override maxUpdateWindow;
+    uint256[2] public totalLiquidityWeight;
+    uint256[2] public override previousPrices;
+    mapping(address => ExchangePair) public twapData;
+    mapping(address => IAggregatorV3) public oracles;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(address _vader, IVaderPoolV2 _vaderPool) {
+        require(
+            _vader != address(0) && _vaderPool != IVaderPoolV2(address(0)),
+            "LBTWAP::construction: Zero Address"
+        );
+        vader = _vader;
+        vaderPool = _vaderPool;
+    }
+
+    /* ========== VIEWS ========== */
+
+    function getStaleVaderPrice() external view returns (uint256) {
+        uint256 totalPairs = vaderPairs.length;
+        uint256[] memory pastLiquidityWeights = new uint256[](totalPairs);
+        uint256 pastTotalLiquidityWeight = totalLiquidityWeight[
+            uint256(Paths.VADER)
+        ];
+
+        for (uint256 i; i < totalPairs; ++i)
+            pastLiquidityWeights[i] = twapData[address(vaderPairs[i])]
+                .pastLiquidityEvaluation;
+
+        return
+            _calculateVaderPrice(
+                pastLiquidityWeights,
+                pastTotalLiquidityWeight
+            );
+    }
+
+    function getStaleUSDVPrice() external view returns (uint256) {
+        uint256 totalPairs = usdvPairs.length;
+        uint256[] memory pastLiquidityWeights = new uint256[](totalPairs);
+        uint256 pastTotalLiquidityWeight = totalLiquidityWeight[
+            uint256(Paths.USDV)
+        ];
+
+        for (uint256 i; i < totalPairs; ++i)
+            pastLiquidityWeights[i] = twapData[address(usdvPairs[i])]
+                .pastLiquidityEvaluation;
+
+        return
+            _calculateUSDVPrice(pastLiquidityWeights, pastTotalLiquidityWeight);
+    }
+
+    function getChainlinkPrice(address asset) public view returns (uint256) {
+        IAggregatorV3 oracle = oracles[asset];
+
+        (uint80 roundID, int256 price, , , uint80 answeredInRound) = oracle
+            .latestRoundData();
+
+        require(
+            answeredInRound >= roundID,
+            "LBTWAP::getChainlinkPrice: Stale Chainlink Price"
+        );
+
+        require(price > 0, "LBTWAP::getChainlinkPrice: Chainlink Malfunction");
+
+        return uint256(price);
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    function getVaderPrice() external returns (uint256) {
+        (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        ) = syncVaderPrice();
+
+        return
+            _calculateVaderPrice(
+                pastLiquidityWeights,
+                pastTotalLiquidityWeight
+            );
+    }
+
+    function syncVaderPrice()
+        public
+        override
+        returns (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        )
+    {
+        uint256 _totalLiquidityWeight;
+        uint256 totalPairs = vaderPairs.length;
+        pastLiquidityWeights = new uint256[](totalPairs);
+        pastTotalLiquidityWeight = totalLiquidityWeight[uint256(Paths.VADER)];
+
+        for (uint256 i; i < totalPairs; ++i) {
+            IUniswapV2Pair pair = vaderPairs[i];
+            ExchangePair storage pairData = twapData[address(pair)];
+            uint256 timeElapsed = block.timestamp - pairData.lastMeasurement;
+
+            if (timeElapsed < pairData.updatePeriod) continue;
+
+            uint256 pastLiquidityEvaluation = pairData.pastLiquidityEvaluation;
+            uint256 currentLiquidityEvaluation = _updateVaderPrice(
+                pair,
+                pairData,
+                timeElapsed
+            );
+
+            pastLiquidityWeights[i] = pastLiquidityEvaluation;
+
+            pairData.pastLiquidityEvaluation = currentLiquidityEvaluation;
+
+            _totalLiquidityWeight += currentLiquidityEvaluation;
+        }
+
+        totalLiquidityWeight[uint256(Paths.VADER)] = _totalLiquidityWeight;
+    }
+
+    function _updateVaderPrice(
+        IUniswapV2Pair pair,
+        ExchangePair storage pairData,
+        uint256 timeElapsed
+    ) internal returns (uint256 currentLiquidityEvaluation) {
+        bool isFirst = pair.token0() == vader;
+
+        (uint256 reserve0, uint256 reserve1, ) = pair.getReserves();
+
+        (uint256 reserveNative, uint256 reserveForeign) = isFirst
+            ? (reserve0, reserve1)
+            : (reserve1, reserve0);
+
+        (
+            uint256 price0Cumulative,
+            uint256 price1Cumulative,
+            uint256 currentMeasurement
+        ) = UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+
+        uint256 nativeTokenPriceCumulative = isFirst
+            ? price0Cumulative
+            : price1Cumulative;
+
+        unchecked {
+            pairData.nativeTokenPriceAverage = FixedPoint.uq112x112(
+                uint224(
+                    (nativeTokenPriceCumulative -
+                        pairData.nativeTokenPriceCumulative) / timeElapsed
+                )
+            );
+        }
+
+        pairData.nativeTokenPriceCumulative = nativeTokenPriceCumulative;
+
+        pairData.lastMeasurement = currentMeasurement;
+
+        currentLiquidityEvaluation =
+            (reserveNative * previousPrices[uint256(Paths.VADER)]) +
+            (reserveForeign * getChainlinkPrice(pairData.foreignAsset));
+    }
+
+    function _calculateVaderPrice(
+        uint256[] memory liquidityWeights,
+        uint256 totalVaderLiquidityWeight
+    ) internal view returns (uint256) {
+        uint256 totalUSD;
+        uint256 totalVader;
+        uint256 totalPairs = vaderPairs.length;
+
+        for (uint256 i; i < totalPairs; ++i) {
+            IUniswapV2Pair pair = vaderPairs[i];
+            ExchangePair storage pairData = twapData[address(pair)];
+
+            uint256 foreignPrice = getChainlinkPrice(pairData.foreignAsset);
+
+            totalUSD +=
+                (foreignPrice * liquidityWeights[i]) /
+                totalVaderLiquidityWeight;
+
+            totalVader +=
+                (pairData
+                    .nativeTokenPriceAverage
+                    .mul(pairData.foreignUnit)
+                    .decode144() * liquidityWeights[i]) /
+                totalVaderLiquidityWeight;
+        }
+
+        // NOTE: Accuracy of VADER & USDV is 18 decimals == 1 ether
+        return (totalUSD * 1 ether) / totalVader;
+    }
+
+    function setupVader(
+        IUniswapV2Pair pair,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod,
+        uint256 vaderPrice
+    ) external onlyOwner {
+        require(
+            previousPrices[uint256(Paths.VADER)] == 0,
+            "LBTWAP::setupVader: Already Initialized"
+        );
+
+        previousPrices[uint256(Paths.VADER)] = vaderPrice;
+
+        _addVaderPair(pair, oracle, updatePeriod);
+    }
+
+    // NOTE: Discuss whether minimum paired liquidity value should be enforced at code level
+    function addVaderPair(
+        IUniswapV2Pair pair,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod
+    ) external onlyOwner {
+        require(
+            previousPrices[uint256(Paths.VADER)] != 0,
+            "LBTWAP::addVaderPair: Vader Uninitialized"
+        );
+
+        _addVaderPair(pair, oracle, updatePeriod);
+    }
+
+    function _addVaderPair(
+        IUniswapV2Pair pair,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod
+    ) internal {
+        require(
+            updatePeriod != 0,
+            "LBTWAP::addVaderPair: Incorrect Update Period"
+        );
+
+        require(oracle.decimals() == 8, "LBTWAP::addVaderPair: Non-USD Oracle");
+
+        ExchangePair storage pairData = twapData[address(pair)];
+
+        bool isFirst = pair.token0() == vader;
+
+        (address nativeAsset, address foreignAsset) = isFirst
+            ? (pair.token0(), pair.token1())
+            : (pair.token1(), pair.token0());
+
+        oracles[foreignAsset] = oracle;
+
+        require(nativeAsset == vader, "LBTWAP::addVaderPair: Unsupported Pair");
+
+        pairData.foreignAsset = foreignAsset;
+        pairData.foreignUnit = uint96(
+            10**uint256(IERC20Metadata(foreignAsset).decimals())
+        );
+
+        pairData.updatePeriod = updatePeriod;
+        pairData.lastMeasurement = block.timestamp;
+
+        pairData.nativeTokenPriceCumulative = isFirst
+            ? pair.price0CumulativeLast()
+            : pair.price1CumulativeLast();
+
+        (uint256 reserve0, uint256 reserve1, ) = pair.getReserves();
+
+        (uint256 reserveNative, uint256 reserveForeign) = isFirst
+            ? (reserve0, reserve1)
+            : (reserve1, reserve0);
+
+        uint256 pairLiquidityEvaluation = (reserveNative *
+            previousPrices[uint256(Paths.VADER)]) +
+            (reserveForeign * getChainlinkPrice(foreignAsset));
+
+        pairData.pastLiquidityEvaluation = pairLiquidityEvaluation;
+
+        totalLiquidityWeight[uint256(Paths.VADER)] += pairLiquidityEvaluation;
+
+        vaderPairs.push(pair);
+
+        if (maxUpdateWindow < updatePeriod) maxUpdateWindow = updatePeriod;
+    }
+
+    function getUSDVPrice() external returns (uint256) {
+        (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        ) = syncUSDVPrice();
+
+        return
+            _calculateUSDVPrice(pastLiquidityWeights, pastTotalLiquidityWeight);
+    }
+
+    function syncUSDVPrice()
+        public
+        override
+        returns (
+            uint256[] memory pastLiquidityWeights,
+            uint256 pastTotalLiquidityWeight
+        )
+    {
+        uint256 _totalLiquidityWeight;
+        uint256 totalPairs = usdvPairs.length;
+        pastLiquidityWeights = new uint256[](totalPairs);
+        pastTotalLiquidityWeight = totalLiquidityWeight[uint256(Paths.USDV)];
+
+        for (uint256 i; i < totalPairs; ++i) {
+            IERC20 foreignAsset = usdvPairs[i];
+            ExchangePair storage pairData = twapData[address(foreignAsset)];
+            uint256 timeElapsed = block.timestamp - pairData.lastMeasurement;
+
+            if (timeElapsed < pairData.updatePeriod) continue;
+
+            uint256 pastLiquidityEvaluation = pairData.pastLiquidityEvaluation;
+            uint256 currentLiquidityEvaluation = _updateUSDVPrice(
+                foreignAsset,
+                pairData,
+                timeElapsed
+            );
+
+            pastLiquidityWeights[i] = pastLiquidityEvaluation;
+
+            pairData.pastLiquidityEvaluation = currentLiquidityEvaluation;
+
+            _totalLiquidityWeight += currentLiquidityEvaluation;
+        }
+
+        totalLiquidityWeight[uint256(Paths.USDV)] = _totalLiquidityWeight;
+    }
+
+    function _updateUSDVPrice(
+        IERC20 foreignAsset,
+        ExchangePair storage pairData,
+        uint256 timeElapsed
+    ) internal returns (uint256 currentLiquidityEvaluation) {
+        (uint256 reserveNative, uint256 reserveForeign, ) = vaderPool
+            .getReserves(foreignAsset);
+
+        (
+            uint256 nativeTokenPriceCumulative,
+            ,
+            uint256 currentMeasurement
+        ) = vaderPool.cumulativePrices(foreignAsset);
+
+        unchecked {
+            pairData.nativeTokenPriceAverage = FixedPoint.uq112x112(
+                uint224(
+                    (nativeTokenPriceCumulative -
+                        pairData.nativeTokenPriceCumulative) / timeElapsed
+                )
+            );
+        }
+
+        pairData.nativeTokenPriceCumulative = nativeTokenPriceCumulative;
+
+        pairData.lastMeasurement = currentMeasurement;
+
+        currentLiquidityEvaluation =
+            (reserveNative * previousPrices[uint256(Paths.USDV)]) +
+            (reserveForeign * getChainlinkPrice(address(foreignAsset)));
+    }
+
+    function _calculateUSDVPrice(
+        uint256[] memory liquidityWeights,
+        uint256 totalUSDVLiquidityWeight
+    ) internal view returns (uint256) {
+        uint256 totalUSD;
+        uint256 totalUSDV;
+        uint256 totalPairs = usdvPairs.length;
+
+        for (uint256 i; i < totalPairs; ++i) {
+            IERC20 foreignAsset = usdvPairs[i];
+            ExchangePair storage pairData = twapData[address(foreignAsset)];
+
+            uint256 foreignPrice = getChainlinkPrice(address(foreignAsset));
+
+            totalUSD +=
+                (foreignPrice * liquidityWeights[i]) /
+                totalUSDVLiquidityWeight;
+
+            totalUSDV +=
+                (pairData
+                    .nativeTokenPriceAverage
+                    .mul(pairData.foreignUnit)
+                    .decode144() * liquidityWeights[i]) /
+                totalUSDVLiquidityWeight;
+        }
+
+        // NOTE: Accuracy of VADER & USDV is 18 decimals == 1 ether
+        return (totalUSD * 1 ether) / totalUSDV;
+    }
+
+    function setupUSDV(
+        IERC20 foreignAsset,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod,
+        uint256 usdvPrice
+    ) external onlyOwner {
+        require(
+            previousPrices[uint256(Paths.USDV)] == 0,
+            "LBTWAP::setupUSDV: Already Initialized"
+        );
+
+        previousPrices[uint256(Paths.USDV)] = usdvPrice;
+
+        _addUSDVPair(foreignAsset, oracle, updatePeriod);
+    }
+
+    // NOTE: Discuss whether minimum paired liquidity value should be enforced at code level
+    function addUSDVPair(
+        IERC20 foreignAsset,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod
+    ) external onlyOwner {
+        require(
+            previousPrices[uint256(Paths.USDV)] != 0,
+            "LBTWAP::addUSDVPair: USDV Uninitialized"
+        );
+
+        _addUSDVPair(foreignAsset, oracle, updatePeriod);
+    }
+
+    function _addUSDVPair(
+        IERC20 foreignAsset,
+        IAggregatorV3 oracle,
+        uint256 updatePeriod
+    ) internal {
+        require(
+            updatePeriod != 0,
+            "LBTWAP::addUSDVPair: Incorrect Update Period"
+        );
+
+        require(oracle.decimals() == 8, "LBTWAP::addUSDVPair: Non-USD Oracle");
+
+        oracles[address(foreignAsset)] = oracle;
+
+        ExchangePair storage pairData = twapData[address(foreignAsset)];
+
+        // NOTE: Redundant
+        // pairData.foreignAsset = foreignAsset;
+
+        pairData.foreignUnit = uint96(
+            10**uint256(IERC20Metadata(address(foreignAsset)).decimals())
+        );
+
+        pairData.updatePeriod = updatePeriod;
+        pairData.lastMeasurement = block.timestamp;
+
+        (uint256 nativeTokenPriceCumulative, , ) = vaderPool.cumulativePrices(
+            foreignAsset
+        );
+
+        pairData.nativeTokenPriceCumulative = nativeTokenPriceCumulative;
+
+        (uint256 reserveNative, uint256 reserveForeign, ) = vaderPool
+            .getReserves(foreignAsset);
+
+        uint256 pairLiquidityEvaluation = (reserveNative *
+            previousPrices[uint256(Paths.USDV)]) +
+            (reserveForeign * getChainlinkPrice(address(foreignAsset)));
+
+        pairData.pastLiquidityEvaluation = pairLiquidityEvaluation;
+
+        totalLiquidityWeight[uint256(Paths.USDV)] += pairLiquidityEvaluation;
+
+        usdvPairs.push(foreignAsset);
+
+        if (maxUpdateWindow < updatePeriod) maxUpdateWindow = updatePeriod;
+    }
+}
+// ===== END SOURCE FILE: contracts/lbt/LiquidityBasedTWAP.sol =====
+// ===== BEGIN SOURCE FILE: contracts/Migrations.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity >=0.4.22 <0.9.0;
+
+contract Migrations {
+    address public owner = msg.sender;
+    uint256 public last_completed_migration;
+
+    modifier restricted() {
+        require(
+            msg.sender == owner,
+            "This function is restricted to the contract's owner"
+        );
+        _;
+    }
+
+    function setCompleted(uint256 completed) public restricted {
+        last_completed_migration = completed;
+    }
+}
+// ===== END SOURCE FILE: contracts/Migrations.sol =====
+// ===== BEGIN SOURCE FILE: contracts/reserve/VaderReserve.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "../shared/ProtocolConstants.sol";
+
+import "../interfaces/reserve/IVaderReserve.sol";
+import "../interfaces/lbt/ILiquidityBasedTWAP.sol";
+
+contract VaderReserve is IVaderReserve, ProtocolConstants, Ownable {
+    /* ========== LIBRARIES ========== */
+
+    // Used for safe VADER transfers
+    using SafeERC20 for IERC20;
+
+    /* ========== STATE VARIABLES ========== */
+
+    // The Vader token the reserve is handling
+    IERC20 public immutable vader;
+
+    // Router address for IL awards
+    address public router;
+
+    // Tracks last grant time for throttling
+    uint256 public lastGrant;
+
+    // LBT used for loss reimbursement
+    ILiquidityBasedTWAP public lbt;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(IERC20 _vader) {
+        require(
+            _vader != IERC20(_ZERO_ADDRESS),
+            "VaderReserve::constructor: Incorrect Arguments"
+        );
+        vader = _vader;
+    }
+
+    /* ========== VIEWS ========== */
+
+    function reserve() public view override returns (uint256) {
+        return vader.balanceOf(address(this));
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    function grant(address recipient, uint256 amount)
+        external
+        override
+        onlyOwner
+        throttle
+    {
+        amount = _min(
+            (reserve() * _MAX_GRANT_BASIS_POINTS) / _MAX_BASIS_POINTS,
+            amount
+        );
+        vader.safeTransfer(recipient, amount);
+
+        emit GrantDistributed(recipient, amount);
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    function initialize(
+        ILiquidityBasedTWAP _lbt,
+        address _router,
+        address _dao
+    ) external onlyOwner {
+        require(
+            _router != _ZERO_ADDRESS &&
+                _dao != _ZERO_ADDRESS &&
+                _lbt != ILiquidityBasedTWAP(_ZERO_ADDRESS),
+            "VaderReserve::initialize: Incorrect Arguments"
+        );
+        router = _router;
+        lbt = _lbt;
+        transferOwnership(_dao);
+    }
+
+    function reimburseImpermanentLoss(address recipient, uint256 amount)
+        external
+        override
+    {
+        require(
+            msg.sender == router,
+            "VaderReserve::reimburseImpermanentLoss: Insufficient Priviledges"
+        );
+
+        // NOTE: Loss is in USDV, reimbursed in VADER
+        // NOTE: If USDV LBT is working, prefer it otherwise use VADER price
+        if (lbt.previousPrices(uint256(ILiquidityBasedTWAP.Paths.USDV)) != 0) {
+            uint256 usdvPrice = lbt.getUSDVPrice();
+
+            amount = amount / usdvPrice;
+        } else {
+            uint256 vaderPrice = lbt.getVaderPrice();
+
+            amount = amount * vaderPrice;
+        }
+
+        uint256 actualAmount = _min(reserve(), amount);
+
+        vader.safeTransfer(recipient, actualAmount);
+
+        emit LossCovered(recipient, amount, actualAmount);
+    }
+
+    /* ========== INTERNAL FUNCTIONS ========== */
+
+    /* ========== PRIVATE FUNCTIONS ========== */
+
+    /**
+     * @dev Calculates the minimum of the two values
+     */
+    function _min(uint256 a, uint256 b) private pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    /* ========== MODIFIERS ========== */
+
+    modifier throttle() {
+        require(
+            lastGrant + _GRANT_DELAY <= block.timestamp,
+            "VaderReserve::throttle: Grant Too Fast"
+        );
+        lastGrant = block.timestamp;
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/reserve/VaderReserve.sol =====
+// ===== BEGIN SOURCE FILE: contracts/shared/ProtocolConstants.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+abstract contract ProtocolConstants {
+    /* ========== GENERAL ========== */
+
+    // The zero address, utility
+    address internal constant _ZERO_ADDRESS = address(0);
+
+    // One year, utility
+    uint256 internal constant _ONE_YEAR = 365 days;
+
+    // Basis Points
+    uint256 internal constant _MAX_BASIS_POINTS = 100_00;
+
+    /* ========== VADER TOKEN ========== */
+
+    // Max VADER supply
+    uint256 internal constant _INITIAL_VADER_SUPPLY = 25_000_000_000 * 1 ether;
+
+    // Allocation for VETH holders
+    uint256 internal constant _VETH_ALLOCATION = 7_500_000_000 * 1 ether;
+
+    // Team allocation vested over {VESTING_DURATION} years
+    uint256 internal constant _TEAM_ALLOCATION = 2_500_000_000 * 1 ether;
+
+    // Ecosystem growth fund unlocked for partnerships & USDV provision
+    uint256 internal constant _ECOSYSTEM_GROWTH = 2_500_000_000 * 1 ether;
+
+    // Total grant tokens
+    uint256 internal constant _GRANT_ALLOCATION = 12_500_000_000 * 1 ether;
+
+    // Emission Era
+    uint256 internal constant _EMISSION_ERA = 24 hours;
+
+    // Initial Emission Curve, 5
+    uint256 internal constant _INITIAL_EMISSION_CURVE = 5;
+
+    // Fee Basis Points
+    uint256 internal constant _MAX_FEE_BASIS_POINTS = 1_00;
+
+    /* ========== VESTING ========== */
+
+    // Vesting Duration
+    uint256 internal constant _VESTING_DURATION = 2 * _ONE_YEAR;
+
+    /* ========== CONVERTER ========== */
+
+    // Vader -> Vether Conversion Rate (10000:1)
+    uint256 internal constant _VADER_VETHER_CONVERSION_RATE = 10_000;
+
+    // Burn Address
+    address internal constant _BURN =
+        0xdeaDDeADDEaDdeaDdEAddEADDEAdDeadDEADDEaD;
+
+    /* ========== SWAP QUEUE ========== */
+
+    // A minimum of 10 swaps will be executed per block
+    uint256 internal constant _MIN_SWAPS_EXECUTED = 10;
+
+    // Expressed in basis points (50%)
+    uint256 internal constant _DEFAULT_SWAPS_EXECUTED = 50_00;
+
+    // The queue size of each block is 100 units
+    uint256 internal constant _QUEUE_SIZE = 100;
+
+    /* ========== GAS QUEUE ========== */
+
+    // Address of Chainlink Fast Gas Price Oracle
+    address internal constant _FAST_GAS_ORACLE =
+        0x169E633A2D1E6c10dD91238Ba11c4A708dfEF37C;
+
+    /* ========== VADER RESERVE ========== */
+
+    // Minimum delay between grants
+    uint256 internal constant _GRANT_DELAY = 30 days;
+
+    // Maximum grant size divisor
+    uint256 internal constant _MAX_GRANT_BASIS_POINTS = 10_00;
+}
+// ===== END SOURCE FILE: contracts/shared/ProtocolConstants.sol =====
+// ===== BEGIN SOURCE FILE: contracts/staking-rewards/IStakingRewards.sol =====
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.9;
+
+interface IStakingRewards {
+    // Views
+
+    function balanceOf(address account) external view returns (uint);
+
+    function earned(address account) external view returns (uint);
+
+    function getRewardForDuration() external view returns (uint);
+
+    function lastTimeRewardApplicable() external view returns (uint);
+
+    function rewardPerToken() external view returns (uint);
+
+    // function rewardsDistribution() external view returns (address);
+
+    // function rewardsToken() external view returns (address);
+
+    function totalSupply() external view returns (uint);
+
+    // Mutative
+
+    function exit() external;
+
+    function getReward() external;
+
+    function stake(uint amount) external;
+
+    function withdraw(uint amount) external;
+}
+// ===== END SOURCE FILE: contracts/staking-rewards/IStakingRewards.sol =====
+// ===== BEGIN SOURCE FILE: contracts/staking-rewards/Owned.sol =====
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.9;
+  
+contract Owned {
+    address public owner;
+    address public nominatedOwner;
+
+    constructor(address _owner) {
+        require(_owner != address(0), "Owner address cannot be 0");
+        owner = _owner;
+        emit OwnerChanged(address(0), _owner);
+    }
+
+    function nominateNewOwner(address _owner) external onlyOwner {
+        nominatedOwner = _owner;
+        emit OwnerNominated(_owner);
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == nominatedOwner, "You must be nominated before you can accept ownership");
+        emit OwnerChanged(owner, nominatedOwner);
+        owner = nominatedOwner;
+        nominatedOwner = address(0);
+    }
+
+    modifier onlyOwner {
+        _onlyOwner();
+        _;
+    }
+
+    function _onlyOwner() private view {
+        require(msg.sender == owner, "Only the contract owner may perform this action");
+    }
+
+    event OwnerNominated(address newOwner);
+    event OwnerChanged(address oldOwner, address newOwner);
+}
+// ===== END SOURCE FILE: contracts/staking-rewards/Owned.sol =====
+// ===== BEGIN SOURCE FILE: contracts/staking-rewards/Pausable.sol =====
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.9;
+
+import "./Owned.sol";
+
+abstract contract Pausable is Owned {
+    uint public lastPauseTime;
+    bool public paused;
+
+    constructor() {
+        // This contract is abstract, and thus cannot be instantiated directly
+        require(owner != address(0), "Owner must be set");
+        // Paused will be false, and lastPauseTime will be 0 upon initialisation
+    }
+
+    /**
+     * @notice Change the paused state of the contract
+     * @dev Only the contract owner may call this.
+     */
+    function setPaused(bool _paused) external onlyOwner {
+        // Ensure we're actually changing the state before we do anything
+        if (_paused == paused) {
+            return;
+        }
+
+        // Set our paused state.
+        paused = _paused;
+
+        // If applicable, set the last pause time.
+        // C4-Audit Fix for Issue # 106
+        if (_paused) {
+            lastPauseTime = block.timestamp;
+        }
+
+        // Let everyone know that our pause state has changed.
+        // C4-Audit Fix for Issue # 106
+        emit PauseChanged(_paused);
+    }
+
+    event PauseChanged(bool isPaused);
+
+    modifier notPaused() {
+        require(!paused, "paused");
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/staking-rewards/Pausable.sol =====
+// ===== BEGIN SOURCE FILE: contracts/staking-rewards/RewardsDistributionRecipient.sol =====
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.9;
+
+import "./Owned.sol";
+
+abstract contract RewardsDistributionRecipient is Owned {
+    address public rewardsDistribution;
+
+    function notifyRewardAmount(uint reward) external virtual;
+
+    modifier onlyRewardsDistribution() {
+        require(msg.sender == rewardsDistribution, "not reward distribution");
+        _;
+    }
+
+    function setRewardsDistribution(address _rewardsDistribution) external onlyOwner {
+        rewardsDistribution = _rewardsDistribution;
+    }
+}
+// ===== END SOURCE FILE: contracts/staking-rewards/RewardsDistributionRecipient.sol =====
+// ===== BEGIN SOURCE FILE: contracts/staking-rewards/StakingRewards.sol =====
+// SPDX-License-Identifier: Unlicense
+pragma solidity 0.8.9;
+
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+import "./IStakingRewards.sol";
+import "./RewardsDistributionRecipient.sol";
+import "./Pausable.sol";
+
+contract StakingRewards is
+    IStakingRewards,
+    RewardsDistributionRecipient,
+    ReentrancyGuard,
+    Pausable
+{
+    using SafeMath for uint256;
+    using SafeERC20 for IERC20;
+
+    /* ========== STATE VARIABLES ========== */
+
+    IERC20 public immutable rewardsToken;
+    IERC20 public immutable stakingToken;
+    uint256 public periodFinish = 0;
+    uint256 public rewardRate = 0;
+    uint256 public rewardsDuration = 7 days;
+    uint256 public lastUpdateTime;
+    uint256 public rewardPerTokenStored;
+
+    mapping(address => uint256) public userRewardPerTokenPaid;
+    mapping(address => uint256) public rewards;
+
+    uint256 private _totalSupply;
+    mapping(address => uint256) private _balances;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(
+        address _owner,
+        address _rewardsDistribution,
+        address _rewardsToken,
+        address _stakingToken
+    ) Owned(_owner) {
+        rewardsToken = IERC20(_rewardsToken);
+        stakingToken = IERC20(_stakingToken);
+        rewardsDistribution = _rewardsDistribution;
+    }
+
+    /* ========== VIEWS ========== */
+
+    function totalSupply() external view returns (uint256) {
+        return _totalSupply;
+    }
+
+    function balanceOf(address account) external view returns (uint256) {
+        return _balances[account];
+    }
+
+    function lastTimeRewardApplicable() public view returns (uint256) {
+        return block.timestamp < periodFinish ? block.timestamp : periodFinish;
+    }
+
+    function rewardPerToken() public view returns (uint256) {
+        if (_totalSupply == 0) {
+            return rewardPerTokenStored;
+        }
+        return
+            rewardPerTokenStored.add(
+                lastTimeRewardApplicable()
+                    .sub(lastUpdateTime)
+                    .mul(rewardRate)
+                    .mul(1e18)
+                    .div(_totalSupply)
+            );
+    }
+
+    function earned(address account) public view returns (uint256) {
+        return
+            _balances[account]
+                .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
+                .div(1e18)
+                .add(rewards[account]);
+    }
+
+    function getRewardForDuration() external view returns (uint256) {
+        return rewardRate.mul(rewardsDuration);
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    function stake(uint256 amount)
+        external
+        nonReentrant
+        notPaused
+        updateReward(msg.sender)
+    {
+        require(amount > 0, "Cannot stake 0");
+        _totalSupply = _totalSupply.add(amount);
+        _balances[msg.sender] = _balances[msg.sender].add(amount);
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        emit Staked(msg.sender, amount);
+    }
+
+    function withdraw(uint256 amount)
+        public
+        nonReentrant
+        updateReward(msg.sender)
+    {
+        require(amount > 0, "Cannot withdraw 0");
+        _totalSupply = _totalSupply.sub(amount);
+        _balances[msg.sender] = _balances[msg.sender].sub(amount);
+        stakingToken.safeTransfer(msg.sender, amount);
+        emit Withdrawn(msg.sender, amount);
+    }
+
+    function getReward() public nonReentrant updateReward(msg.sender) {
+        uint256 reward = rewards[msg.sender];
+        if (reward > 0) {
+            rewards[msg.sender] = 0;
+            rewardsToken.safeTransfer(msg.sender, reward);
+            emit RewardPaid(msg.sender, reward);
+        }
+    }
+
+    function exit() external {
+        withdraw(_balances[msg.sender]);
+        getReward();
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    function notifyRewardAmount(uint256 reward)
+        external
+        override
+        onlyRewardsDistribution
+        updateReward(address(0))
+    {
+        if (block.timestamp >= periodFinish) {
+            rewardRate = reward.div(rewardsDuration);
+        } else {
+            uint256 remaining = periodFinish.sub(block.timestamp);
+            uint256 leftover = remaining.mul(rewardRate);
+            rewardRate = reward.add(leftover).div(rewardsDuration);
+        }
+
+        // Ensure the provided reward amount is not more than the balance in the contract.
+        // This keeps the reward rate in the right range, preventing overflows due to
+        // very high values of rewardRate in the earned and rewardsPerToken functions;
+        // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.
+        uint256 balance = rewardsToken.balanceOf(address(this));
+        require(
+            rewardRate <= balance.div(rewardsDuration),
+            "Provided reward too high"
+        );
+
+        lastUpdateTime = block.timestamp;
+        periodFinish = block.timestamp.add(rewardsDuration);
+        emit RewardAdded(reward);
+    }
+
+    // Added to support recovering LP Rewards from other systems such as BAL to be distributed to holders
+    function recoverERC20(address tokenAddress, uint256 tokenAmount)
+        external
+        onlyOwner
+    {
+        require(
+            tokenAddress != address(stakingToken),
+            "Cannot withdraw the staking token"
+        );
+        IERC20(tokenAddress).safeTransfer(owner, tokenAmount);
+        emit Recovered(tokenAddress, tokenAmount);
+    }
+
+    function setRewardsDuration(uint256 _rewardsDuration) external onlyOwner {
+        require(
+            block.timestamp > periodFinish,
+            "Previous rewards period must be complete before changing the duration for the new period"
+        );
+        rewardsDuration = _rewardsDuration;
+        // C4-Audit Fix for Issue # 106
+        emit RewardsDurationUpdated(_rewardsDuration);
+    }
+
+    /* ========== MODIFIERS ========== */
+
+    modifier updateReward(address account) {
+        rewardPerTokenStored = rewardPerToken();
+        lastUpdateTime = lastTimeRewardApplicable();
+        if (account != address(0)) {
+            rewards[account] = earned(account);
+            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        }
+        _;
+    }
+
+    /* ========== EVENTS ========== */
+
+    event RewardAdded(uint256 reward);
+    event Staked(address indexed user, uint256 amount);
+    event Withdrawn(address indexed user, uint256 amount);
+    event RewardPaid(address indexed user, uint256 reward);
+    event RewardsDurationUpdated(uint256 newDuration);
+    event Recovered(address token, uint256 amount);
+}
+// ===== END SOURCE FILE: contracts/staking-rewards/StakingRewards.sol =====
+// ===== BEGIN SOURCE FILE: contracts/tokens/converter/Converter.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+
+import "../../shared/ProtocolConstants.sol";
+
+import "../../interfaces/tokens/converter/IConverter.sol";
+import "../../interfaces/tokens/vesting/ILinearVesting.sol";
+
+/**
+ * @dev Implementation of the {IConverter} interface.
+ *
+ * A simple converter contract that allows users to convert
+ * their Vether tokens by "burning" them (See {convert}) to
+ * acquire their equivalent Vader tokens based on the constant
+ * {VADER_VETHER_CONVERSION_RATE}.
+ *
+ * The contract assumes that it has been sufficiently funded with
+ * Vader tokens and will fail to execute trades if it has not been
+ * done so yet.
+ */
+contract Converter is IConverter, ProtocolConstants, Ownable {
+    /* ========== LIBRARIES ========== */
+
+    // Using MerkleProof for validating claims
+    using MerkleProof for bytes32[];
+
+    /* ========== STATE VARIABLES ========== */
+
+    // The VETHER token
+    IERC20 public immutable vether;
+
+    // The VADER token
+    IERC20 public immutable vader;
+
+    // The VADER vesting contract
+    ILinearVesting public vesting;
+
+    // The merkle proof root for validating claims
+    bytes32 public immutable root;
+
+    // Unique deployment salt
+    uint256 public immutable salt;
+
+    // Signals whether a particular leaf has been claimed of the merkle proof
+    mapping(bytes32 => bool) public claimed;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    /**
+     * @dev Initializes the contract's {vether} and {vader} addresses.
+     *
+     * Performs rudimentary checks to ensure that the variables haven't
+     * been declared incorrectly.
+     */
+    constructor(
+        IERC20 _vether,
+        IERC20 _vader,
+        bytes32 _root,
+        uint256 _salt
+    ) {
+        require(
+            _vether != IERC20(_ZERO_ADDRESS) && _vader != IERC20(_ZERO_ADDRESS),
+            "Converter::constructor: Misconfiguration"
+        );
+
+        vether = _vether;
+        vader = _vader;
+
+        root = _root;
+        salt = _salt;
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    /*
+     * @dev Sets address of vesting contract.
+     *
+     * The LinearVesting and Converter contracts are dependent upon
+     * each other, hence this setter is introduced.
+     *
+     * Also approves Vesting to spend Vader tokens on its behalf.
+     *
+     **/
+    function setVesting(ILinearVesting _vesting) external onlyOwner {
+        require(
+            vesting == ILinearVesting(_ZERO_ADDRESS),
+            "Converter::setVesting: Vesting is already set"
+        );
+        require(
+            _vesting != ILinearVesting(_ZERO_ADDRESS),
+            "Converter::setVesting: Cannot Set Zero Vesting Address"
+        );
+        vader.approve(address(_vesting), type(uint256).max);
+        vesting = _vesting;
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    /**
+     * @dev Allows a user to convert their Vether to Vader.
+     *
+     * Emits a {Conversion} event indicating the amount of Vether the user
+     * "burned" and the amount of Vader that they acquired.
+     *
+     * Here, "burned" refers to the action of transferring them to an irrecoverable
+     * address, the {BURN} address.
+     *
+     * Requirements:
+     *
+     * - the caller has approved the contract for the necessary amount via Vether
+     * - the amount specified is non-zero
+     * - the contract has been supplied with the necessary Vader amount to fulfill the trade
+     */
+    function convert(bytes32[] calldata proof, uint256 amount, uint256 minVader)
+        external
+        override
+        returns (uint256 vaderReceived)
+    {
+        require(
+            amount != 0,
+            "Converter::convert: Non-Zero Conversion Amount Required"
+        );
+
+        ILinearVesting _vesting = vesting;
+
+        require(
+            _vesting != ILinearVesting(_ZERO_ADDRESS),
+            "Converter::convert: Vesting is not set"
+        );
+
+        bytes32 leaf = keccak256(
+            abi.encodePacked(msg.sender, amount, salt, getChainId())
+        );
+        require(
+            !claimed[leaf] && proof.verify(root, leaf),
+            "Converter::convert: Incorrect Proof Provided"
+        );
+        claimed[leaf] = true;
+
+        uint256 allowance = vether.allowance(msg.sender, address(this));
+
+        amount = amount > allowance ? allowance : amount;
+
+        // NOTE: FoT is ignored as units are meant to be burned anyway
+        vether.transferFrom(msg.sender, _BURN, amount);
+
+        vaderReceived = amount * _VADER_VETHER_CONVERSION_RATE;
+        require(vaderReceived >= minVader, "Converter::convert: Vader < min");
+
+        emit Conversion(msg.sender, amount, vaderReceived);
+
+        uint256 half = vaderReceived / 2;
+        vader.transfer(msg.sender, half);
+        _vesting.vestFor(msg.sender, vaderReceived - half);
+    }
+
+    /* ========== INTERNAL FUNCTIONS ========== */
+    /*
+     * @dev Returns the {chainId} of current network.
+     **/
+    function getChainId() internal view returns (uint256 chainId) {
+        assembly {
+            chainId := chainid()
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/tokens/converter/Converter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/tokens/USDV.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "../shared/ProtocolConstants.sol";
+
+import "../interfaces/shared/IERC20Extended.sol";
+import "../interfaces/tokens/IUSDV.sol";
+import "../interfaces/reserve/IVaderReserve.sol";
+import "../interfaces/lbt/ILiquidityBasedTWAP.sol";
+
+// TBD
+contract USDV is IUSDV, ProtocolConstants, ERC20, Ownable {
+    /* ========== LIBRARIES ========== */
+
+    // Used for safe token transfers
+    using SafeERC20 for IERC20Extended;
+
+    /* ========== STATE VARIABLES ========== */
+
+    // The VADER token used for burns and mints
+    IERC20Extended public immutable vader;
+
+    // The LBT pricing mechanism for the conversion
+    ILiquidityBasedTWAP public lbt;
+
+    // The exchange fee if any applied to burns and mints
+    uint256 public exchangeFee;
+
+    // The 24 hour limit on USDV mints
+    uint256 public dailyLimit = type(uint256).max;
+
+    // The current cycle end timestamp
+    uint256 public cycleTimestamp;
+
+    // The current cycle cumulative mints
+    uint256 public cycleMints;
+
+    // All mint/burn locks
+    mapping(address => Lock[]) public locks;
+
+    // Guardian Account
+    address public guardian;
+
+    // Lock system
+    bool private isLocked;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    constructor(IERC20Extended _vader) ERC20("Vader USD", "USDV") {
+        require(
+            _vader != IERC20Extended(_ZERO_ADDRESS),
+            "USDV::constructor: Improper Configuration"
+        );
+        vader = _vader;
+    }
+
+    /* ========== VIEWS ========== */
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    function mint(uint256 vAmount)
+        external
+        onlyWhenNotLocked
+        returns (uint256 uAmount)
+    {
+        uint256 vPrice = lbt.getVaderPrice();
+
+        vader.transferFrom(msg.sender, address(this), vAmount);
+        vader.burn(vAmount);
+
+        uAmount = (vPrice * vAmount) / 1e18;
+
+        if (cycleTimestamp <= block.timestamp) {
+            cycleTimestamp = block.timestamp + 24 hours;
+            cycleMints = uAmount;
+        } else {
+            cycleMints += uAmount;
+            require(
+                cycleMints <= dailyLimit,
+                "USDV::mint: 24 Hour Limit Reached"
+            );
+        }
+
+        if (exchangeFee != 0) {
+            uint256 fee = (uAmount * exchangeFee) / _MAX_BASIS_POINTS;
+            uAmount = uAmount - fee;
+            _mint(owner(), fee);
+        }
+
+        _mint(address(this), uAmount);
+
+        _createLock(LockTypes.USDV, uAmount);
+    }
+
+    function burn(uint256 uAmount)
+        external
+        onlyWhenNotLocked
+        returns (uint256 vAmount)
+    {
+        uint256 uPrice = lbt.getUSDVPrice();
+
+        _burn(msg.sender, uAmount);
+
+        vAmount = (uPrice * uAmount) / 1e18;
+
+        if (exchangeFee != 0) {
+            uint256 fee = (vAmount * exchangeFee) / _MAX_BASIS_POINTS;
+            vAmount = vAmount - fee;
+            vader.mint(owner(), fee);
+        }
+
+        vader.mint(address(this), vAmount);
+
+        _createLock(LockTypes.VADER, vAmount);
+    }
+
+    function claim(uint256 i) external onlyWhenNotLocked returns (uint256) {
+        Lock[] storage userLocks = locks[msg.sender];
+        Lock memory lock = userLocks[i];
+
+        require(lock.release <= block.timestamp, "USDV::claim: Vesting");
+
+        uint256 last = userLocks.length - 1;
+        if (i != last) {
+            userLocks[i] = userLocks[last];
+        }
+
+        userLocks.pop();
+
+        if (lock.token == LockTypes.USDV)
+            _transfer(address(this), msg.sender, lock.amount);
+        else vader.transfer(msg.sender, lock.amount);
+
+        emit LockClaimed(msg.sender, lock.token, lock.amount, lock.release);
+
+        return lock.amount;
+    }
+
+    function claimAll()
+        external
+        onlyWhenNotLocked
+        returns (uint256 usdvAmount, uint256 vaderAmount)
+    {
+        Lock[] memory userLocks = locks[msg.sender];
+        delete locks[msg.sender];
+
+        for (uint256 i = 0; i < userLocks.length; i++) {
+            Lock memory lock = userLocks[i];
+
+            require(lock.release <= block.timestamp, "USDV::claimAll: Vesting");
+
+            if (lock.token == LockTypes.USDV) {
+                _transfer(address(this), msg.sender, lock.amount);
+                usdvAmount += lock.amount;
+            } else {
+                vader.transfer(msg.sender, lock.amount);
+                vaderAmount += lock.amount;
+            }
+
+            emit LockClaimed(msg.sender, lock.token, lock.amount, lock.release);
+        }
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    function setLBTwap(ILiquidityBasedTWAP _lbt) external onlyOwner {
+        require(
+            _lbt != ILiquidityBasedTWAP(_ZERO_ADDRESS),
+            "USDV::initialize: Improper Configuration"
+        );
+        lbt = _lbt;
+    }
+
+    function setFee(uint256 _exchangeFee) external onlyOwner {
+        require(
+            _exchangeFee <= _MAX_BASIS_POINTS,
+            "USDV::setFee: Fee Out of Bounds"
+        );
+        emit ExchangeFeeChanged(exchangeFee, _exchangeFee);
+        exchangeFee = _exchangeFee;
+    }
+
+    function setDailyLimit(uint256 _dailyLimit) external onlyOwner {
+        emit DailyLimitChanged(dailyLimit, _dailyLimit);
+        dailyLimit = _dailyLimit;
+    }
+
+    function setGuardian(address _guardian) external onlyOwner {
+        require(_guardian != address(0), "USDV::setGuardian: Zero address");
+        guardian = _guardian;
+    }
+
+    function setLock(bool _lock) external {
+        require(
+            msg.sender == owner() || msg.sender == guardian,
+            "USDV::setLock: Insufficient Privileges"
+        );
+        isLocked = _lock;
+    }
+
+    /* ========== INTERNAL FUNCTIONS ========== */
+
+    /* ========== PRIVATE FUNCTIONS ========== */
+
+    function _createLock(LockTypes lockType, uint256 amount) private {
+        uint256 release = block.timestamp + lbt.maxUpdateWindow();
+
+        locks[msg.sender].push(Lock(lockType, amount, release));
+
+        emit LockCreated(msg.sender, lockType, amount, release);
+    }
+
+    /* ========== MODIFIERS ========== */
+    modifier onlyWhenNotLocked() {
+        require(!isLocked);
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/tokens/USDV.sol =====
+// ===== BEGIN SOURCE FILE: contracts/tokens/Vader.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+import "../shared/ProtocolConstants.sol";
+
+import "../interfaces/tokens/IUSDV.sol";
+import "../interfaces/tokens/IVader.sol";
+import "../interfaces/tokens/vesting/ILinearVesting.sol";
+import "../interfaces/tokens/converter/IConverter.sol";
+
+/**
+ * @dev Implementation of the {IVader} interface.
+ *
+ * The Vader token that acts as the backbone of the Vader protocol,
+ * burned and minted to mint and burn USDV tokens respectively.
+ *
+ * The token has a fixed initial supply at 25 billion units that is meant to then
+ * fluctuate depending on the amount of USDV minted into and burned from circulation.
+ *
+ * Emissions are initially controlled by the Vader team and then will be governed
+ * by the DAO.
+ */
+contract Vader is IVader, ProtocolConstants, ERC20, Ownable {
+    /* ========== STATE VARIABLES ========== */
+
+    // The Vader <-> Vether converter contract
+    IConverter public converter;
+
+    // The Vader Team vesting contract
+    ILinearVesting public vest;
+
+    // The USDV contract, used to apply proper access control
+    IUSDV public usdv;
+
+    // The initial maximum supply of the token, equivalent to 25 bn units
+    uint256 public maxSupply = _INITIAL_VADER_SUPPLY;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    /**
+     * @dev Mints the ecosystem growth fund and grant allocation amount described in the whitepaper to the
+     * token contract itself.
+     *
+     * As the token is meant to be minted and burned freely between USDV and itself,
+     * there is no real initialization taking place apart from the initially minted
+     * supply for the following components:
+     *
+     * - Grant Allocation: The amount of funds meant to be distributed by the DAO as grants to expand the protocol
+     *
+     * - Ecosystem Growth: An allocation that is released to strategic partners for the
+     * protocol's expansion
+     *
+     * The latter two of the allocations are minted at a later date given that the addresses of
+     * the converter and vesting contract are not known on deployment.
+     */
+    constructor() ERC20("Vader", "VADER") {
+        _mint(address(this), _GRANT_ALLOCATION);
+        _mint(address(this), _ECOSYSTEM_GROWTH);
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    /**
+     * @dev Creates a manual emission event
+     *
+     * Emits an {Emission} event indicating the amount emitted as well as what the current
+     * era's timestamp is.
+     */
+    function createEmission(address user, uint256 amount)
+        external
+        override
+        onlyOwner
+    {
+        _transfer(address(this), user, amount);
+        emit Emission(user, amount);
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    /**
+     * @dev Sets the initial {converter} and {vest} contract addresses. Additionally, mints
+     * the Vader amount available for conversion as well as the team allocation that is meant
+     * to be vested to each respective contract.
+     *
+     * Emits a {ProtocolInitialized} event indicating all the supplied values of the function.
+     *
+     * Requirements:
+     *
+     * - the caller must be the deployer of the contract
+     * - the contract must not have already been initialized
+     */
+    function setComponents(
+        IConverter _converter,
+        ILinearVesting _vest,
+        address[] calldata vesters,
+        uint192[] calldata amounts
+    ) external onlyOwner {
+        require(
+            _converter != IConverter(_ZERO_ADDRESS) &&
+                _vest != ILinearVesting(_ZERO_ADDRESS),
+            "Vader::setComponents: Incorrect Arguments"
+        );
+        require(
+            converter == IConverter(_ZERO_ADDRESS),
+            "Vader::setComponents: Already Set"
+        );
+
+        converter = _converter;
+        vest = _vest;
+
+        _mint(address(_converter), _VETH_ALLOCATION);
+        _mint(address(_vest), _TEAM_ALLOCATION);
+
+        _vest.begin(vesters, amounts);
+
+        emit ProtocolInitialized(
+            address(_converter),
+            address(_vest)
+        );
+    }
+
+    /**
+     * @dev Set USDV
+     * Emits a {USDVSet} event indicating that USDV is set
+     *
+     * Requirements:
+     *
+     * - the caller must be owner
+     * - USDV must be of a non-zero address
+     * - USDV must not be set
+     */
+    function setUSDV(IUSDV _usdv) external onlyOwner {
+        require(_usdv != IUSDV(_ZERO_ADDRESS), "Vader::setUSDV: Invalid USDV address");
+        require(usdv == IUSDV(_ZERO_ADDRESS), "Vader::setUSDV: USDV already set");
+
+        usdv = _usdv;
+        emit USDVSet(address(_usdv));
+    }
+
+    /**
+     * @dev Allows a strategic partnership grant to be claimed.
+     *
+     * Emits a {GrantClaimed} event indicating the beneficiary of the grant as
+     * well as the grant amount.
+     *
+     * Requirements:
+     *
+     * - the caller must be the DAO
+     * - the token must hold sufficient Vader allocation for the grant
+     * - the grant must be of a non-zero amount
+     */
+    function claimGrant(address beneficiary, uint256 amount) external onlyOwner {
+        require(amount != 0, "Vader::claimGrant: Non-Zero Amount Required");
+        emit GrantClaimed(beneficiary, amount);
+        _transfer(address(this), beneficiary, amount);
+    }
+
+    /**
+     * @dev Allows the maximum supply of the token to be adjusted.
+     *
+     * Emits an {MaxSupplyChanged} event indicating the previous and next maximum
+     * total supplies.
+     *
+     * Requirements:
+     *
+     * - the caller must be the DAO
+     * - the new maximum supply must be greater than the current supply
+     */
+    function adjustMaxSupply(uint256 _maxSupply) external onlyOwner {
+        require(
+            _maxSupply >= totalSupply(),
+            "Vader::adjustMaxSupply: Max supply cannot subcede current supply"
+        );
+        emit MaxSupplyChanged(maxSupply, _maxSupply);
+        maxSupply = _maxSupply;
+    }
+
+    /**
+     * @dev Allows the USDV token to perform mints of VADER tokens
+     *
+     * Emits an ERC-20 {Transfer} event signaling the minting operation.
+     *
+     * Requirements:
+     *
+     * - the caller must be the USDV
+     * - the new supply must be below the maximum supply
+     */
+    function mint(address _user, uint256 _amount) external onlyUSDV {
+        require(
+            maxSupply >= totalSupply() + _amount,
+            "Vader::mint: Max supply reached"
+        );
+        _mint(_user, _amount);
+    }
+
+    /**
+     * @dev Allows the USDV token to perform burns of VADER tokens
+     *
+     * Emits an ERC-20 {Transfer} event signaling the burning operation.
+     *
+     * Requirements:
+     *
+     * - the caller must be the USDV
+     * - the USDV contract must have a sufficient VADER balance
+     */
+    function burn(uint256 _amount) external onlyUSDV {
+        _burn(msg.sender, _amount);
+    }
+
+    /* ========== INTERNAL FUNCTIONS ========== */
+
+    /* ========== PRIVATE FUNCTIONS ========== */
+
+    /**
+     * @dev Ensures only the USDV is able to invoke a particular function by validating that the
+     * contract has been set up and that the msg.sender is the USDV address
+     */
+    function _onlyUSDV() private view {
+        require(
+            address(usdv) == msg.sender,
+            "Vader::_onlyUSDV: Insufficient Privileges"
+        );
+    }
+
+    /* ========== MODIFIERS ========== */
+
+    /**
+     * @dev Throws if invoked by anyone else other than the USDV
+     */
+    modifier onlyUSDV() {
+        _onlyUSDV();
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/tokens/Vader.sol =====
+// ===== BEGIN SOURCE FILE: contracts/tokens/vesting/LinearVesting.sol =====
+// SPDX-License-Identifier: Unlicense
+
+pragma solidity =0.8.9;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+import "../../shared/ProtocolConstants.sol";
+
+import "../../interfaces/tokens/vesting/ILinearVesting.sol";
+
+/**
+ * @dev Implementation of the {ILinearVesting} interface.
+ *
+ * The straightforward vesting contract that gradually releases a
+ * fixed supply of tokens to multiple vest parties over a 2 year
+ * window.
+ *
+ * The token expects the {begin} hook to be invoked the moment
+ * it is supplied with the necessary amount of tokens to vest,
+ * which should be equivalent to the time the {setComponents}
+ * function is invoked on the Vader token.
+ */
+contract LinearVesting is ILinearVesting, ProtocolConstants, Ownable {
+    /* ========== LIBRARIES ========== */
+
+    /* ========== STATE VARIABLES ========== */
+
+    // The Vader token
+    IERC20 public immutable vader;
+
+    // The start of the vesting period
+    uint256 public start;
+
+    // The end of the vesting period
+    uint256 public end;
+
+    // The status of each vesting member (Vester)
+    mapping(address => Vester) public vest;
+
+    // The address of Converter contract.
+    address public immutable converter;
+
+    /* ========== CONSTRUCTOR ========== */
+
+    /**
+     * @dev Initializes the contract's vesters and vesting amounts as well as sets
+     * the Vader token address.
+     *
+     * It conducts a sanity check to ensure that the total vesting amounts specified match
+     * the team allocation to ensure that the contract is deployed correctly.
+     *
+     * Additionally, it transfers ownership to the Vader contract that needs to consequently
+     * initiate the vesting period via {begin} after it mints the necessary amount to the contract.
+     */
+    constructor(IERC20 _vader, address _converter) {
+        require(
+            _vader != IERC20(_ZERO_ADDRESS) && _converter != _ZERO_ADDRESS,
+            "LinearVesting::constructor: Misconfiguration"
+        );
+
+        vader = _vader;
+        converter = _converter;
+
+        transferOwnership(address(_vader));
+    }
+
+    /* ========== VIEWS ========== */
+
+    /**
+     * @dev Returns the amount a user can claim at a given point in time.
+     *
+     * Requirements:
+     * - the vesting period has started
+     */
+    function getClaim(address _vester)
+        external
+        view
+        override
+        hasStarted
+        returns (uint256 vestedAmount)
+    {
+        Vester memory vester = vest[_vester];
+        return
+            _getClaim(
+                vester.amount,
+                vester.lastClaim,
+                vester.start,
+                vester.end
+            );
+    }
+
+    /* ========== MUTATIVE FUNCTIONS ========== */
+
+    /**
+     * @dev Allows a user to claim their pending vesting amount of the vested claim
+     *
+     * Emits a {Vested} event indicating the user who claimed their vested tokens
+     * as well as the amount that was vested.
+     *
+     * Requirements:
+     *
+     * - the vesting period has started
+     * - the caller must have a non-zero vested amount
+     */
+    function claim() external override returns (uint256 vestedAmount) {
+        Vester memory vester = vest[msg.sender];
+
+        require(
+            vester.start != 0,
+            "LinearVesting::claim: Incorrect Vesting Type"
+        );
+
+        require(
+            vester.start < block.timestamp,
+            "LinearVesting::claim: Not Started Yet"
+        );
+
+        vestedAmount = _getClaim(
+            vester.amount,
+            vester.lastClaim,
+            vester.start,
+            vester.end
+        );
+
+        require(vestedAmount != 0, "LinearVesting::claim: Nothing to claim");
+
+        vester.amount -= uint192(vestedAmount);
+        vester.lastClaim = uint64(block.timestamp);
+
+        vest[msg.sender] = vester;
+
+        emit Vested(msg.sender, vestedAmount);
+
+        vader.transfer(msg.sender, vestedAmount);
+    }
+
+    /* ========== RESTRICTED FUNCTIONS ========== */
+
+    /**
+     * @dev Allows the vesting period to be initiated.
+     *
+     * Emits a {VestingInitialized} event from which the start and
+     * end can be calculated via it's attached timestamp.
+     *
+     * Requirements:
+     *
+     * - the caller must be the owner (vader token)
+     */
+    function begin(address[] calldata vesters, uint192[] calldata amounts)
+        external
+        override
+        onlyOwner
+    {
+        require(
+            vesters.length == amounts.length,
+            "LinearVesting::begin: Vesters and Amounts lengths do not match"
+        );
+
+        uint256 _start = block.timestamp;
+        uint256 _end = block.timestamp + _VESTING_DURATION;
+
+        start = _start;
+        end = _end;
+
+        uint256 total;
+        // C4-Audit Fix for Issue # 81
+        for (uint256 i = 0; i < vesters.length; ++i) {
+            require(
+                amounts[i] != 0,
+                "LinearVesting::begin: Incorrect Amount Specified"
+            );
+            require(
+                vesters[i] != _ZERO_ADDRESS,
+                "LinearVesting::begin: Zero Vester Address Specified"
+            );
+            require(
+                vest[vesters[i]].amount == 0,
+                "LinearVesting::begin: Duplicate Vester Entry Specified"
+            );
+            vest[vesters[i]] = Vester(
+                amounts[i],
+                0,
+                uint128(_start),
+                uint128(_end)
+            );
+            total = total + amounts[i];
+        }
+        require(
+            total == _TEAM_ALLOCATION,
+            "LinearVesting::begin: Invalid Vest Amounts Specified"
+        );
+
+        require(
+            vader.balanceOf(address(this)) >= _TEAM_ALLOCATION,
+            "LinearVesting::begin: Vader is less than TEAM_ALLOCATION"
+        );
+
+        emit VestingInitialized(_VESTING_DURATION);
+
+        renounceOwnership();
+    }
+
+    /**
+     * @dev Adds a new vesting schedule to the contract.
+     *
+     * Requirements:
+     * - Only {converter} can call.
+     */
+    function vestFor(address user, uint256 amount)
+        external
+        override
+        onlyConverter
+        hasStarted
+    {
+        require(
+            amount <= type(uint192).max,
+            "LinearVesting::vestFor: Amount Overflows uint192"
+        );
+        require(
+            vest[user].amount == 0,
+            "LinearVesting::vestFor: Already a vester"
+        );
+        vest[user] = Vester(
+            uint192(amount),
+            0,
+            uint128(block.timestamp),
+            uint128(block.timestamp + 365 days)
+        );
+        vader.transferFrom(msg.sender, address(this), amount);
+
+        emit VestingCreated(user, amount);
+    }
+
+    /* ========== PRIVATE FUNCTIONS ========== */
+
+    function _getClaim(
+        uint256 amount,
+        uint256 lastClaim,
+        uint256 _start,
+        uint256 _end
+    ) private view returns (uint256) {
+        if (block.timestamp >= _end) return amount;
+        if (lastClaim == 0) lastClaim = _start;
+
+        return (amount * (block.timestamp - lastClaim)) / (_end - lastClaim);
+    }
+
+    /**
+     * @dev Validates that the vesting period has started
+     */
+    function _hasStarted() private view {
+        require(
+            start != 0,
+            "LinearVesting::_hasStarted: Vesting hasn't started yet"
+        );
+    }
+
+    /*
+     * @dev Ensures that only converter is able to call a function.
+     **/
+    function _onlyConverter() private view {
+        require(
+            msg.sender == converter,
+            "LinearVesting::_onlyConverter: Only converter is allowed to call"
+        );
+    }
+
+    /* ========== MODIFIERS ========== */
+
+    /**
+     * @dev Throws if the vesting period hasn't started
+     */
+    modifier hasStarted() {
+        _hasStarted();
+        _;
+    }
+
+    /*
+     * @dev Throws if called by address that is not converter.
+     **/
+    modifier onlyConverter() {
+        _onlyConverter();
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/tokens/vesting/LinearVesting.sol =====
+// ===== BEGIN SOURCE FILE: contracts/x-vader/XVader.sol =====
+// SPDX-License-Identifier: MIT AND AGPL-3.0-or-later
+pragma solidity 0.8.9;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol";
+import "../shared/ProtocolConstants.sol";
+
+contract XVader is ProtocolConstants, ERC20Votes {
+    // Address of vader token
+    IERC20 public immutable vader;
+
+    /*
+     * @dev Initializes contract's state by setting vader's tokens address and
+     * setting current token's name and symbol.
+     **/
+    constructor(IERC20 _vader) ERC20Permit("XVader") ERC20("XVader", "xVADER") {
+        require(
+            _vader != IERC20(_ZERO_ADDRESS),
+            "XVader::constructor: _vader cannot be a zero address"
+        );
+        vader = _vader;
+    }
+
+    // Locks vader and mints xVader
+    function enter(uint256 _amount) external {
+        // Gets the amount of vader locked in the contract
+        uint256 totalVader = vader.balanceOf(address(this));
+        // Gets the amount of xVader in existence
+        uint256 totalShares = totalSupply();
+
+        uint256 xVADERToMint = totalShares == 0 || totalVader == 0 // If no xVader exists, mint it 1:1 to the amount put in
+            ? _amount // Calculate and mint the amount of xVader the vader is worth.
+            : // The ratio will change overtime, as xVader is burned/minted and
+            // vader deposited + gained from fees / withdrawn.
+            (_amount * totalShares) / totalVader;
+
+        _mint(msg.sender, xVADERToMint);
+
+        // Lock the vader in the contract
+        vader.transferFrom(msg.sender, address(this), _amount);
+    }
+
+    // Claim back your VADER
+    // Unlocks the staked + gained vader and burns xVader
+    function leave(uint256 _shares) external {
+        // Gets the amount of xVader in existence
+        uint256 totalShares = totalSupply();
+        // Calculates the amount of vader the xVader is worth
+        uint256 vaderAmount = (_shares * vader.balanceOf(address(this))) /
+            totalShares;
+
+        _burn(msg.sender, _shares);
+        vader.transfer(msg.sender, vaderAmount);
+    }
+}
+// ===== END SOURCE FILE: contracts/x-vader/XVader.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/interfaces/IERC20Metadata.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+interface IERC20Metadata {
+    function decimals() external view returns (uint8);
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/interfaces/IERC20Metadata.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/interfaces/ITreasury.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+interface ITreasury {
+    function deposit(
+        address _principalToken,
+        uint _principalAmount,
+        uint _payoutAmount
+    ) external;
+
+    function valueOfToken(address _principalToken, uint _amount) external view returns (uint value);
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/interfaces/ITreasury.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/lib/FixedPoint.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+import "./FullMath.sol";
+
+library FixedPoint {
+    struct uq112x112 {
+        uint224 _x;
+    }
+
+    struct uq144x112 {
+        uint _x;
+    }
+
+    uint8 private constant RESOLUTION = 112;
+    uint private constant Q112 = 0x10000000000000000000000000000;
+    uint private constant Q224 = 0x100000000000000000000000000000000000000000000000000000000;
+    uint private constant LOWER_MASK = 0xffffffffffffffffffffffffffff; // decimal of UQ*x112 (lower 112 bits)
+
+    function decode(uq112x112 memory self) internal pure returns (uint112) {
+        return uint112(self._x >> RESOLUTION);
+    }
+
+    // decode a uq112x112 into a uint with 18 decimals of precision
+    function decode112with18(uq112x112 memory self) internal pure returns (uint) {
+        return uint(self._x) / 5192296858534827;
+    }
+
+    function fraction(uint numerator, uint denominator) internal pure returns (uq112x112 memory) {
+        require(denominator > 0, "FixedPoint::fraction: division by zero");
+        if (numerator == 0) return FixedPoint.uq112x112(0);
+
+        if (numerator <= uint144(-1)) {
+            uint result = (numerator << RESOLUTION) / denominator;
+            require(result <= uint224(-1), "FixedPoint::fraction: overflow");
+            return uq112x112(uint224(result));
+        } else {
+            uint result = FullMath.mulDiv(numerator, Q112, denominator);
+            require(result <= uint224(-1), "FixedPoint::fraction: overflow");
+            return uq112x112(uint224(result));
+        }
+    }
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/lib/FixedPoint.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/lib/FullMath.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+library FullMath {
+    function fullMul(uint x, uint y) private pure returns (uint l, uint h) {
+        uint mm = mulmod(x, y, uint(-1));
+        l = x * y;
+        h = mm - l;
+        if (mm < l) h -= 1;
+    }
+
+    function fullDiv(
+        uint l,
+        uint h,
+        uint d
+    ) private pure returns (uint) {
+        uint pow2 = d & -d;
+        d /= pow2;
+        l /= pow2;
+        l += h * ((-pow2) / pow2 + 1);
+        uint r = 1;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        r *= 2 - d * r;
+        return l * r;
+    }
+
+    function mulDiv(
+        uint x,
+        uint y,
+        uint d
+    ) internal pure returns (uint) {
+        (uint l, uint h) = fullMul(x, y);
+        uint mm = mulmod(x, y, d);
+        if (mm > l) h -= 1;
+        l -= mm;
+        require(h < d, "FullMath::mulDiv: overflow");
+        return fullDiv(l, h, d);
+    }
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/lib/FullMath.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/Ownable.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+contract Ownable {
+    event OwnerNominated(address newOwner);
+    event OwnerChanged(address newOwner);
+
+    address public owner;
+    address public nominatedOwner;
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "not owner");
+        _;
+    }
+
+    function nominateNewOwner(address _owner) external onlyOwner {
+        nominatedOwner = _owner;
+        emit OwnerNominated(_owner);
+    }
+
+    function acceptOwnership() external {
+        require(msg.sender == nominatedOwner, "not nominated");
+
+        owner = nominatedOwner;
+        nominatedOwner = address(0);
+
+        emit OwnerChanged(owner);
+    }
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/Ownable.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/Treasury.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "./interfaces/IERC20Metadata.sol";
+import "./interfaces/ITreasury.sol";
+import "./Ownable.sol";
+
+contract Treasury is Ownable, ITreasury {
+    using SafeERC20 for IERC20;
+    using SafeMath for uint;
+
+    event SetBondContract(address bond, bool approved);
+    event Withdraw(address indexed token, address indexed destination, uint amount);
+
+    uint8 private immutable PAYOUT_TOKEN_DECIMALS;
+
+    address public immutable payoutToken;
+    mapping(address => bool) public isBondContract;
+
+    constructor(address _payoutToken) {
+        require(_payoutToken != address(0), "payout token = zero");
+        payoutToken = _payoutToken;
+        PAYOUT_TOKEN_DECIMALS = IERC20Metadata(_payoutToken).decimals();
+    }
+
+    modifier onlyBondContract() {
+        require(isBondContract[msg.sender], "not bond");
+        _;
+    }
+
+    /**
+     *  @notice deposit principal token and recieve back payout token
+     *  @param _principalToken address
+     *  @param _principalAmount uint
+     *  @param _payoutAmount uint
+     */
+    function deposit(
+        address _principalToken,
+        uint _principalAmount,
+        uint _payoutAmount
+    ) external override onlyBondContract {
+        IERC20(_principalToken).safeTransferFrom(msg.sender, address(this), _principalAmount);
+        IERC20(payoutToken).safeTransfer(msg.sender, _payoutAmount);
+    }
+
+    /**
+     *   @notice returns payout token valuation of priciple
+     *   @param _principalToken address
+     *   @param _amount uint
+     *   @return value uint
+     */
+    function valueOfToken(address _principalToken, uint _amount) external view override returns (uint value) {
+        // convert amount to match payout token decimals
+        value = _amount.mul(10**PAYOUT_TOKEN_DECIMALS).div(10**IERC20Metadata(_principalToken).decimals());
+    }
+
+    /**
+     *  @notice owner can withdraw ERC20 token to desired address
+     *  @param _token uint
+     *  @param _destination address
+     *  @param _amount uint
+     */
+    function withdraw(
+        address _token,
+        address _destination,
+        uint _amount
+    ) external onlyOwner {
+        IERC20(_token).safeTransfer(_destination, _amount);
+        emit Withdraw(_token, _destination, _amount);
+    }
+
+    /**
+     *  @notice set bond contract
+     *  @param _bond address
+     *  @param _approve bool
+     */
+    function setBondContract(address _bond, bool _approve) external onlyOwner {
+        require(isBondContract[_bond] != _approve, "no change");
+        isBondContract[_bond] = _approve;
+        emit SetBondContract(_bond, _approve);
+    }
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/Treasury.sol =====
+// ===== BEGIN SOURCE FILE: repo/vader-bond/contracts/VaderBond.sol =====
+// SPDX-License-Identifier: AGPL-3.0-or-later
+pragma solidity 0.7.6;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./interfaces/IERC20Metadata.sol";
+import "./interfaces/ITreasury.sol";
+// import "./lib/FixedPoint.sol";
+import "./Ownable.sol";
+
+contract VaderBond is Ownable, ReentrancyGuard {
+    // using FixedPoint for FixedPoint.uq112x112;
+    using SafeERC20 for IERC20;
+    using SafeMath for uint;
+
+    event BondCreated(uint deposit, uint payout, uint expires);
+    event BondRedeemed(address indexed recipient, uint payout, uint remaining);
+    event BondPriceChanged(uint internalPrice, uint debtRatio);
+    event ControlVariableAdjustment(uint initialBCV, uint newBCV, uint adjustment, bool addition);
+    event TreasuryChanged(address treasury);
+
+    uint8 private immutable PRINCIPAL_TOKEN_DECIMALS;
+    uint8 private constant PAYOUT_TOKEN_DECIMALS = 18; // Vader has 18 decimals
+    uint private constant MIN_PAYOUT = 10**PAYOUT_TOKEN_DECIMALS / 100; // 0.01
+    uint private constant MAX_PERCENT_VESTED = 1e4; // 1 = 0.01%, 10000 = 100%
+    uint private constant MAX_PAYOUT_DENOM = 1e5; // 100 = 0.1%, 100000 = 100%
+
+    IERC20 public immutable payoutToken; // token paid for principal
+    IERC20 public immutable principalToken; // inflow token
+    ITreasury public treasury; // pays for and receives principal
+
+    Terms public terms; // stores terms for new bonds
+    Adjust public adjustment; // stores adjustment to BCV data
+
+    mapping(address => Bond) public bondInfo; // stores bond information for depositors
+
+    uint public totalDebt; // total value of outstanding bonds; used for pricing
+    uint public lastDecay; // reference block for debt decay
+
+    // Info for creating new bonds
+    struct Terms {
+        uint controlVariable; // scaling variable for price
+        uint vestingTerm; // in blocks
+        uint minPrice; // vs principal value
+        uint maxPayout; // in thousandths of a %. i.e. 500 = 0.5%
+        uint maxDebt; // max debt, same decimals with payout token
+    }
+    // Info for bond holder
+    struct Bond {
+        uint payout; // payout token remaining to be paid
+        uint vesting; // Blocks left to vest
+        uint lastBlock; // Last interaction
+    }
+    // Info for incremental adjustments to control variable
+    struct Adjust {
+        bool add; // addition or subtraction
+        uint rate; // increment
+        uint target; // BCV when adjustment finished
+        uint buffer; // minimum length (in blocks) between adjustments
+        uint lastBlock; // block when last adjustment made
+    }
+
+    constructor(
+        address _treasury,
+        address _payoutToken,
+        address _principalToken
+    ) {
+        require(_treasury != address(0), "treasury = zero");
+        treasury = ITreasury(_treasury);
+        require(_payoutToken != address(0), "payout token = zero");
+        payoutToken = IERC20(_payoutToken);
+        require(_principalToken != address(0), "principal token = zero");
+        principalToken = IERC20(_principalToken);
+
+        PRINCIPAL_TOKEN_DECIMALS = IERC20Metadata(_principalToken).decimals();
+    }
+
+    /**
+     *  @notice initializes bond parameters
+     *  @param _controlVariable uint
+     *  @param _vestingTerm uint
+     *  @param _minPrice uint
+     *  @param _maxPayout uint
+     *  @param _maxDebt uint
+     *  @param _initialDebt uint
+     */
+    function initializeBond(
+        uint _controlVariable,
+        uint _vestingTerm,
+        uint _minPrice,
+        uint _maxPayout,
+        uint _maxDebt,
+        uint _initialDebt
+    ) external onlyOwner {
+        require(terms.controlVariable == 0, "initialized");
+
+        require(_controlVariable > 0, "cv = 0");
+        // roughly 36 hours (262 blocks / hour)
+        require(_vestingTerm >= 10000, "vesting < 10000");
+        // max payout must be < 1% of total supply of payout token
+        require(_maxPayout <= MAX_PAYOUT_DENOM / 100, "max payout > 1%");
+
+        terms = Terms({
+            controlVariable: _controlVariable,
+            vestingTerm: _vestingTerm,
+            minPrice: _minPrice,
+            maxPayout: _maxPayout,
+            maxDebt: _maxDebt
+        });
+
+        totalDebt = _initialDebt;
+        lastDecay = block.number;
+    }
+
+    enum PARAMETER {
+        VESTING,
+        PAYOUT,
+        DEBT
+    }
+
+    /**
+     *  @notice set parameters for new bonds
+     *  @param _param PARAMETER
+     *  @param _input uint
+     */
+    function setBondTerms(PARAMETER _param, uint _input) external onlyOwner {
+        if (_param == PARAMETER.VESTING) {
+            // roughly 36 hours (262 blocks / hour)
+            require(_input >= 10000, "vesting < 10000");
+            terms.vestingTerm = _input;
+        } else if (_param == PARAMETER.PAYOUT) {
+            // max payout must be < 1% of total supply of payout token
+            require(_input <= MAX_PAYOUT_DENOM / 100, "max payout > 1%");
+            terms.maxPayout = _input;
+        } else if (_param == PARAMETER.DEBT) {
+            terms.maxDebt = _input;
+        }
+    }
+
+    /**
+     *  @notice set control variable adjustment
+     *  @param _add bool
+     *  @param _rate uint
+     *  @param _target uint
+     *  @param _buffer uint
+     */
+    function setAdjustment(
+        bool _add,
+        uint _rate,
+        uint _target,
+        uint _buffer
+    ) external onlyOwner {
+        require(_rate <= terms.controlVariable.mul(3) / 100, "rate > 3%");
+        adjustment = Adjust({add: _add, rate: _rate, target: _target, buffer: _buffer, lastBlock: block.number});
+    }
+
+    /**
+     *  @notice deposit bond
+     *  @param _amount uint
+     *  @param _maxPrice uint
+     *  @param _depositor address
+     *  @return uint
+     */
+    function deposit(
+        uint _amount,
+        uint _maxPrice,
+        address _depositor
+    ) external nonReentrant returns (uint) {
+        require(_depositor != address(0), "depositor = zero");
+
+        decayDebt();
+        require(totalDebt <= terms.maxDebt, "max debt");
+        require(_maxPrice >= bondPrice(), "bond price > max");
+
+        uint value = treasury.valueOfToken(address(principalToken), _amount);
+        uint payout = payoutFor(value);
+
+        require(payout >= MIN_PAYOUT, "payout < min");
+        // size protection because there is no slippage
+        require(payout <= maxPayout(), "payout > max");
+
+        principalToken.safeTransferFrom(msg.sender, address(this), _amount);
+        principalToken.approve(address(treasury), _amount);
+        treasury.deposit(address(principalToken), _amount, payout);
+
+        totalDebt = totalDebt.add(value);
+
+        bondInfo[_depositor] = Bond({
+            payout: bondInfo[_depositor].payout.add(payout),
+            vesting: terms.vestingTerm,
+            lastBlock: block.number
+        });
+
+        emit BondCreated(_amount, payout, block.number.add(terms.vestingTerm));
+
+        uint price = bondPrice();
+        // remove floor if price above min
+        if (price > terms.minPrice && terms.minPrice > 0) {
+            terms.minPrice = 0;
+        }
+
+        emit BondPriceChanged(price, debtRatio());
+
+        adjust(); // control variable is adjusted
+        return payout;
+    }
+
+    /**
+     *  @notice redeem bond for user
+     *  @return uint
+     */
+    function redeem(address _depositor) external nonReentrant returns (uint) {
+        Bond memory info = bondInfo[_depositor];
+        uint percentVested = percentVestedFor(_depositor); // (blocks since last interaction / vesting term remaining)
+
+        if (percentVested >= MAX_PERCENT_VESTED) {
+            // if fully vested
+            delete bondInfo[_depositor]; // delete user info
+            emit BondRedeemed(_depositor, info.payout, 0); // emit bond data
+            payoutToken.transfer(_depositor, info.payout);
+            return info.payout;
+        } else {
+            // if unfinished
+            // calculate payout vested
+            uint payout = info.payout.mul(percentVested) / MAX_PERCENT_VESTED;
+
+            // store updated deposit info
+            bondInfo[_depositor] = Bond({
+                payout: info.payout.sub(payout),
+                vesting: info.vesting.sub(block.number.sub(info.lastBlock)),
+                lastBlock: block.number
+            });
+
+            emit BondRedeemed(_depositor, payout, bondInfo[_depositor].payout);
+            payoutToken.transfer(_depositor, payout);
+            return payout;
+        }
+    }
+
+    /**
+     *  @notice makes incremental adjustment to control variable
+     */
+    function adjust() private {
+        uint blockCanAdjust = adjustment.lastBlock.add(adjustment.buffer);
+        if (adjustment.rate != 0 && block.number >= blockCanAdjust) {
+            uint initial = terms.controlVariable;
+            if (adjustment.add) {
+                terms.controlVariable = terms.controlVariable.add(adjustment.rate);
+                if (terms.controlVariable >= adjustment.target) {
+                    adjustment.rate = 0;
+                }
+            } else {
+                terms.controlVariable = terms.controlVariable.sub(adjustment.rate);
+                if (terms.controlVariable <= adjustment.target) {
+                    adjustment.rate = 0;
+                }
+            }
+            adjustment.lastBlock = block.number;
+            emit ControlVariableAdjustment(initial, terms.controlVariable, adjustment.rate, adjustment.add);
+        }
+    }
+
+    /**
+     *  @notice amount to decay total debt by
+     *  @return decay uint
+     */
+    function debtDecay() public view returns (uint decay) {
+        uint blocksSinceLast = block.number.sub(lastDecay);
+        decay = totalDebt.mul(blocksSinceLast).div(terms.vestingTerm);
+        if (decay > totalDebt) {
+            decay = totalDebt;
+        }
+    }
+
+    /**
+     *  @notice reduce total debt
+     */
+    function decayDebt() private {
+        totalDebt = totalDebt.sub(debtDecay());
+        lastDecay = block.number;
+    }
+
+    /**
+     *  @notice calculate debt factoring in decay
+     *  @return uint
+     */
+    function currentDebt() public view returns (uint) {
+        return totalDebt.sub(debtDecay());
+    }
+
+    /**
+     *  @notice calculate current ratio of debt to payout token supply
+     *  @notice protocols using DAO should be careful when quickly adding large %s to total supply
+     *  @return uint
+     */
+    function debtRatio() public view returns (uint) {
+        // TODO: use fraction?
+        // return
+        //     FixedPoint
+        //         .fraction(currentDebt().mul(10**PAYOUT_TOKEN_DECIMALS), payoutToken.totalSupply())
+        //         .decode112with18() / 1e18;
+        // NOTE: debt ratio is scaled up by 1e18
+        // NOTE: fails if payoutToken.totalSupply() == 0
+        return currentDebt().mul(1e18).div(payoutToken.totalSupply());
+    }
+
+    /**
+     *  @notice calculate current bond premium
+     *  @return price uint
+     *  @dev price = 10 ** principal token decimals = 1 principal token buys 1 bond
+     */
+    function bondPrice() public view returns (uint price) {
+        // NOTE: debt ratio scaled up with 1e18, so divide by 1e18
+        price = terms.controlVariable.mul(debtRatio()) / 1e18;
+        if (price < terms.minPrice) {
+            price = terms.minPrice;
+        }
+    }
+
+    /**
+     *  @notice determine maximum bond size
+     *  @return uint
+     */
+    function maxPayout() public view returns (uint) {
+        return payoutToken.totalSupply().mul(terms.maxPayout) / MAX_PAYOUT_DENOM;
+    }
+
+    /**
+     *  @notice calculate total interest due for new bond
+     *  @param _value uint
+     *  @return uint
+     */
+    function payoutFor(uint _value) public view returns (uint) {
+        // TODO: use fraction?
+        // NOTE: scaled up by 1e7
+        // return FixedPoint.fraction(_value, bondPrice()).decode112with18() / 1e11;
+
+        /*
+        B = amount of bond to payout
+        A = amount of principal token in
+        P = amount of principal token to pay to get 1 bond
+
+        B = A / P
+        */
+        // NOTE: decimals of value must match payout token decimals
+        // NOTE: bond price must match principal token decimals
+        return _value.mul(10**PRINCIPAL_TOKEN_DECIMALS).div(bondPrice());
+    }
+
+    /**
+     *  @notice calculate how far into vesting a depositor is
+     *  @param _depositor address
+     *  @return percentVested uint
+     */
+    function percentVestedFor(address _depositor) public view returns (uint percentVested) {
+        Bond memory bond = bondInfo[_depositor];
+        uint blocksSinceLast = block.number.sub(bond.lastBlock);
+        uint vesting = bond.vesting;
+        if (vesting > 0) {
+            percentVested = blocksSinceLast.mul(MAX_PERCENT_VESTED).div(vesting);
+        }
+        // default percentVested = 0
+    }
+
+    /**
+     *  @notice calculate amount of payout token available for claim by depositor
+     *  @param _depositor address
+     *  @return uint
+     */
+    function pendingPayoutFor(address _depositor) external view returns (uint) {
+        uint percentVested = percentVestedFor(_depositor);
+        uint payout = bondInfo[_depositor].payout;
+        if (percentVested >= MAX_PERCENT_VESTED) {
+            return payout;
+        } else {
+            return payout.mul(percentVested) / MAX_PERCENT_VESTED;
+        }
+    }
+
+    /**
+     *  @notice owner can update treasury address
+     *  @param _treasury address
+     *  @dev allow new treasury to be zero address
+     */
+    function setTreasury(address _treasury) external onlyOwner {
+        require(_treasury != address(treasury), "no change");
+        treasury = ITreasury(_treasury);
+        emit TreasuryChanged(_treasury);
+    }
+
+    /**
+     *  @notice allows owner to send lost tokens to owner
+     *  @param _token address
+     */
+    function recoverLostToken(address _token) external onlyOwner {
+        require(_token != address(principalToken), "protected");
+        require(_token != address(payoutToken), "protected");
+        IERC20(_token).safeTransfer(owner, IERC20(_token).balanceOf(address(this)));
+    }
+}
+// ===== END SOURCE FILE: repo/vader-bond/contracts/VaderBond.sol =====

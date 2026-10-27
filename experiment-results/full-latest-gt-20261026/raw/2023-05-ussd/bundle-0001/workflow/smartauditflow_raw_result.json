@@ -1,0 +1,126 @@
+{
+  "Findings": [
+    {
+      "Issue": "Rebalancer trusts manipulable Uniswap V3 spot price",
+      "Severity": "High",
+      "Description": "USSDRebalancer.rebalance() is publicly callable and selects financially consequential operations using getOwnValuation(), which reads the configured Uniswap V3 pool's instantaneous slot0().sqrtPriceX96. No TWAP, independent oracle, freshness check, deviation bound, or liquidity control validates this value. An attacker who temporarily moves the configured pool price can cause the rebalancer to select either the low-price branch, which sells protocol collateral and buys USSD for burning, or the high-price branch, which mints USSD and sells it for collateral. getSupplyProportion() also derives sizing inputs from the pool's live token balances, which are affected by swaps. The resulting swaps call USSD.UniV3SwapInput(), where amountOutMinimum is hardcoded to zero, allowing execution at an adverse manipulated price. The supplied source establishes the spot-price-to-rebalance-to-asset-movement path; exact profitability depends on deployment liquidity, balances, and configured routes not included in the bundle.",
+      "Impact": "The protocol can be induced to mint USSD, sell collateral, buy and burn USSD, or exchange assets at attacker-influenced prices. This can reduce the value or alter the composition of USSD collateral reserves and transfer value to parties trading against the manipulated pool.",
+      "Location": "contracts/USSDRebalancer.sol — USSDRebalancer.getOwnValuation; contracts/USSDRebalancer.sol — USSDRebalancer.rebalance; contracts/USSDRebalancer.sol — USSDRebalancer.getSupplyProportion; contracts/USSD.sol — USSD.UniV3SwapInput",
+      "Mitigation": "Replace the slot0-based valuation with a sufficiently long Uniswap V3 TWAP or an independent oracle, and require freshness and maximum-deviation checks before selecting or sizing a rebalance. Add liquidity and maximum-trade-size limits, and derive nonzero amountOutMinimum values from a validated reference price for every rebalancer swap. Revalidate the execution price or revert when the observed spot price materially deviates from the protected reference.",
+      "finding_id": "SAF-001"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Rebalancer trusts manipulable Uniswap V3 spot price",
+      "description": "USSDRebalancer.rebalance() is publicly callable and selects financially consequential operations using getOwnValuation(), which reads the configured Uniswap V3 pool's instantaneous slot0().sqrtPriceX96. No TWAP, independent oracle, freshness check, deviation bound, or liquidity control validates this value. An attacker who temporarily moves the configured pool price can cause the rebalancer to select either the low-price branch, which sells protocol collateral and buys USSD for burning, or the high-price branch, which mints USSD and sells it for collateral. getSupplyProportion() also derives sizing inputs from the pool's live token balances, which are affected by swaps. The resulting swaps call USSD.UniV3SwapInput(), where amountOutMinimum is hardcoded to zero, allowing execution at an adverse manipulated price. The supplied source establishes the spot-price-to-rebalance-to-asset-movement path; exact profitability depends on deployment liquidity, balances, and configured routes not included in the bundle.",
+      "impact": "The protocol can be induced to mint USSD, sell collateral, buy and burn USSD, or exchange assets at attacker-influenced prices. This can reduce the value or alter the composition of USSD collateral reserves and transfer value to parties trading against the manipulated pool.",
+      "mitigation": "Replace the slot0-based valuation with a sufficiently long Uniswap V3 TWAP or an independent oracle, and require freshness and maximum-deviation checks before selecting or sizing a rebalance. Add liquidity and maximum-trade-size limits, and derive nonzero amountOutMinimum values from a validated reference price for every rebalancer swap. Revalidate the execution price or revert when the observed spot price materially deviates from the protected reference.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "getOwnValuation",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "rebalance",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/USSDRebalancer.sol",
+          "contract": "USSDRebalancer",
+          "function": "getSupplyProportion",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/USSD.sol",
+          "contract": "USSD",
+          "function": "UniV3SwapInput",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 1,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Rebalancer trusts manipulable Uniswap V3 spot price\",\n    \"description\": \"USSDRebalancer.rebalance() is publicly callable and selects financially consequential operations using getOwnValuation(), which reads the configured Uniswap V3 pool's instantaneous slot0().sqrtPriceX96. No TWAP, independent oracle, freshness check, deviation bound, or liquidity control validates this value. An attacker who temporarily moves the configured pool price can cause the rebalancer to select either the low-price branch, which sells protocol collateral and buys USSD for burning, or the high-price branch, which mints USSD and sells it for collateral. getSupplyProportion() also derives sizing inputs from the pool's live token balances, which are affected by swaps. The resulting swaps call USSD.UniV3SwapInput(), where amountOutMinimum is hardcoded to zero, allowing execution at an adverse manipulated price. The supplied source establishes the spot-price-to-rebalance-to-asset-movement path; exact profitability depends on deployment liquidity, balances, and configured routes not included in the bundle.\",\n    \"impact\": \"The protocol can be induced to mint USSD, sell collateral, buy and burn USSD, or exchange assets at attacker-influenced prices. This can reduce the value or alter the composition of USSD collateral reserves and transfer value to parties trading against the manipulated pool.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/USSDRebalancer.sol\",\n        \"contract\": \"USSDRebalancer\",\n        \"function\": \"getOwnValuation\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/USSDRebalancer.sol\",\n        \"contract\": \"USSDRebalancer\",\n        \"function\": \"rebalance\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/USSDRebalancer.sol\",\n        \"contract\": \"USSDRebalancer\",\n        \"function\": \"getSupplyProportion\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/USSD.sol\",\n        \"contract\": \"USSD\",\n        \"function\": \"UniV3SwapInput\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Replace the slot0-based valuation with a sufficiently long Uniswap V3 TWAP or an independent oracle, and require freshness and maximum-deviation checks before selecting or sizing a rebalance. Add liquidity and maximum-trade-size limits, and derive nonzero amountOutMinimum values from a validated reference price for every rebalancer swap. Revalidate the execution price or revert when the observed spot price materially deviates from the protected reference.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 251.1246359348297,
+    "session_id": "8d6ecc4f-5814-425a-a0b9-077d5461cb13"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2023-05-ussd",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Rebalancer trusts manipulable Uniswap V3 spot price",
+        "description": "USSDRebalancer.rebalance() is publicly callable and selects financially consequential operations using getOwnValuation(), which reads the configured Uniswap V3 pool's instantaneous slot0().sqrtPriceX96. No TWAP, independent oracle, freshness check, deviation bound, or liquidity control validates this value. An attacker who temporarily moves the configured pool price can cause the rebalancer to select either the low-price branch, which sells protocol collateral and buys USSD for burning, or the high-price branch, which mints USSD and sells it for collateral. getSupplyProportion() also derives sizing inputs from the pool's live token balances, which are affected by swaps. The resulting swaps call USSD.UniV3SwapInput(), where amountOutMinimum is hardcoded to zero, allowing execution at an adverse manipulated price. The supplied source establishes the spot-price-to-rebalance-to-asset-movement path; exact profitability depends on deployment liquidity, balances, and configured routes not included in the bundle.",
+        "impact": "The protocol can be induced to mint USSD, sell collateral, buy and burn USSD, or exchange assets at attacker-influenced prices. This can reduce the value or alter the composition of USSD collateral reserves and transfer value to parties trading against the manipulated pool.",
+        "mitigation": "Replace the slot0-based valuation with a sufficiently long Uniswap V3 TWAP or an independent oracle, and require freshness and maximum-deviation checks before selecting or sizing a rebalance. Add liquidity and maximum-trade-size limits, and derive nonzero amountOutMinimum values from a validated reference price for every rebalancer swap. Revalidate the execution price or revert when the observed spot price materially deviates from the protected reference.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/USSDRebalancer.sol",
+            "contract": "USSDRebalancer",
+            "function": "getOwnValuation",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/USSDRebalancer.sol",
+            "contract": "USSDRebalancer",
+            "function": "rebalance",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/USSDRebalancer.sol",
+            "contract": "USSDRebalancer",
+            "function": "getSupplyProportion",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/USSD.sol",
+            "contract": "USSD",
+            "function": "UniV3SwapInput",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

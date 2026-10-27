@@ -1,0 +1,292 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2021-04-marginswap",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "412d4ff61c9dfedb2f7d2fe957d911f7dc4ccfcb",
+  "actual_git_head": "412d4ff61c9dfedb2f7d2fe957d911f7dc4ccfcb",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 19,
+  "excluded_solidity_file_count": 0,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 34008,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 34008,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/Admin.sol",
+          "sha256": "049d3cc7a63ee046001d2902f8ead34be47358570611d11bfc941e773b6cf95c",
+          "source_bytes_utf8": 7891,
+          "source_line_count": 230,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./IncentiveDistribution.sol",
+            "./RoleAware.sol",
+            "./Fund.sol",
+            "./CrossMarginTrading.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 231
+        },
+        {
+          "file": "contracts/BaseLending.sol",
+          "sha256": "f2b9dbe77edff7b4ff7112044af0269a8cd06030efd10cc50d2979d366c37e4e",
+          "source_bytes_utf8": 3993,
+          "source_line_count": 135,
+          "imports": [
+            "./RoleAware.sol"
+          ],
+          "bundle_marker_line": 233,
+          "bundle_source_start_line": 234,
+          "bundle_source_end_line": 368
+        },
+        {
+          "file": "contracts/BondLending.sol",
+          "sha256": "803b4261b8c0a783ddb62aaf83464c062de2ec6baee5ceeb5e2ad98f5e11f1e0",
+          "source_bytes_utf8": 7266,
+          "source_line_count": 232,
+          "imports": [
+            "./BaseLending.sol"
+          ],
+          "bundle_marker_line": 370,
+          "bundle_source_start_line": 371,
+          "bundle_source_end_line": 602
+        },
+        {
+          "file": "contracts/CrossMarginAccounts.sol",
+          "sha256": "ea2b399efae9480c4be0211b5c0f835c54058571488e41ac9875910cd3932993",
+          "source_bytes_utf8": 11919,
+          "source_line_count": 341,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "./Fund.sol",
+            "./Lending.sol",
+            "./RoleAware.sol",
+            "./MarginRouter.sol",
+            "./PriceAware.sol"
+          ],
+          "bundle_marker_line": 604,
+          "bundle_source_start_line": 605,
+          "bundle_source_end_line": 945
+        },
+        {
+          "file": "contracts/CrossMarginLiquidation.sol",
+          "sha256": "279051a770a4c11c60d3708bcbf73e560182e4cebbe2b0ff506e0fe594c2b479",
+          "source_bytes_utf8": 12667,
+          "source_line_count": 337,
+          "imports": [
+            "./CrossMarginAccounts.sol"
+          ],
+          "bundle_marker_line": 947,
+          "bundle_source_start_line": 948,
+          "bundle_source_end_line": 1284
+        },
+        {
+          "file": "contracts/CrossMarginTrading.sol",
+          "sha256": "2aa1ea229be08d8cf597072f8df8114f3c0871fb0e717f8113e79e4f476ee577",
+          "source_bytes_utf8": 10224,
+          "source_line_count": 303,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "./Fund.sol",
+            "./Lending.sol",
+            "./RoleAware.sol",
+            "./MarginRouter.sol",
+            "./CrossMarginLiquidation.sol"
+          ],
+          "bundle_marker_line": 1286,
+          "bundle_source_start_line": 1287,
+          "bundle_source_end_line": 1589
+        },
+        {
+          "file": "contracts/Fund.sol",
+          "sha256": "6fac057a2018ffc2de624a4d875644a19859fc1e02fc74e1a789994d7b4f45b2",
+          "source_bytes_utf8": 2044,
+          "source_line_count": 70,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/Address.sol",
+            "../interfaces/IWETH.sol",
+            "./RoleAware.sol"
+          ],
+          "bundle_marker_line": 1591,
+          "bundle_source_start_line": 1592,
+          "bundle_source_end_line": 1661
+        },
+        {
+          "file": "contracts/HourlyBondSubscriptionLending.sol",
+          "sha256": "e779d9abcfff1363df730df1066996e4803b9b141313de9ee942b1ff94c75e8a",
+          "source_bytes_utf8": 6890,
+          "source_line_count": 208,
+          "imports": [
+            "./BaseLending.sol"
+          ],
+          "bundle_marker_line": 1663,
+          "bundle_source_start_line": 1664,
+          "bundle_source_end_line": 1871
+        },
+        {
+          "file": "contracts/IncentiveDistribution.sol",
+          "sha256": "3c35058f1eaae8ba3077f012b73194282089996ba522ab96e34fb42664a296ce",
+          "source_bytes_utf8": 10168,
+          "source_line_count": 320,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./RoleAware.sol",
+            "./Fund.sol"
+          ],
+          "bundle_marker_line": 1873,
+          "bundle_source_start_line": 1874,
+          "bundle_source_end_line": 2193
+        },
+        {
+          "file": "contracts/IncentivizedHolder.sol",
+          "sha256": "ce85e33021211e684888a938d4753fa9e1c71cc35c90399d69107abdeff9598c",
+          "source_bytes_utf8": 1344,
+          "source_line_count": 48,
+          "imports": [
+            "./IncentiveDistribution.sol",
+            "./RoleAware.sol"
+          ],
+          "bundle_marker_line": 2195,
+          "bundle_source_start_line": 2196,
+          "bundle_source_end_line": 2243
+        },
+        {
+          "file": "contracts/IsolatedMarginAccounts.sol",
+          "sha256": "ea4edeca66914a6ffeeb8e6a7c80160eb620b277c572cd568cb30b441480a12c",
+          "source_bytes_utf8": 3988,
+          "source_line_count": 126,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "./RoleAware.sol",
+            "./Lending.sol",
+            "./PriceAware.sol"
+          ],
+          "bundle_marker_line": 2245,
+          "bundle_source_start_line": 2246,
+          "bundle_source_end_line": 2371
+        },
+        {
+          "file": "contracts/IsolatedMarginLiquidation.sol",
+          "sha256": "256f008baee5bf6d62b271500e87b76916b37cf9d2fbd2da51f5b7f60bd00b68",
+          "source_bytes_utf8": 10177,
+          "source_line_count": 280,
+          "imports": [
+            "./IsolatedMarginAccounts.sol"
+          ],
+          "bundle_marker_line": 2373,
+          "bundle_source_start_line": 2374,
+          "bundle_source_end_line": 2653
+        },
+        {
+          "file": "contracts/IsolatedMarginTrading.sol",
+          "sha256": "afcff4f731f62159f4b4679f67e05159d3dd36d5cb57674d924b7a153d3819ce",
+          "source_bytes_utf8": 2575,
+          "source_line_count": 89,
+          "imports": [
+            "./IsolatedMarginLiquidation.sol"
+          ],
+          "bundle_marker_line": 2655,
+          "bundle_source_start_line": 2656,
+          "bundle_source_end_line": 2744
+        },
+        {
+          "file": "contracts/Lending.sol",
+          "sha256": "d6ef481c34af9e078f542b161d3cb4b2e5e9574db24331b78756b798f4b79edf",
+          "source_bytes_utf8": 12618,
+          "source_line_count": 390,
+          "imports": [
+            "./Fund.sol",
+            "./HourlyBondSubscriptionLending.sol",
+            "./BondLending.sol",
+            "./IncentivizedHolder.sol"
+          ],
+          "bundle_marker_line": 2746,
+          "bundle_source_start_line": 2747,
+          "bundle_source_end_line": 3136
+        },
+        {
+          "file": "contracts/MarginRouter.sol",
+          "sha256": "02cc16d7e22b9efe3e5095133b4e362dbe55d5db8692d1e4113151b273923bd7",
+          "source_bytes_utf8": 13157,
+          "source_line_count": 402,
+          "imports": [
+            "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol",
+            "../libraries/UniswapStyleLib.sol",
+            "./RoleAware.sol",
+            "./Fund.sol",
+            "../interfaces/IMarginTrading.sol",
+            "./Lending.sol",
+            "./Admin.sol",
+            "./IncentivizedHolder.sol"
+          ],
+          "bundle_marker_line": 3138,
+          "bundle_source_start_line": 3139,
+          "bundle_source_end_line": 3540
+        },
+        {
+          "file": "contracts/PriceAware.sol",
+          "sha256": "b8aaadc58503d9ac1b86405dc5282b8b1d0b467cae4c1e68a9a2c8ad9efb3829",
+          "source_bytes_utf8": 7857,
+          "source_line_count": 239,
+          "imports": [
+            "./RoleAware.sol",
+            "./MarginRouter.sol",
+            "../libraries/UniswapStyleLib.sol"
+          ],
+          "bundle_marker_line": 3542,
+          "bundle_source_start_line": 3543,
+          "bundle_source_end_line": 3781
+        },
+        {
+          "file": "contracts/RoleAware.sol",
+          "sha256": "c79d3b9c788287397f5a6f32b741e2422a5e9eaa5231e9bd61055c8ae2978e4f",
+          "source_bytes_utf8": 4115,
+          "source_line_count": 133,
+          "imports": [
+            "./Roles.sol"
+          ],
+          "bundle_marker_line": 3783,
+          "bundle_source_start_line": 3784,
+          "bundle_source_end_line": 3916
+        },
+        {
+          "file": "contracts/Roles.sol",
+          "sha256": "784f0cb072a60067b6fd73ad284e58f7e9786946275d0b822ce594353a559767",
+          "source_bytes_utf8": 904,
+          "source_line_count": 31,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol"
+          ],
+          "bundle_marker_line": 3918,
+          "bundle_source_start_line": 3919,
+          "bundle_source_end_line": 3949
+        },
+        {
+          "file": "contracts/UniswapStyleLib.sol",
+          "sha256": "30497e86d6375dfaa44fa9883531fd040d89476918dae5ad896afdd3466a482d",
+          "source_bytes_utf8": 3840,
+          "source_line_count": 107,
+          "imports": [
+            "@uniswap/v2-core/contracts/interfaces/IUniswapV2Pair.sol"
+          ],
+          "bundle_marker_line": 3951,
+          "bundle_source_start_line": 3952,
+          "bundle_source_end_line": 4058
+        }
+      ]
+    }
+  ],
+  "excluded_files": [],
+  "source_repo_dir": "2021-04-marginswap"
+}

@@ -1,0 +1,60 @@
+{
+  "repo_id": "2021-08-notional",
+  "ground_truth": [
+    {
+      "title": "[H-10] Liquidity token value can be manipulated",
+      "description": "AssetHandler.getLiquidityTokenValue() loads the current market and values a liquidity token from its proportional asset-cash and fCash claims. getCashClaims() and getHaircutCashClaims() derive those claims from mutable totalAssetCash and totalfCash reserves relative to totalLiquidity, while the fCash component is discounted using the lagged oracleRate. A flash-loan-funded lend or borrow can atomically change the reserve composition. Although this manipulation only increases the token's unadjusted value, the risk-adjusted collateral value can fall because the fCash claim receives an additional fCash haircut while the asset-cash claim does not.",
+      "impact": "An attacker can temporarily reduce a direct liquidity provider's risk-adjusted collateral value and cause an account near minimum collateralization to appear undercollateralized and become eligible for liquidation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getHaircutCashClaims(PortfolioAsset,MarketParameters,CashGroupParameters)",
+          "start_line": 120,
+          "end_line": 138
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "_calcToken(int256,int256,int256,int256)",
+          "start_line": 141,
+          "end_line": 148
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getLiquidityTokenValue(uint256,CashGroupParameters,MarketParameters,PortfolioAsset[],uint256,bool)",
+          "start_line": 151,
+          "end_line": 216
+        }
+      ],
+      "mitigation": "Do not use current market reserves to determine liquidity-token collateral value. Use a manipulation-resistant TWAP to determine the liquidity token's collateral value.",
+      "finding_id": "H-10",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-07] Attackers can force liquidations by borrowing large amounts of an asset.",
+      "description": "Borrowing a large amount of an asset changes the market's lastImpliedRate. Because the rate oracle is updated with a lagged time window, the manipulated rate can be used during fCash valuation before the oracle fully reflects the prior market state. The resulting risk-adjusted present value can decrease even though the underlying borrowing action is otherwise permitted.",
+      "impact": "An attacker can make an account near the minimum collateralization threshold appear undercollateralized and force its liquidation by temporarily moving the market rate through a large borrow.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "calculateTrade(MarketParameters,CashGroupParameters,int256,uint256,uint256)",
+          "start_line": 81,
+          "end_line": 140
+        },
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "_updateRateOracle(uint256,uint256,uint256,uint256,uint256)",
+          "start_line": 435,
+          "end_line": 466
+        }
+      ],
+      "mitigation": "Increase the rate oracle's time window so that a short-lived rate change caused by a large borrow has less immediate influence on fCash valuation and liquidation eligibility.",
+      "finding_id": "M-07",
+      "review_status": "gold_verified"
+    }
+  ]
+}

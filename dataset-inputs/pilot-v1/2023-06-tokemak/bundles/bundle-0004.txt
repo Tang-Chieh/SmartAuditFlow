@@ -1,0 +1,3300 @@
+// ===== BEGIN SOURCE FILE: src/utils/univ3/BytesLib.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+// This file is a direct duplicate of
+// https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/BytesLib.sol.
+// However, due to version constraints, it has been copied into the project instead of being installed as a module.
+
+/*
+ * @title Solidity Bytes Arrays Utils
+ * @author Gonçalo Sá <goncalo.sa@consensys.net>
+ *
+ * @dev Bytes tightly packed arrays utility library for ethereum contracts written in Solidity.
+ *      The library lets you concatenate, slice and type cast bytes arrays both in memory and storage.
+ */
+pragma solidity 0.8.17;
+
+//slither-disable-start assembly
+//solhint-disable no-inline-assembly
+library BytesLib {
+    function slice(bytes memory _bytes, uint256 _start, uint256 _length) internal pure returns (bytes memory) {
+        require(_length + 31 >= _length, "slice_overflow");
+        require(_start + _length >= _start, "slice_overflow");
+        require(_bytes.length >= _start + _length, "slice_outOfBounds");
+
+        bytes memory tempBytes;
+
+        assembly {
+            switch iszero(_length)
+            case 0 {
+                // Get a location of some free memory and store it in tempBytes as
+                // Solidity does for memory variables.
+                tempBytes := mload(0x40)
+
+                // The first word of the slice result is potentially a partial
+                // word read from the original array. To read it, we calculate
+                // the length of that partial word and start copying that many
+                // bytes into the array. The first word we copy will start with
+                // data we don't care about, but the last `lengthmod` bytes will
+                // land at the beginning of the contents of the new array. When
+                // we're done copying, we overwrite the full first word with
+                // the actual length of the slice.
+                let lengthmod := and(_length, 31)
+
+                // The multiplication in the next line is necessary
+                // because when slicing multiples of 32 bytes (lengthmod == 0)
+                // the following copy loop was copying the origin's length
+                // and then ending prematurely not copying everything it should.
+                let mc := add(add(tempBytes, lengthmod), mul(0x20, iszero(lengthmod)))
+                let end := add(mc, _length)
+
+                for {
+                    // The multiplication in the next line has the same exact purpose
+                    // as the one above.
+                    let cc := add(add(add(_bytes, lengthmod), mul(0x20, iszero(lengthmod))), _start)
+                } lt(mc, end) {
+                    mc := add(mc, 0x20)
+                    cc := add(cc, 0x20)
+                } { mstore(mc, mload(cc)) }
+
+                mstore(tempBytes, _length)
+
+                //update free-memory pointer
+                //allocating the array padded to 32 bytes like the compiler does now
+                mstore(0x40, and(add(mc, 31), not(31)))
+            }
+            //if we want a zero-length slice let's just return a zero-length array
+            default {
+                tempBytes := mload(0x40)
+                //zero out the 32 bytes slice we are about to return
+                //we need to do it because Solidity does not garbage collect
+                mstore(tempBytes, 0)
+
+                mstore(0x40, add(tempBytes, 0x20))
+            }
+        }
+
+        return tempBytes;
+    }
+
+    function toAddress(bytes memory _bytes, uint256 _start) internal pure returns (address) {
+        require(_start + 20 >= _start, "toAddress_overflow");
+        require(_bytes.length >= _start + 20, "toAddress_outOfBounds");
+        address tempAddress;
+
+        assembly {
+            // slither-disable-next-line too-many-digits
+            tempAddress := div(mload(add(add(_bytes, 0x20), _start)), 0x1000000000000000000000000)
+        }
+
+        return tempAddress;
+    }
+
+    function toUint24(bytes memory _bytes, uint256 _start) internal pure returns (uint24) {
+        require(_start + 3 >= _start, "toUint24_overflow");
+        require(_bytes.length >= _start + 3, "toUint24_outOfBounds");
+        uint24 tempUint;
+
+        assembly {
+            tempUint := mload(add(add(_bytes, 0x3), _start))
+        }
+
+        return tempUint;
+    }
+}
+//slither-disable-end assembly
+// ===== END SOURCE FILE: src/utils/univ3/BytesLib.sol =====
+// ===== BEGIN SOURCE FILE: src/utils/univ3/Path.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+// This file is a direct duplicate of https://github.com/Uniswap/v3-periphery/blob/main/contracts/libraries/Path.sol.
+// However, due to version constraints, it has been copied into the project instead of being installed as a module.
+// Unused functions have been removed.
+
+pragma solidity 0.8.17;
+
+import { BytesLib } from "src/utils/univ3/BytesLib.sol";
+
+/// @title Functions for manipulating path data for multihop swaps
+library Path {
+    using BytesLib for bytes;
+
+    /// @dev The length of the bytes encoded address
+    uint256 private constant ADDR_SIZE = 20;
+    /// @dev The length of the bytes encoded fee
+    uint256 private constant FEE_SIZE = 3;
+
+    /// @dev The offset of a single token address and pool fee
+    uint256 private constant NEXT_OFFSET = ADDR_SIZE + FEE_SIZE;
+    /// @dev The offset of an encoded pool key
+    uint256 private constant POP_OFFSET = NEXT_OFFSET + ADDR_SIZE;
+    /// @dev The minimum length of an encoding that contains 2 or more pools
+    uint256 private constant MULTIPLE_POOLS_MIN_LENGTH = POP_OFFSET + NEXT_OFFSET;
+
+    /// @notice Returns true iff the path contains two or more pools
+    /// @param path The encoded swap path
+    /// @return True if path contains two or more pools, otherwise false
+    function hasMultiplePools(bytes memory path) internal pure returns (bool) {
+        return path.length >= MULTIPLE_POOLS_MIN_LENGTH;
+    }
+
+    /// @notice Decodes the first pool in path
+    /// @param path The bytes encoded swap path
+    /// @return tokenA The first token of the given pool
+    /// @return tokenB The second token of the given pool
+    /// @return fee The fee level of the pool
+    function decodeFirstPool(bytes memory path) internal pure returns (address tokenA, address tokenB, uint24 fee) {
+        tokenA = path.toAddress(0);
+        fee = path.toUint24(ADDR_SIZE);
+        tokenB = path.toAddress(NEXT_OFFSET);
+    }
+
+    /// @notice Skips a token + fee element from the buffer and returns the remainder
+    /// @param path The swap path
+    /// @return The remaining token + fee elements in the path
+    function skipToken(bytes memory path) internal pure returns (bytes memory) {
+        return path.slice(NEXT_OFFSET, path.length - NEXT_OFFSET);
+    }
+}
+// ===== END SOURCE FILE: src/utils/univ3/Path.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/BalancerAuraDestinationVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { DestinationVault } from "src/vault/DestinationVault.sol";
+import { BalancerUtilities } from "src/libs/BalancerUtilities.sol";
+import { IVault } from "src/interfaces/external/balancer/IVault.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { IMainRewarder } from "src/interfaces/rewarders/IMainRewarder.sol";
+import { AuraStaking } from "src/destinations/adapters/staking/AuraAdapter.sol";
+import { IConvexBooster } from "src/interfaces/external/convex/IConvexBooster.sol";
+import { IBalancerPool } from "src/interfaces/external/balancer/IBalancerPool.sol";
+import { AuraRewards } from "src/destinations/adapters/rewards/AuraRewardsAdapter.sol";
+import { BalancerBeethovenAdapter } from "src/destinations/adapters/BalancerBeethovenAdapter.sol";
+import { IERC20Metadata } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import { IBalancerComposableStablePool } from "src/interfaces/external/balancer/IBalancerComposableStablePool.sol";
+
+/// @title Destination Vault to proxy a Balancer Pool that goes into Aura
+contract BalancerAuraDestinationVault is DestinationVault {
+    /// @notice Only used to initialize the vault
+    struct InitParams {
+        /// @notice Pool and LP token this vault proxies
+        address balancerPool;
+        /// @notice Aura reward contract
+        address auraStaking;
+        /// @notice Aura Booster contract
+        address auraBooster;
+        /// @notice Numeric pool id used to reference Balancer pool
+        uint256 auraPoolId;
+    }
+
+    string internal constant EXCHANGE_NAME = "balancer";
+
+    /// @notice Balancer Vault
+    IVault public immutable balancerVault;
+
+    /// @notice Token minted during reward claiming. Specific to Convex-style rewards. Aura in this case.
+    address public immutable defaultStakingRewardToken;
+
+    /* ******************************** */
+    /* State Variables                  */
+    /* ******************************** */
+
+    IERC20[] internal poolTokens;
+
+    /// @notice Pool and LP token this vault proxies
+    address public balancerPool;
+
+    /// @notice Aura reward contract
+    address public auraStaking;
+
+    /// @notice Aura Booster contract
+    address public auraBooster;
+
+    /// @notice Numeric pool id used to reference balancer pool
+    uint256 public auraPoolId;
+
+    /// @notice Whether the balancePool is a ComposableStable pool. false -> MetaStable
+    bool public isComposable;
+
+    constructor(
+        ISystemRegistry sysRegistry,
+        address _balancerVault,
+        address _defaultStakingRewardToken
+    ) DestinationVault(sysRegistry) {
+        Errors.verifyNotZero(_balancerVault, "_balancerVault");
+        Errors.verifyNotZero(_defaultStakingRewardToken, "_defaultStakingRewardToken");
+
+        // Both are checked above
+        // slither-disable-next-line missing-zero-check
+        balancerVault = IVault(_balancerVault);
+        // slither-disable-next-line missing-zero-check
+        defaultStakingRewardToken = _defaultStakingRewardToken;
+    }
+
+    /// @inheritdoc DestinationVault
+    function initialize(
+        IERC20Metadata baseAsset_,
+        IERC20Metadata underlyer_,
+        IMainRewarder rewarder_,
+        address[] memory additionalTrackedTokens_,
+        bytes memory params_
+    ) public virtual override {
+        // Base class has the initializer() modifier to prevent double-setup
+        // If you don't call the base initialize, make sure you protect this call
+        super.initialize(baseAsset_, underlyer_, rewarder_, additionalTrackedTokens_, params_);
+
+        // Decode the init params, validate, and save off
+        InitParams memory initParams = abi.decode(params_, (InitParams));
+        Errors.verifyNotZero(initParams.balancerPool, "balancerPool");
+        Errors.verifyNotZero(initParams.auraStaking, "auraStaking");
+        Errors.verifyNotZero(initParams.auraBooster, "auraBooster");
+        Errors.verifyNotZero(initParams.auraPoolId, "auraPoolId");
+
+        balancerPool = initParams.balancerPool;
+        auraStaking = initParams.auraStaking;
+        auraBooster = initParams.auraBooster;
+        auraPoolId = initParams.auraPoolId;
+        isComposable = BalancerUtilities.isComposablePool(initParams.balancerPool);
+
+        // Tokens that are used by the proxied pool cannot be removed from the vault
+        // via recover(). Make sure we track those tokens here.
+        bytes32 poolId = IBalancerPool(initParams.balancerPool).getPoolId();
+        // Partial return values are intentionally ignored. This call provides the most efficient way to get the data.
+        // slither-disable-next-line unused-return
+        (IERC20[] memory balancerPoolTokens,,) = balancerVault.getPoolTokens(poolId);
+        if (balancerPoolTokens.length == 0) revert ArrayLengthMismatch();
+        poolTokens = balancerPoolTokens;
+
+        for (uint256 i = 0; i < balancerPoolTokens.length; ++i) {
+            _addTrackedToken(address(balancerPoolTokens[i]));
+        }
+    }
+
+    /// @notice Get the balance of underlyer currently staked in Aura
+    /// @return Balance of underlyer currently staked in Aura
+    function externalBalance() public view override returns (uint256) {
+        return IERC20(auraStaking).balanceOf(address(this));
+    }
+
+    /// @inheritdoc DestinationVault
+    function exchangeName() external pure override returns (string memory) {
+        return EXCHANGE_NAME;
+    }
+
+    /// @inheritdoc DestinationVault
+    function underlyingTokens() external view override returns (address[] memory ret) {
+        if (isComposable) {
+            ret = new address[](poolTokens.length -1);
+            uint256 bptIndex = IBalancerComposableStablePool(balancerPool).getBptIndex();
+            uint256 h = 0;
+            for (uint256 i = 0; i < poolTokens.length; ++i) {
+                if (i != bptIndex) {
+                    ret[h] = address(poolTokens[i]);
+                    h++;
+                }
+            }
+        } else {
+            ret = _convertToAddresses(poolTokens);
+        }
+    }
+
+    /// @inheritdoc DestinationVault
+    function _onDeposit(uint256 amount) internal virtual override {
+        AuraStaking.depositAndStake(IConvexBooster(auraBooster), _underlying, auraStaking, auraPoolId, amount);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _ensureLocalUnderlyingBalance(uint256 amount) internal virtual override {
+        // We should almost always have our balance of LP tokens in Aura.
+        // The exception being a donation we've made.
+        // Withdraw from Aura back to this vault for use in a withdrawal
+        uint256 balancerLpBalance = internalBalance();
+        if (amount > balancerLpBalance) {
+            AuraStaking.withdrawStake(balancerPool, auraStaking, amount - balancerLpBalance);
+        }
+    }
+
+    /// @inheritdoc DestinationVault
+    function _collectRewards() internal virtual override returns (uint256[] memory amounts, address[] memory tokens) {
+        (amounts, tokens) = AuraRewards.claimRewards(auraStaking, defaultStakingRewardToken, msg.sender);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _burnUnderlyer(uint256 underlyerAmount)
+        internal
+        virtual
+        override
+        returns (address[] memory tokens, uint256[] memory amounts)
+    {
+        // Min amounts are intentionally 0. This fn is only called during a
+        // user initiated withdrawal where they've accounted for slippage
+        // at the router or otherwise
+        uint256[] memory minAmounts = new uint256[](poolTokens.length);
+        tokens = _convertToAddresses(poolTokens);
+        amounts = isComposable
+            ? BalancerBeethovenAdapter.removeLiquidityComposableImbalance(
+                balancerVault,
+                balancerPool,
+                underlyerAmount,
+                BalancerUtilities._convertERC20sToAddresses(poolTokens),
+                minAmounts,
+                0 // TODO: Make this configurable in initialization so we can target WETH and avoid a swap
+            )
+            : BalancerBeethovenAdapter.removeLiquidityImbalance(
+                balancerVault,
+                balancerPool,
+                underlyerAmount,
+                BalancerUtilities._convertERC20sToAddresses(poolTokens),
+                minAmounts
+            );
+    }
+
+    function _convertToAddresses(IERC20[] memory tokens) internal pure returns (address[] memory assets) {
+        //slither-disable-start assembly
+        //solhint-disable-next-line no-inline-assembly
+        assembly {
+            assets := tokens
+        }
+        //slither-disable-end assembly
+    }
+}
+// ===== END SOURCE FILE: src/vault/BalancerAuraDestinationVault.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/CurveConvexDestinationVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { LibAdapter } from "src/libs/LibAdapter.sol";
+import { IWETH9 } from "src/interfaces/utils/IWETH9.sol";
+import { DestinationVault } from "src/vault/DestinationVault.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { ICurveResolver } from "src/interfaces/utils/ICurveResolver.sol";
+import { IMainRewarder } from "src/interfaces/rewarders/IMainRewarder.sol";
+import { IConvexBooster } from "src/interfaces/external/convex/IConvexBooster.sol";
+import { ConvexStaking } from "src/destinations/adapters/staking/ConvexAdapter.sol";
+import { IBaseRewardPool } from "src/interfaces/external/convex/IBaseRewardPool.sol";
+import { ConvexRewards } from "src/destinations/adapters/rewards/ConvexRewardsAdapter.sol";
+import { CurveV2FactoryCryptoAdapter } from "src/destinations/adapters/CurveV2FactoryCryptoAdapter.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+/// @notice Destination Vault to proxy a Curve Pool that goes into Convex
+/// @dev Supports Curve V1 StableSwap, Curve V2 CryptoSwap, and Curve-ng pools
+contract CurveConvexDestinationVault is DestinationVault {
+    /// @notice Only used to initialize the vault
+    struct InitParams {
+        /// @notice Pool this vault proxies
+        address curvePool;
+        /// @notice Convex reward contract
+        address convexStaking;
+        /// @notice Convex Booster contract
+        address convexBooster;
+        /// @notice Numeric pool id used to reference Curve pool
+        uint256 convexPoolId;
+        /// @notice Coin index of token we'll perform withdrawals to
+        uint256 baseAssetBurnTokenIndex;
+    }
+
+    string private constant EXCHANGE_NAME = "curve";
+
+    /// @notice Coin index of token we'll perform withdrawals to
+    address public immutable defaultStakingRewardToken;
+
+    /// @notice Invalid coin index was provided for withdrawal
+    error InvalidBaseTokenBurnIndex(uint256 provided, uint256 numTokens);
+
+    /* ******************************** */
+    /* State Variables                  */
+    /* ******************************** */
+
+    /// @notice Pool this vault proxies
+    address public curvePool;
+
+    /// @notice LP token this vault proxies
+    /// @dev May be same as curvePool, depends on the pool type
+    address public curveLpToken;
+
+    /// @notice Convex reward contract
+    address public convexStaking;
+
+    /// @notice Convex Booster contract
+    address public convexBooster;
+
+    /// @notice Numeric pool id used to reference Curve pool
+    uint256 public convexPoolId;
+
+    /// @notice Coin index of token we'll perform withdrawals to
+    uint256 public baseAssetBurnTokenIndex;
+
+    /// @dev Tokens that make up the LP token. Meta tokens not broken up
+    address[] private constituentTokens;
+
+    /// @dev Always 0, used as min amounts during withdrawals
+    uint256[] private minAmounts;
+
+    constructor(ISystemRegistry sysRegistry, address _defaultStakingRewardToken) DestinationVault(sysRegistry) {
+        // Zero is valid here if no default token is minted by the reward system
+        // slither-disable-next-line missing-zero-check
+        defaultStakingRewardToken = _defaultStakingRewardToken;
+    }
+
+    ///@notice Support ETH operations
+    receive() external payable { }
+
+    /// @inheritdoc DestinationVault
+    function initialize(
+        IERC20 baseAsset_,
+        IERC20 underlyer_,
+        IMainRewarder rewarder_,
+        address[] memory additionalTrackedTokens_,
+        bytes memory params_
+    ) public virtual override {
+        // Base class has the initializer() modifier to prevent double-setup
+        // If you don't call the base initialize, make sure you protect this call
+        super.initialize(baseAsset_, underlyer_, rewarder_, additionalTrackedTokens_, params_);
+
+        // We must configure a the curve resolver to setup the vault
+        ICurveResolver curveResolver = _systemRegistry.curveResolver();
+        Errors.verifyNotZero(address(curveResolver), "curveResolver");
+
+        // Decode the init params, validate, and save off
+        InitParams memory initParams = abi.decode(params_, (InitParams));
+        Errors.verifyNotZero(initParams.curvePool, "curvePool");
+        Errors.verifyNotZero(initParams.convexStaking, "convexStaking");
+        Errors.verifyNotZero(initParams.convexBooster, "convexBooster");
+        Errors.verifyNotZero(initParams.convexPoolId, "convexPoolId");
+
+        curvePool = initParams.curvePool;
+        convexStaking = initParams.convexStaking;
+        convexBooster = initParams.convexBooster;
+        convexPoolId = initParams.convexPoolId;
+        baseAssetBurnTokenIndex = initParams.baseAssetBurnTokenIndex;
+
+        // Setup pool tokens as tracked. If we want to handle meta pools and their tokens
+        // we will pass them in as additional, not currently a use case
+        // slither-disable-next-line unused-return
+        (address[8] memory tokens, uint256 numTokens, address lpToken,) =
+            curveResolver.resolveWithLpToken(initParams.curvePool);
+        Errors.verifyNotZero(lpToken, "lpToken");
+        Errors.verifyNotZero(numTokens, "numTokens");
+
+        for (uint256 i = 0; i < numTokens; ++i) {
+            address weth = address(_systemRegistry.weth());
+            address token = tokens[i] == LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER ? weth : tokens[i];
+
+            _addTrackedToken(token);
+            constituentTokens.push(token);
+        }
+
+        if (baseAssetBurnTokenIndex > numTokens - 1) {
+            revert InvalidBaseTokenBurnIndex(baseAssetBurnTokenIndex, numTokens);
+        }
+
+        // Initialize our min amounts for withdrawals to 0 for all tokens
+        minAmounts = new uint256[](numTokens);
+
+        // Checked above
+        // slither-disable-next-line missing-zero-check
+        curveLpToken = lpToken;
+    }
+
+    /// @notice Get the balance of underlyer currently staked in Convex
+    /// @return Balance of underlyer currently staked in Convex
+    function externalBalance() public view override returns (uint256) {
+        return IBaseRewardPool(convexStaking).balanceOf(address(this));
+    }
+
+    /// @inheritdoc DestinationVault
+    function exchangeName() external pure override returns (string memory) {
+        return EXCHANGE_NAME;
+    }
+
+    /// @inheritdoc DestinationVault
+    function underlyingTokens() external view override returns (address[] memory result) {
+        uint256 len = constituentTokens.length;
+        result = new address[](len);
+        for (uint256 i = 0; i < len; ++i) {
+            result[i] = constituentTokens[i];
+        }
+    }
+
+    /// @notice Callback during a deposit after the sender has been minted shares (if applicable)
+    /// @dev Should be used for staking tokens into protocols, etc
+    /// @param amount underlying tokens received
+    function _onDeposit(uint256 amount) internal virtual override {
+        ConvexStaking.depositAndStake(IConvexBooster(convexBooster), _underlying, convexStaking, convexPoolId, amount);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _ensureLocalUnderlyingBalance(uint256 amount) internal virtual override {
+        // We should almost always have our balance of LP tokens in Convex.
+        // The exception being a donation we've made.
+        // Withdraw from Convex back to this vault for use in a withdrawal
+        uint256 curveLpBalance = internalBalance();
+        if (amount > curveLpBalance) {
+            ConvexStaking.withdrawStake(_underlying, convexStaking, amount - curveLpBalance);
+        }
+    }
+
+    /// @inheritdoc DestinationVault
+    function _collectRewards() internal virtual override returns (uint256[] memory amounts, address[] memory tokens) {
+        (amounts, tokens) = ConvexRewards.claimRewards(convexStaking, defaultStakingRewardToken, msg.sender);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _burnUnderlyer(uint256 underlyerAmount)
+        internal
+        virtual
+        override
+        returns (address[] memory tokens, uint256[] memory amounts)
+    {
+        // We withdraw everything in one coin to ease swapping
+        // re: minAmount == 0, this call is only made during a user initiated withdraw where slippage is
+        // controlled for at the router
+
+        // We always want our tokens back in WETH so useEth false
+        (tokens, amounts) = CurveV2FactoryCryptoAdapter.removeLiquidity(
+            minAmounts, underlyerAmount, curvePool, curveLpToken, IWETH9(_systemRegistry.weth())
+        );
+    }
+}
+// ===== END SOURCE FILE: src/vault/CurveConvexDestinationVault.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/DestinationVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Roles } from "src/libs/Roles.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { Math } from "openzeppelin-contracts/utils/math/Math.sol";
+import { ERC20 } from "openzeppelin-contracts/token/ERC20/ERC20.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { ISwapRouter } from "src/interfaces/swapper/ISwapRouter.sol";
+import { IMainRewarder } from "src/interfaces/rewarders/IMainRewarder.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { Initializable } from "openzeppelin-contracts/proxy/utils/Initializable.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+abstract contract DestinationVault is SecurityBase, ERC20, Initializable, IDestinationVault {
+    using SafeERC20 for IERC20;
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    event Recovered(address[] tokens, uint256[] amounts, address[] destinations);
+    event UnderlyingWithdraw(uint256 amount, address owner, address to);
+    event BaseAssetWithdraw(uint256 amount, address owner, address to);
+    event UnderlyingDeposited(uint256 amount, address sender);
+    event Shutdown();
+
+    error ArrayLengthMismatch();
+    error PullingNonTrackedToken(address token);
+    error RecoveringTrackedToken(address token);
+    error RecoveringMoreThanAvailable(address token, uint256 amount, uint256 availableAmount);
+    error DuplicateToken(address token);
+    error VaultShutdown();
+
+    ISystemRegistry internal immutable _systemRegistry;
+
+    /* ******************************** */
+    /* State Variables                  */
+    /* ******************************** */
+
+    string internal _name;
+    string internal _symbol;
+    uint8 internal _underlyingDecimals;
+
+    address internal _baseAsset;
+    address internal _underlying;
+
+    IMainRewarder internal _rewarder;
+
+    EnumerableSet.AddressSet internal _trackedTokens;
+
+    bool internal _shutdown;
+
+    constructor(ISystemRegistry sysRegistry) SecurityBase(address(sysRegistry.accessController())) ERC20("", "") {
+        _systemRegistry = sysRegistry;
+    }
+
+    modifier onlyLMPVault() {
+        if (!_systemRegistry.lmpVaultRegistry().isVault(msg.sender)) {
+            revert Errors.AccessDenied();
+        }
+        _;
+    }
+
+    modifier notShutdown() {
+        if (_shutdown) {
+            revert VaultShutdown();
+        }
+        _;
+    }
+
+    function initialize(
+        IERC20 baseAsset_,
+        IERC20 underlyer_,
+        IMainRewarder rewarder_,
+        address[] memory additionalTrackedTokens_,
+        bytes memory
+    ) public virtual initializer {
+        Errors.verifyNotZero(address(baseAsset_), "baseAsset_");
+        Errors.verifyNotZero(address(underlyer_), "underlyer_");
+        Errors.verifyNotZero(address(rewarder_), "rewarder_");
+
+        _name = string.concat("Tokemak-", baseAsset_.name(), "-", underlyer_.name());
+        _symbol = string.concat("toke-", baseAsset_.symbol(), "-", underlyer_.symbol());
+        _underlyingDecimals = underlyer_.decimals();
+
+        _baseAsset = address(baseAsset_);
+        _underlying = address(underlyer_);
+        _rewarder = rewarder_;
+
+        // Setup the tracked tokens
+        _addTrackedToken(address(baseAsset_));
+        _addTrackedToken(address(underlyer_));
+        uint256 attLen = additionalTrackedTokens_.length;
+        for (uint256 i = 0; i < attLen; ++i) {
+            _addTrackedToken(additionalTrackedTokens_[i]);
+        }
+    }
+
+    /// @inheritdoc ERC20
+    function name() public view virtual override(ERC20, IERC20) returns (string memory) {
+        return _name;
+    }
+
+    /// @inheritdoc ERC20
+    function symbol() public view virtual override(ERC20, IERC20) returns (string memory) {
+        return _symbol;
+    }
+
+    /// @inheritdoc IDestinationVault
+    function baseAsset() external view virtual override returns (address) {
+        return _baseAsset;
+    }
+
+    /// @inheritdoc IDestinationVault
+    function underlying() external view virtual override returns (address) {
+        return _underlying;
+    }
+
+    /// @inheritdoc IDestinationVault
+    function balanceOfUnderlying() public view virtual override returns (uint256) {
+        return internalBalance() + externalBalance();
+    }
+
+    /// @inheritdoc IDestinationVault
+    function internalBalance() public view virtual override returns (uint256) {
+        return IERC20(_underlying).balanceOf(address(this));
+    }
+
+    /// @inheritdoc IDestinationVault
+    function externalBalance() public view virtual override returns (uint256);
+
+    /// @inheritdoc IDestinationVault
+    function rewarder() external view virtual override returns (address) {
+        return address(_rewarder);
+    }
+
+    /// @inheritdoc ERC20
+    function decimals() public view virtual override(ERC20, IERC20) returns (uint8) {
+        return _underlyingDecimals;
+    }
+
+    /// @inheritdoc IDestinationVault
+    function debtValue() public virtual override returns (uint256 value) {
+        value = _debtValue(balanceOfUnderlying());
+    }
+
+    /// @inheritdoc IDestinationVault
+    function debtValue(uint256 shares) external virtual returns (uint256 value) {
+        value = _debtValue(shares);
+    }
+
+    /// @inheritdoc IDestinationVault
+    function exchangeName() external view virtual override returns (string memory);
+
+    /// @inheritdoc IDestinationVault
+    function underlyingTokens() external view virtual override returns (address[] memory);
+
+    /// @inheritdoc IDestinationVault
+    function collectRewards()
+        external
+        virtual
+        override
+        hasRole(Roles.LIQUIDATOR_ROLE)
+        returns (uint256[] memory amounts, address[] memory tokens)
+    {
+        (amounts, tokens) = _collectRewards();
+    }
+
+    /// @notice Collects any earned rewards from staking, incentives, etc. Transfers to sender
+    /// @return amounts amount of rewards claimed for each token
+    /// @return tokens tokens claimed
+    function _collectRewards() internal virtual returns (uint256[] memory amounts, address[] memory tokens);
+
+    /// @inheritdoc IDestinationVault
+    function shutdown() external onlyOwner {
+        _shutdown = true;
+
+        emit Shutdown();
+    }
+
+    /// @inheritdoc IDestinationVault
+    function isShutdown() external view returns (bool) {
+        return _shutdown;
+    }
+
+    function trackedTokens() public view virtual returns (address[] memory trackedTokensArr) {
+        uint256 arLen = _trackedTokens.length();
+        trackedTokensArr = new address[](arLen);
+        for (uint256 i = 0; i < arLen; ++i) {
+            trackedTokensArr[i] = _trackedTokens.at(i);
+        }
+    }
+
+    /// @notice Checks if given token is tracked by Vault
+    /// @param token Address to verify
+    /// @return bool True if token is within Vault's tracked assets
+    function isTrackedToken(address token) public view virtual returns (bool) {
+        return _trackedTokens.contains(token);
+    }
+
+    /// @inheritdoc IDestinationVault
+    function depositUnderlying(uint256 amount) external onlyLMPVault notShutdown returns (uint256 shares) {
+        Errors.verifyNotZero(amount, "amount");
+
+        emit UnderlyingDeposited(amount, msg.sender);
+
+        IERC20(_underlying).safeTransferFrom(msg.sender, address(this), amount);
+        _mint(msg.sender, amount);
+
+        _onDeposit(amount);
+
+        shares = amount;
+    }
+
+    /// @inheritdoc IDestinationVault
+    function withdrawUnderlying(uint256 shares, address to) external onlyLMPVault returns (uint256 amount) {
+        Errors.verifyNotZero(shares, "shares");
+        Errors.verifyNotZero(to, "to");
+
+        amount = shares;
+
+        emit UnderlyingWithdraw(amount, msg.sender, to);
+
+        // Does a balance check, will revert if trying to burn too much
+        _burn(msg.sender, shares);
+
+        _ensureLocalUnderlyingBalance(amount);
+
+        IERC20(_underlying).safeTransfer(to, amount);
+    }
+
+    /// @notice Ensure that we have the specified balance of the underlyer in the vault itself
+    /// @param amount amount of token
+    function _ensureLocalUnderlyingBalance(uint256 amount) internal virtual;
+
+    /// @notice Callback during a deposit after the sender has been minted shares (if applicable)
+    /// @dev Should be used for staking tokens into protocols, etc
+    /// @param amount underlying tokens received
+    function _onDeposit(uint256 amount) internal virtual;
+
+    /// @inheritdoc IDestinationVault
+    function withdrawBaseAsset(uint256 shares, address to) external returns (uint256 amount) {
+        Errors.verifyNotZero(shares, "shares");
+
+        emit BaseAssetWithdraw(shares, msg.sender, to);
+
+        // Does a balance check, will revert if trying to burn too much
+        _burn(msg.sender, shares);
+
+        // Accounts for shares that may be staked
+        _ensureLocalUnderlyingBalance(shares);
+
+        (address[] memory tokens, uint256[] memory amounts) = _burnUnderlyer(shares);
+
+        uint256 nTokens = tokens.length;
+        Errors.verifyArrayLengths(nTokens, amounts.length, "token+amounts");
+
+        // Swap what we receive if not already in base asset
+        // This fn is only called during a users withdrawal. The user should be making this
+        // call via the LMP Router, or through one of the other routes where
+        // slippage is controlled for. 0 min amount is expected here.
+        ISwapRouter swapRouter = _systemRegistry.swapRouter();
+        for (uint256 i = 0; i < nTokens; ++i) {
+            address token = tokens[i];
+
+            if (token == _baseAsset) {
+                amount += amounts[i];
+            } else {
+                if (amounts[i] > 0) {
+                    IERC20(token).safeApprove(address(swapRouter), amounts[i]);
+                    amount += swapRouter.swapForQuote(token, amounts[i], _baseAsset, 0);
+                }
+            }
+        }
+
+        if (amount > 0) {
+            IERC20(_baseAsset).safeTransfer(to, amount);
+        }
+    }
+
+    /// @notice Burn the specified amount of underlyer for the constituent tokens
+    /// @dev May return one or multiple assets. Be as efficient as you can here.
+    /// @param underlyerAmount amount of underlyer to burn
+    /// @return tokens the tokens to swap for base asset
+    /// @return amounts the amounts we have to swap
+    function _burnUnderlyer(uint256 underlyerAmount)
+        internal
+        virtual
+        returns (address[] memory tokens, uint256[] memory amounts);
+
+    function recover(
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        address[] calldata destinations
+    ) external override hasRole(Roles.TOKEN_RECOVERY_ROLE) {
+        uint256 length = tokens.length;
+        if (length == 0 || length != amounts.length || length != destinations.length) {
+            revert ArrayLengthMismatch();
+        }
+        emit Recovered(tokens, amounts, destinations);
+
+        for (uint256 i = 0; i < tokens.length; ++i) {
+            IERC20 token = IERC20(tokens[i]);
+
+            // Check if it's a really non-tracked token
+            if (isTrackedToken(tokens[i])) revert RecoveringTrackedToken(tokens[i]);
+
+            uint256 tokenBalance = token.balanceOf(address(this));
+            if (tokenBalance < amounts[i]) revert RecoveringMoreThanAvailable(tokens[i], amounts[i], tokenBalance);
+
+            token.safeTransfer(destinations[i], amounts[i]);
+        }
+    }
+
+    function _addTrackedToken(address token) internal {
+        //slither-disable-next-line unused-return
+        _trackedTokens.add(token);
+    }
+
+    function _debtValue(uint256 shares) private returns (uint256 value) {
+        //slither-disable-next-line incorrect-equality
+        if (shares == 0) {
+            return 0;
+        }
+
+        uint256 price = _systemRegistry.rootPriceOracle().getPriceInEth(_underlying);
+
+        // At the moment we are only supporting WETH baseAsset
+        // We know its 1:1 to ETH so we'll just return the current value
+        return (price * shares) / (10 ** _underlyingDecimals);
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override {
+        if (from == to) {
+            return;
+        }
+
+        if (from != address(0)) {
+            _rewarder.withdraw(from, amount, true);
+        }
+    }
+
+    function _afterTokenTransfer(address from, address to, uint256 amount) internal virtual override {
+        if (from == to) {
+            return;
+        }
+
+        if (to != address(0)) {
+            _rewarder.stake(to, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/vault/DestinationVault.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/DestinationVaultFactory.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Roles } from "src/libs/Roles.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { MainRewarder } from "src/rewarders/MainRewarder.sol";
+import { Clones } from "openzeppelin-contracts/proxy/Clones.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { IDestinationVaultFactory } from "src/interfaces/vault/IDestinationVaultFactory.sol";
+import { IDestinationVaultRegistry } from "src/interfaces/vault/IDestinationVaultRegistry.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+contract DestinationVaultFactory is SystemComponent, IDestinationVaultFactory, SecurityBase {
+    using Clones for address;
+
+    uint256 public defaultRewardRatio;
+    uint256 public defaultRewardBlockDuration;
+
+    modifier onlyVaultCreator() {
+        if (!_hasRole(Roles.CREATE_DESTINATION_VAULT_ROLE, msg.sender)) {
+            revert Errors.MissingRole(Roles.CREATE_DESTINATION_VAULT_ROLE, msg.sender);
+        }
+        _;
+    }
+
+    event DefaultRewardRatioSet(uint256 rewardRatio);
+    event DefaultBlockDurationSet(uint256 blockDuration);
+
+    constructor(
+        ISystemRegistry _systemRegistry,
+        uint256 _defaultRewardRatio,
+        uint256 _defaultRewardBlockDuration
+    ) SystemComponent(_systemRegistry) SecurityBase(address(_systemRegistry.accessController())) {
+        // Validate the registry is in a state we can use it
+        if (address(_systemRegistry.destinationTemplateRegistry()) == address(0)) {
+            revert Errors.RegistryItemMissing("destinationTemplateRegistry");
+        }
+        if (address(_systemRegistry.destinationVaultRegistry()) == address(0)) {
+            revert Errors.RegistryItemMissing("destinationVaultRegistry");
+        }
+
+        // Zero is valid here
+        _setDefaultRewardRatio(_defaultRewardRatio);
+        _setDefaultRewardBlockDuration(_defaultRewardBlockDuration);
+    }
+
+    function setDefaultRewardRatio(uint256 rewardRatio) public onlyOwner {
+        _setDefaultRewardRatio(rewardRatio);
+    }
+
+    function setDefaultRewardBlockDuration(uint256 blockDuration) public onlyOwner {
+        _setDefaultRewardBlockDuration(blockDuration);
+    }
+
+    /// @inheritdoc IDestinationVaultFactory
+    function create(
+        string memory vaultType,
+        address baseAsset,
+        address underlyer,
+        address[] memory additionalTrackedTokens,
+        bytes32 salt,
+        bytes memory params
+    ) external onlyVaultCreator returns (address vault) {
+        // Switch to the internal key from the human readable
+        bytes32 key = keccak256(abi.encode(vaultType));
+
+        // Get the template to clone
+        address template = address(systemRegistry.destinationTemplateRegistry().getAdapter(key));
+
+        Errors.verifyNotZero(template, "template");
+
+        address newVaultAddress = template.predictDeterministicAddress(salt);
+
+        MainRewarder mainRewarder = new MainRewarder{ salt: salt}(
+            systemRegistry,
+            newVaultAddress,
+            baseAsset, // Main rewards for a dv are always in base asset
+            defaultRewardRatio,
+            defaultRewardBlockDuration,
+            false // allowExtraRewards
+        );
+
+        // Copy and set it up
+        vault = template.cloneDeterministic(salt);
+
+        IDestinationVault(vault).initialize(
+            IERC20(baseAsset), IERC20(underlyer), mainRewarder, additionalTrackedTokens, params
+        );
+
+        // Add the vault to the registry
+        systemRegistry.destinationVaultRegistry().register(vault);
+    }
+
+    function _setDefaultRewardRatio(uint256 rewardRatio) private {
+        defaultRewardRatio = rewardRatio;
+
+        emit DefaultRewardRatioSet(rewardRatio);
+    }
+
+    function _setDefaultRewardBlockDuration(uint256 blockDuration) private {
+        defaultRewardBlockDuration = blockDuration;
+
+        emit DefaultBlockDurationSet(blockDuration);
+    }
+}
+// ===== END SOURCE FILE: src/vault/DestinationVaultFactory.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/DestinationVaultRegistry.sol =====
+//SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { Roles } from "src/libs/Roles.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { AccessControl } from "openzeppelin-contracts/access/AccessControl.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { IDestinationVaultFactory } from "src/interfaces/vault/IDestinationVaultFactory.sol";
+import { IDestinationVaultRegistry } from "src/interfaces/vault/IDestinationVaultRegistry.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+
+contract DestinationVaultRegistry is SystemComponent, IDestinationVaultRegistry, SecurityBase {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    IDestinationVaultFactory public factory;
+    EnumerableSet.AddressSet private vaults;
+
+    modifier onlyFactory() {
+        if (msg.sender != address(factory)) {
+            revert OnlyFactory();
+        }
+        _;
+    }
+
+    event FactorySet(address newFactory);
+    event DestinationVaultRegistered(address vaultAddress, address caller);
+
+    error OnlyFactory();
+    error AlreadyRegistered(address vaultAddress);
+    error SystemMismatch(address ours, address theirs);
+
+    constructor(ISystemRegistry _systemRegistry)
+        SystemComponent(_systemRegistry)
+        SecurityBase(address(_systemRegistry.accessController()))
+    { }
+
+    /// @inheritdoc IDestinationVaultRegistry
+    function isRegistered(address destinationVault) external view returns (bool) {
+        return vaults.contains(destinationVault);
+    }
+
+    /// @inheritdoc IDestinationVaultRegistry
+    function verifyIsRegistered(address destinationVault) external view override {
+        if (!vaults.contains(destinationVault)) revert Errors.NotRegistered();
+    }
+
+    /// @inheritdoc IDestinationVaultRegistry
+    function register(address newDestinationVault) external onlyFactory {
+        Errors.verifyNotZero(newDestinationVault, "newDestinationVault");
+
+        if (!vaults.add(newDestinationVault)) {
+            revert AlreadyRegistered(newDestinationVault);
+        }
+
+        emit DestinationVaultRegistered(newDestinationVault, msg.sender);
+    }
+
+    /// @notice Changes the factory that is allowed to register new vaults
+    /// @dev Systems must match
+    /// @param newAddress Address of the new factory
+    function setVaultFactory(address newAddress) external onlyOwner {
+        Errors.verifyNotZero(newAddress, "newAddress");
+
+        factory = IDestinationVaultFactory(newAddress);
+
+        emit FactorySet(newAddress);
+
+        ISystemRegistry factorySystem = ISystemRegistry(factory.getSystemRegistry());
+
+        if (factorySystem != systemRegistry) {
+            revert SystemMismatch(address(systemRegistry), address(factorySystem));
+        }
+    }
+}
+// ===== END SOURCE FILE: src/vault/DestinationVaultRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/libs/LMPDebt.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { Math } from "openzeppelin-contracts/utils/math/Math.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { IStrategy } from "src/interfaces/strategy/IStrategy.sol";
+import { SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import { ISystemRegistry, IDestinationVaultRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IERC3156FlashBorrower } from "openzeppelin-contracts/interfaces/IERC3156FlashBorrower.sol";
+import { LMPStrategy } from "src/strategy/LMPStrategy.sol";
+
+library LMPDebt {
+    using Math for uint256;
+    using SafeERC20 for IERC20;
+
+    error VaultShutdown();
+    error WithdrawShareCalcInvalid(uint256 currentShares, uint256 cachedShares);
+    error RebalanceDestinationsMatch(address destinationVault);
+    error RebalanceFailed(string message);
+
+    struct DestinationInfo {
+        /// @notice Current underlying and reward value at the destination vault
+        /// @dev Used for calculating totalDebt of the LMPVault
+        uint256 currentDebt;
+        /// @notice Last block timestamp this info was updated
+        uint256 lastReport;
+        /// @notice How many shares of the destination vault we owned at last report
+        uint256 ownedShares;
+        /// @notice Amount of baseAsset transferred out in service of deployments
+        /// @dev Used for calculating 'in profit' or not during user withdrawals
+        uint256 debtBasis;
+    }
+
+    struct RebalanceOutParams {
+        /// Address that will received the withdrawn underlyer
+        address receiver;
+        /// The "out" destination vault
+        address destinationOut;
+        /// The amount of tokenOut that will be withdrawn
+        uint256 amountOut;
+        /// The underlyer for destinationOut
+        address tokenOut;
+        IERC20 _baseAsset;
+        bool _shutdown;
+    }
+
+    /// @dev In memory struct only for managing vars in rebalances
+    struct IdleDebtChange {
+        uint256 debtDecrease;
+        uint256 debtIncrease;
+        uint256 idleDecrease;
+        uint256 idleIncrease;
+    }
+
+    struct FlashRebalanceParams {
+        uint256 totalIdle;
+        uint256 totalDebt;
+        IERC20 baseAsset;
+        bool shutdown;
+    }
+
+    function rebalance(
+        DestinationInfo storage destInfoOut,
+        DestinationInfo storage destInfoIn,
+        IStrategy.RebalanceParams memory params,
+        IERC20 baseAsset,
+        bool shutdown,
+        uint256 totalIdle,
+        uint256 totalDebt
+    ) external returns (uint256 idle, uint256 debt) {
+        LMPDebt.IdleDebtChange memory idleDebtChange;
+
+        // make sure there's something to do
+        if (params.amountIn == 0 && params.amountOut == 0) {
+            revert Errors.InvalidParams();
+        }
+
+        if (params.destinationIn == params.destinationOut) {
+            revert RebalanceDestinationsMatch(params.destinationOut);
+        }
+
+        // make sure we have a valid path
+        {
+            (bool success, string memory message) = LMPStrategy.verifyRebalance(params);
+            if (!success) {
+                revert RebalanceFailed(message);
+            }
+        }
+
+        // Handle decrease (shares going "Out", cashing in shares and sending underlying back to swapper)
+        // If the tokenOut is _asset we assume they are taking idle
+        // which is already in the contract
+        idleDebtChange = _handleRebalanceOut(
+            LMPDebt.RebalanceOutParams({
+                receiver: msg.sender,
+                destinationOut: params.destinationOut,
+                amountOut: params.amountOut,
+                tokenOut: params.tokenOut,
+                _baseAsset: baseAsset,
+                _shutdown: shutdown
+            }),
+            destInfoOut
+        );
+
+        // Handle increase (shares coming "In", getting underlying from the swapper and trading for new shares)
+        if (params.amountIn > 0) {
+            // transfer dv underlying lp from swapper to here
+            IERC20(params.tokenIn).safeTransferFrom(msg.sender, address(this), params.amountIn);
+
+            // deposit to dv (already checked in `verifyRebalance` so no need to check return of deposit)
+
+            if (params.tokenIn != address(baseAsset)) {
+                IDestinationVault dvIn = IDestinationVault(params.destinationIn);
+                (uint256 debtDecreaseIn, uint256 debtIncreaseIn) =
+                    _handleRebalanceIn(destInfoIn, dvIn, params.tokenIn, params.amountIn);
+                idleDebtChange.debtDecrease += debtDecreaseIn;
+                idleDebtChange.debtIncrease += debtIncreaseIn;
+            } else {
+                idleDebtChange.idleIncrease += params.amountIn;
+            }
+        }
+
+        {
+            idle = totalIdle;
+            debt = totalDebt;
+
+            if (idleDebtChange.idleDecrease > 0 || idleDebtChange.idleIncrease > 0) {
+                idle = idle + idleDebtChange.idleIncrease - idleDebtChange.idleDecrease;
+            }
+
+            if (idleDebtChange.debtDecrease > 0 || idleDebtChange.debtIncrease > 0) {
+                debt = debt + idleDebtChange.debtIncrease - idleDebtChange.debtDecrease;
+            }
+        }
+    }
+
+    function flashRebalance(
+        DestinationInfo storage destInfoOut,
+        DestinationInfo storage destInfoIn,
+        IERC3156FlashBorrower receiver,
+        IStrategy.RebalanceParams memory params,
+        FlashRebalanceParams memory flashParams,
+        bytes calldata data
+    ) external returns (uint256 idle, uint256 debt) {
+        LMPDebt.IdleDebtChange memory idleDebtChange;
+
+        // make sure there's something to do
+        if (params.amountIn == 0 && params.amountOut == 0) {
+            revert Errors.InvalidParams();
+        }
+
+        if (params.destinationIn == params.destinationOut) {
+            revert RebalanceDestinationsMatch(params.destinationOut);
+        }
+
+        // make sure we have a valid path
+        {
+            (bool success, string memory message) = LMPStrategy.verifyRebalance(params);
+            if (!success) {
+                revert RebalanceFailed(message);
+            }
+        }
+
+        // Handle decrease (shares going "Out", cashing in shares and sending underlying back to swapper)
+        // If the tokenOut is _asset we assume they are taking idle
+        // which is already in the contract
+        idleDebtChange = _handleRebalanceOut(
+            LMPDebt.RebalanceOutParams({
+                receiver: address(receiver),
+                destinationOut: params.destinationOut,
+                amountOut: params.amountOut,
+                tokenOut: params.tokenOut,
+                _baseAsset: flashParams.baseAsset,
+                _shutdown: flashParams.shutdown
+            }),
+            destInfoOut
+        );
+
+        // Handle increase (shares coming "In", getting underlying from the swapper and trading for new shares)
+        if (params.amountIn > 0) {
+            IDestinationVault dvIn = IDestinationVault(params.destinationIn);
+
+            // get "before" counts
+            uint256 tokenInBalanceBefore = IERC20(params.tokenIn).balanceOf(address(this));
+
+            // Give control back to the solver so they can make use of the "out" assets
+            // and get our "in" asset
+            bytes32 flashResult = receiver.onFlashLoan(msg.sender, params.tokenIn, params.amountIn, 0, data);
+
+            // We assume the solver will send us the assets
+            uint256 tokenInBalanceAfter = IERC20(params.tokenIn).balanceOf(address(this));
+
+            // Make sure the call was successful and verify we have at least the assets we think
+            // we were getting
+            if (
+                flashResult != keccak256("ERC3156FlashBorrower.onFlashLoan")
+                    || tokenInBalanceAfter < tokenInBalanceBefore + params.amountIn
+            ) {
+                revert Errors.FlashLoanFailed(params.tokenIn, params.amountIn);
+            }
+
+            if (params.tokenIn != address(flashParams.baseAsset)) {
+                (uint256 debtDecreaseIn, uint256 debtIncreaseIn) =
+                    _handleRebalanceIn(destInfoIn, dvIn, params.tokenIn, tokenInBalanceAfter);
+                idleDebtChange.debtDecrease += debtDecreaseIn;
+                idleDebtChange.debtIncrease += debtIncreaseIn;
+            } else {
+                idleDebtChange.idleIncrease += tokenInBalanceAfter - tokenInBalanceBefore;
+            }
+        }
+
+        {
+            idle = flashParams.totalIdle;
+            debt = flashParams.totalDebt;
+
+            if (idleDebtChange.idleDecrease > 0 || idleDebtChange.idleIncrease > 0) {
+                idle = idle + idleDebtChange.idleIncrease - idleDebtChange.idleDecrease;
+            }
+
+            if (idleDebtChange.debtDecrease > 0 || idleDebtChange.debtIncrease > 0) {
+                debt = debt + idleDebtChange.debtIncrease - idleDebtChange.debtDecrease;
+            }
+        }
+    }
+
+    function _calcUserWithdrawSharesToBurn(
+        DestinationInfo storage destInfo,
+        IDestinationVault destVault,
+        uint256 userShares,
+        uint256 maxAssetsToPull,
+        uint256 totalVaultShares
+    ) external returns (uint256 sharesToBurn, uint256 totalDebtBurn) {
+        // Figure out how many shares we can burn from the destination as well
+        // as what our totalDebt deduction should be (totalDebt being a cached value).
+        // If the destination vault is currently sitting at a profit, then the user can burn
+        // all the shares this vault owns. If its at a loss, they can only burn an amount
+        // proportional to their ownership of this vault. This is so a user doesn't lock in
+        // a loss for the entire vault during their withdrawal
+
+        uint256 currentDvShares = destVault.balanceOf(address(this));
+
+        // slither-disable-next-line incorrect-equality
+        if (currentDvShares == 0) {
+            return (0, 0);
+        }
+
+        // Calculate the current value of our shares
+        uint256 currentDvDebtValue = destVault.debtValue(currentDvShares);
+
+        // Get the basis for the current deployment
+        uint256 cachedDebtBasis = destInfo.debtBasis;
+
+        // The amount of shares we had at the last debt reporting
+        uint256 cachedDvShares = destInfo.ownedShares;
+
+        // The value of our debt + earned rewards at last debt reporting
+        uint256 cachedCurrentDebt = destInfo.currentDebt;
+
+        // Our current share balance should only ever be lte the last snapshot
+        // Any update to the deployment should update the snapshot and withdrawals
+        // can only lower it
+        if (currentDvShares > cachedDvShares) {
+            revert WithdrawShareCalcInvalid(currentDvShares, cachedDvShares);
+        }
+
+        // Recalculated what the debtBasis is with the current number of shares
+        uint256 updatedDebtBasis = cachedDebtBasis.mulDiv(currentDvShares, cachedDvShares, Math.Rounding.Up);
+
+        // Neither of these numbers include rewards from the DV
+        if (currentDvDebtValue < updatedDebtBasis) {
+            // We are currently sitting at a loss. Limit the value we can pull from
+            // the destination vault
+            currentDvDebtValue = currentDvDebtValue.mulDiv(userShares, totalVaultShares, Math.Rounding.Down);
+            currentDvShares = currentDvShares.mulDiv(userShares, totalVaultShares, Math.Rounding.Down);
+        }
+
+        // Shouldn't pull more than we want
+        // Or, we're not in profit so we limit the pull
+        if (currentDvDebtValue < maxAssetsToPull) {
+            maxAssetsToPull = currentDvDebtValue;
+        }
+
+        // Calculate the portion of shares to burn based on the assets we need to pull
+        // and the current total debt value. These are destination vault shares.
+        sharesToBurn = currentDvShares.mulDiv(maxAssetsToPull, currentDvDebtValue, Math.Rounding.Up);
+
+        // This is what will be deducted from totalDebt with the withdrawal. The totalDebt number
+        // is calculated based on the cached values so we need to be sure to reduce it
+        // proportional to the original cached debt value
+        totalDebtBurn = cachedCurrentDebt.mulDiv(sharesToBurn, cachedDvShares, Math.Rounding.Up);
+    }
+
+    /// @notice Perform deposit and debt info update for the "in" destination during a rebalance
+    /// @dev This "in" function performs less validations than its "out" version
+    /// @param dvIn The "in" destination vault
+    /// @param tokenIn The underlyer for dvIn
+    /// @param depositAmount The amount of tokenIn that will be deposited
+    /// @return debtDecrease The previous amount of debt dvIn accounted for in totalDebt
+    /// @return debtIncrease The current amount of debt dvIn should account for in totalDebt
+    function handleRebalanceIn(
+        DestinationInfo storage destInfo,
+        IDestinationVault dvIn,
+        address tokenIn,
+        uint256 depositAmount
+    ) external returns (uint256 debtDecrease, uint256 debtIncrease) {
+        (debtDecrease, debtIncrease) = _handleRebalanceIn(destInfo, dvIn, tokenIn, depositAmount);
+    }
+
+    /// @notice Perform deposit and debt info update for the "in" destination during a rebalance
+    /// @dev This "in" function performs less validations than its "out" version
+    /// @param dvIn The "in" destination vault
+    /// @param tokenIn The underlyer for dvIn
+    /// @param depositAmount The amount of tokenIn that will be deposited
+    /// @return debtDecrease The previous amount of debt dvIn accounted for in totalDebt
+    /// @return debtIncrease The current amount of debt dvIn should account for in totalDebt
+    function _handleRebalanceIn(
+        DestinationInfo storage destInfo,
+        IDestinationVault dvIn,
+        address tokenIn,
+        uint256 depositAmount
+    ) private returns (uint256 debtDecrease, uint256 debtIncrease) {
+        IERC20(tokenIn).safeApprove(address(dvIn), depositAmount);
+
+        // Snapshot our current shares so we know how much to back out
+        uint256 originalShareBal = dvIn.balanceOf(address(this));
+
+        // deposit to dv
+        uint256 newShares = dvIn.depositUnderlying(depositAmount);
+
+        // Update the debt info snapshot
+        (debtDecrease, debtIncrease) =
+            _recalculateDestInfo(destInfo, dvIn, originalShareBal, originalShareBal + newShares, true);
+    }
+
+    /**
+     * @notice Perform withdraw and debt info update for the "out" destination during a rebalance
+     * @dev This "out" function performs more validations and handles idle as opposed to "in" which does not
+     *  debtDecrease The previous amount of debt destinationOut accounted for in totalDebt
+     *  debtIncrease The current amount of debt destinationOut should account for in totalDebt
+     *  idleDecrease Amount of baseAsset that was sent from the vault. > 0 only when tokenOut == baseAsset
+     *  idleIncrease Amount of baseAsset that was claimed from Destination Vault
+     * @param params Rebalance out params
+     * @param destOutInfo The "out" destination vault info
+     * @return assetChange debt and idle change data
+     */
+    function handleRebalanceOut(
+        RebalanceOutParams memory params,
+        DestinationInfo storage destOutInfo
+    ) external returns (IdleDebtChange memory assetChange) {
+        (assetChange) = _handleRebalanceOut(params, destOutInfo);
+    }
+
+    /**
+     * @notice Perform withdraw and debt info update for the "out" destination during a rebalance
+     * @dev This "out" function performs more validations and handles idle as opposed to "in" which does not
+     *  debtDecrease The previous amount of debt destinationOut accounted for in totalDebt
+     *  debtIncrease The current amount of debt destinationOut should account for in totalDebt
+     *  idleDecrease Amount of baseAsset that was sent from the vault. > 0 only when tokenOut == baseAsset
+     *  idleIncrease Amount of baseAsset that was claimed from Destination Vault
+     * @param params Rebalance out params
+     * @param destOutInfo The "out" destination vault info
+     * @return assetChange debt and idle change data
+     */
+    function _handleRebalanceOut(
+        RebalanceOutParams memory params,
+        DestinationInfo storage destOutInfo
+    ) private returns (IdleDebtChange memory assetChange) {
+        // Handle decrease (shares going "Out", cashing in shares and sending underlying back to swapper)
+        // If the tokenOut is _asset we assume they are taking idle
+        // which is already in the contract
+        if (params.amountOut > 0) {
+            if (params.tokenOut != address(params._baseAsset)) {
+                IDestinationVault dvOut = IDestinationVault(params.destinationOut);
+
+                // Snapshot our current shares so we know how much to back out
+                uint256 originalShareBal = dvOut.balanceOf(address(this));
+
+                // Burning our shares will claim any pending baseAsset
+                // rewards and send them to us. Make sure we capture them
+                // so they can end up in idle
+                uint256 beforeBaseAssetBal = params._baseAsset.balanceOf(address(this));
+
+                // withdraw underlying from dv
+                // slither-disable-next-line unused-return
+                dvOut.withdrawUnderlying(params.amountOut, params.receiver);
+
+                assetChange.idleIncrease = params._baseAsset.balanceOf(address(this)) - beforeBaseAssetBal;
+
+                // Update the debt info snapshot
+                (assetChange.debtDecrease, assetChange.debtIncrease) = _recalculateDestInfo(
+                    destOutInfo, dvOut, originalShareBal, originalShareBal - params.amountOut, true
+                );
+            } else {
+                // If we are shutdown then the only operations we should be performing are those that get
+                // the base asset back to the vault. We shouldn't be sending out more
+                if (params._shutdown) {
+                    revert VaultShutdown();
+                }
+                // Working with idle baseAsset which should be in the vault already
+                // Just send it out
+                IERC20(params.tokenOut).safeTransfer(params.receiver, params.amountOut);
+                assetChange.idleDecrease = params.amountOut;
+            }
+        }
+    }
+
+    function recalculateDestInfo(
+        DestinationInfo storage destInfo,
+        IDestinationVault destVault,
+        uint256 originalShares,
+        uint256 currentShares,
+        bool resetDebtBasis
+    ) external returns (uint256 totalDebtDecrease, uint256 totalDebtIncrease) {
+        (totalDebtDecrease, totalDebtIncrease) =
+            _recalculateDestInfo(destInfo, destVault, originalShares, currentShares, resetDebtBasis);
+    }
+
+    function _recalculateDestInfo(
+        DestinationInfo storage destInfo,
+        IDestinationVault destVault,
+        uint256 originalShares,
+        uint256 currentShares,
+        bool resetDebtBasis
+    ) private returns (uint256 totalDebtDecrease, uint256 totalDebtIncrease) {
+        // Figure out what to back out of our totalDebt number.
+        // We could have had withdraws since the last snapshot which means our
+        // cached currentDebt number should be decreased based on the remaining shares
+        // totalDebt is decreased using the same proportion of shares method during withdrawals
+        // so this should represent whatever is remaining.
+
+        // Figure out how much our debt is currently worth
+        uint256 dvDebtValue = destVault.debtValue(currentShares);
+
+        // Calculate what we're backing out based on the original shares
+        uint256 currentDebt = (destInfo.currentDebt * originalShares) / Math.max(destInfo.ownedShares, 1);
+        destInfo.currentDebt = dvDebtValue;
+        destInfo.lastReport = block.timestamp;
+        destInfo.ownedShares = currentShares;
+        if (resetDebtBasis) {
+            destInfo.debtBasis = dvDebtValue;
+        }
+
+        totalDebtDecrease = currentDebt;
+        totalDebtIncrease = dvDebtValue;
+    }
+}
+// ===== END SOURCE FILE: src/vault/libs/LMPDebt.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/libs/LMPDestinations.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { ISystemRegistry, IDestinationVaultRegistry } from "src/interfaces/ISystemRegistry.sol";
+
+library LMPDestinations {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    event DestinationVaultAdded(address destination);
+    event DestinationVaultRemoved(address destination);
+    event WithdrawalQueueSet(address[] destinations);
+    event AddedToRemovalQueue(address destination);
+    event RemovedFromRemovalQueue(address destination);
+
+    function removeFromRemovalQueue(EnumerableSet.AddressSet storage removalQueue, address vaultToRemove) external {
+        if (!removalQueue.remove(vaultToRemove)) {
+            revert Errors.ItemNotFound();
+        }
+
+        emit RemovedFromRemovalQueue(vaultToRemove);
+    }
+
+    function setWithdrawalQueue(
+        IDestinationVault[] storage withdrawalQueue,
+        address[] calldata _destinations,
+        ISystemRegistry systemRegistry
+    ) external {
+        IDestinationVaultRegistry destinationVaultRegistry = systemRegistry.destinationVaultRegistry();
+        (uint256 oldLength, uint256 newLength) = (withdrawalQueue.length, _destinations.length);
+
+        // run through new destinations list and propagate the values to our existing collection
+        uint256 i;
+        for (i = 0; i < newLength; ++i) {
+            address destAddress = _destinations[i];
+            Errors.verifyNotZero(destAddress, "destination");
+
+            // check if destination vault is registered with the system
+            if (!destinationVaultRegistry.isRegistered(destAddress)) {
+                revert Errors.InvalidAddress(destAddress);
+            }
+
+            IDestinationVault destination = IDestinationVault(destAddress);
+
+            // if we're still overwriting, just set the value
+            if (i < oldLength) {
+                // only write if values differ
+                if (withdrawalQueue[i] != destination) {
+                    withdrawalQueue[i] = destination;
+                }
+            } else {
+                // if already past old bounds, append new values
+                withdrawalQueue.push(destination);
+            }
+        }
+
+        // if old list was larger than new list, pop the remaining values
+        if (oldLength > newLength) {
+            for (; i < oldLength; ++i) {
+                // slither-disable-next-line costly-loop
+                withdrawalQueue.pop();
+            }
+        }
+
+        emit WithdrawalQueueSet(_destinations);
+    }
+
+    function removeDestinations(
+        EnumerableSet.AddressSet storage removalQueue,
+        EnumerableSet.AddressSet storage destinations,
+        address[] calldata _destinations
+    ) external {
+        for (uint256 i = 0; i < _destinations.length; ++i) {
+            address dAddress = _destinations[i];
+            IDestinationVault destination = IDestinationVault(dAddress);
+
+            // remove from main list (NOTE: done here so balance check below doesn't explode if address is invalid)
+            if (!destinations.remove(dAddress)) {
+                revert Errors.ItemNotFound();
+            }
+
+            if (destination.balanceOf(address(this)) > 0 && !removalQueue.contains(dAddress)) {
+                // we still have funds in it! move it to removalQueue for rebalancer to handle it later
+                // slither-disable-next-line unused-return
+                removalQueue.add(dAddress);
+
+                emit AddedToRemovalQueue(dAddress);
+            }
+
+            emit DestinationVaultRemoved(dAddress);
+        }
+    }
+
+    function addDestinations(
+        EnumerableSet.AddressSet storage removalQueue,
+        EnumerableSet.AddressSet storage destinations,
+        address[] calldata _destinations,
+        ISystemRegistry systemRegistry
+    ) external {
+        IDestinationVaultRegistry destinationRegistry = systemRegistry.destinationVaultRegistry();
+
+        uint256 numDestinations = _destinations.length;
+        if (numDestinations == 0) revert Errors.InvalidParams();
+
+        address dAddress;
+        for (uint256 i = 0; i < numDestinations; ++i) {
+            dAddress = _destinations[i];
+
+            if (dAddress == address(0) || !destinationRegistry.isRegistered(dAddress)) {
+                revert Errors.InvalidAddress(dAddress);
+            }
+
+            if (!destinations.add(dAddress)) {
+                revert Errors.ItemExists();
+            }
+
+            // just in case it's in removal queue, take it out
+            // slither-disable-next-line unused-return
+            removalQueue.remove(dAddress);
+
+            emit DestinationVaultAdded(dAddress);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/vault/libs/LMPDestinations.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/LMPVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+// solhint-disable max-states-count
+
+import { Roles } from "src/libs/Roles.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { LMPDebt } from "src/vault/libs/LMPDebt.sol";
+import { Pausable } from "src/security/Pausable.sol";
+import { VaultTypes } from "src/vault/VaultTypes.sol";
+import { NonReentrant } from "src/utils/NonReentrant.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+import { LMPStrategy } from "src/strategy/LMPStrategy.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { ILMPVault } from "src/interfaces/vault/ILMPVault.sol";
+import { IStrategy } from "src/interfaces/strategy/IStrategy.sol";
+import { Math } from "openzeppelin-contracts/utils/math/Math.sol";
+import { LMPDestinations } from "src/vault/libs/LMPDestinations.sol";
+import { ERC20 } from "openzeppelin-contracts/token/ERC20/ERC20.sol";
+import { IERC4626 } from "openzeppelin-contracts/interfaces/IERC4626.sol";
+import { IMainRewarder } from "src/interfaces/rewarders/IMainRewarder.sol";
+import { IDestinationVault } from "src/interfaces/vault/IDestinationVault.sol";
+import { SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { Initializable } from "openzeppelin-contracts/proxy/utils/Initializable.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { ISystemRegistry, IDestinationVaultRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { ERC20Permit } from "openzeppelin-contracts/token/ERC20/extensions/draft-ERC20Permit.sol";
+import { IERC3156FlashBorrower } from "openzeppelin-contracts/interfaces/IERC3156FlashBorrower.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+// Cross functional reentrancy was identified between updateDebtReporting and the
+// destinationInfo. Have nonReentrant and read-only nonReentrant modifier on them both
+// but slither was still complaining
+//slither-disable-start reentrancy-no-eth,reentrancy-benign
+
+contract LMPVault is
+    SystemComponent,
+    Initializable,
+    ILMPVault,
+    IStrategy,
+    ERC20Permit,
+    SecurityBase,
+    Pausable,
+    NonReentrant
+{
+    using EnumerableSet for EnumerableSet.AddressSet;
+    using Math for uint256;
+    using SafeERC20 for ERC20;
+    using SafeERC20 for IERC20;
+
+    /// @dev In memory struct only for managing vars in _withdraw
+    struct WithdrawInfo {
+        uint256 currentIdle;
+        uint256 assetsFromIdle;
+        uint256 totalAssetsToPull;
+        uint256 totalAssetsPulled;
+        uint256 idleIncrease;
+        uint256 debtDecrease;
+    }
+
+    /// @notice Max fee. 100% == 10000
+    uint256 public constant MAX_FEE_BPS = 10_000;
+
+    uint256 public constant NAV_CHANGE_ROUNDING_BUFFER = 100;
+
+    /// @notice Factory contract that created this vault
+    address public factory;
+
+    /// @notice Overarching baseAsset type
+    bytes32 public immutable vaultType = VaultTypes.LST;
+
+    /// @dev The asset that is deposited into the vault
+    IERC20 internal immutable _baseAsset;
+
+    /// @notice Decimals of the base asset. Used as the decimals for the vault itself
+    uint8 internal immutable _baseAssetDecimals;
+
+    /// @dev Full list of possible destinations that could be deployed to
+    EnumerableSet.AddressSet internal destinations;
+
+    /// @dev Destinations that queued for removal
+    EnumerableSet.AddressSet internal removalQueue;
+
+    /// @dev destinationVaultAddress -> Info .. Debt reporting snapshot info
+    mapping(address => LMPDebt.DestinationInfo) internal destinationInfo;
+
+    /// @dev whether or not the vault has been shutdown
+    bool internal _shutdown;
+
+    /// @notice The amount of baseAsset deposited into the contract pending deployment
+    uint256 public totalIdle = 0;
+
+    /// @notice The current (though cached) value of assets we've deployed
+    uint256 public totalDebt = 0;
+
+    /// @notice The destinations, in order, in which withdrawals will be attempted from
+    IDestinationVault[] public withdrawalQueue;
+
+    /// @notice Main rewarder for this contract
+    IMainRewarder public rewarder;
+
+    /// @notice Current performance fee taken on profit. 100% == 10000
+    uint256 public performanceFeeBps;
+
+    /// @notice Where claimed fees are sent
+    address public feeSink;
+
+    /// @notice The last nav/share height we took fees at
+    uint256 public navPerShareHighMark = MAX_FEE_BPS;
+
+    /// @notice The last timestamp we took fees at
+    uint256 public navPerShareHighMarkTimestamp;
+
+    /// @notice The max total supply of shares we'll allow to be minted
+    uint256 public totalSupplyLimit;
+
+    /// @notice The max shares a single wallet is allowed to hold
+    uint256 public perWalletLimit;
+
+    string private _desc;
+    string private _symbol;
+
+    error TooFewAssets(uint256 requested, uint256 actual);
+    error WithdrawShareCalcInvalid(uint256 currentShares, uint256 cachedShares);
+    error InvalidFee(uint256 newFee);
+    error RewarderAlreadySet();
+    error RebalanceDestinationsMatch(address destinationVault);
+    error InvalidDestination(address destination);
+    error NavChanged(uint256 oldNav, uint256 newNav);
+    error NavOpsInProgress();
+    error OverWalletLimit(address to);
+    error VaultShutdown();
+
+    event PerformanceFeeSet(uint256 newFee);
+    event FeeSinkSet(address newFeeSink);
+    event NewNavHighWatermark(uint256 navPerShare, uint256 timestamp);
+    event TotalSupplyLimitSet(uint256 limit);
+    event PerWalletLimitSet(uint256 limit);
+
+    modifier noNavChange() {
+        (uint256 oldNav, uint256 startingTotalSupply) = _snapStartNav();
+        _;
+        _ensureNoNavChange(oldNav, startingTotalSupply);
+    }
+
+    modifier noNavDecrease() {
+        (uint256 oldNav, uint256 startingTotalSupply) = _snapStartNav();
+        _;
+        _ensureNoNavDecrease(oldNav, startingTotalSupply);
+    }
+
+    modifier ensureNoNavOps() {
+        if (systemRegistry.systemSecurity().navOpsInProgress() > 0) {
+            revert NavOpsInProgress();
+        }
+        _;
+    }
+
+    modifier trackNavOps() {
+        systemRegistry.systemSecurity().enterNavOperation();
+        _;
+        systemRegistry.systemSecurity().exitNavOperation();
+    }
+
+    constructor(
+        ISystemRegistry _systemRegistry,
+        address _vaultAsset
+    )
+        SystemComponent(_systemRegistry)
+        ERC20(
+            string(abi.encodePacked(ERC20(_vaultAsset).name(), " Pool Token")),
+            string(abi.encodePacked("lmp", ERC20(_vaultAsset).symbol()))
+        )
+        ERC20Permit(string(abi.encodePacked("lmp", ERC20(_vaultAsset).symbol())))
+        SecurityBase(address(_systemRegistry.accessController()))
+        Pausable(_systemRegistry)
+    {
+        _baseAsset = IERC20(_vaultAsset);
+        _baseAssetDecimals = IERC20(_vaultAsset).decimals();
+
+        _symbol = ERC20(_vaultAsset).symbol();
+        _desc = ERC20(_vaultAsset).name();
+
+        _disableInitializers();
+    }
+
+    function initialize(
+        uint256 supplyLimit,
+        uint256 walletLimit,
+        string memory symbolSuffix,
+        string memory descPrefix,
+        bytes memory
+    ) public virtual initializer {
+        Errors.verifyNotEmpty(symbolSuffix, "symbolSuffix");
+        Errors.verifyNotEmpty(descPrefix, "descPrefix");
+
+        // init withdrawal queue to empty (slither issue)
+        withdrawalQueue = new IDestinationVault[](0);
+
+        navPerShareHighMarkTimestamp = block.timestamp;
+
+        _setTotalSupplyLimit(supplyLimit);
+        _setPerWalletLimit(walletLimit);
+
+        factory = msg.sender;
+
+        _symbol = symbolSuffix;
+        _desc = descPrefix;
+    }
+
+    /**
+     * @dev Returns the name of the token.
+     */
+    function name() public view virtual override(ERC20, IERC20) returns (string memory) {
+        return string(abi.encodePacked(_desc, " Pool Token"));
+    }
+
+    /**
+     * @dev Returns the symbol of the token, usually a shorter version of the
+     * name.
+     */
+    function symbol() public view virtual override(ERC20, IERC20) returns (string memory) {
+        return string(abi.encodePacked("lmp", _symbol));
+    }
+
+    /// @inheritdoc IERC20
+    function decimals() public view virtual override(ERC20, IERC20) returns (uint8) {
+        return _baseAssetDecimals;
+    }
+
+    /// @notice Set the global share limit
+    /// @dev Zero is allowed here and used as a way to stop deposits but allow withdrawals
+    /// @param newSupplyLimit new total amount of shares allowed to be minted
+    function setTotalSupplyLimit(uint256 newSupplyLimit) external onlyOwner {
+        _setTotalSupplyLimit(newSupplyLimit);
+    }
+
+    /// @notice Set the per-wallet share limit
+    /// @param newWalletLimit new total shares a wallet is allowed to hold
+    function setPerWalletLimit(uint256 newWalletLimit) external onlyOwner {
+        _setPerWalletLimit(newWalletLimit);
+    }
+
+    /// @notice Set the fee that will be taken when profit is realized
+    /// @dev Resets the high water to current value
+    /// @param fee Percent. 100% == 10000
+    function setPerformanceFeeBps(uint256 fee) external nonReentrant hasRole(Roles.LMP_FEE_SETTER_ROLE) {
+        if (fee >= MAX_FEE_BPS) {
+            revert InvalidFee(fee);
+        }
+
+        performanceFeeBps = fee;
+
+        // Set the high mark when we change the fee so we aren't able to go farther back in
+        // time than one debt reporting and claim fee's against past profits
+        uint256 supply = totalSupply();
+        if (supply > 0) {
+            navPerShareHighMark = (totalAssets() * MAX_FEE_BPS) / supply;
+        } else {
+            // The default high mark is 1:1. We don't want to be able to take
+            // fee's before the first debt reporting
+            // Before a rebalance, everything will be in idle and we don't want to take
+            // fee's on pure idle
+            navPerShareHighMark = MAX_FEE_BPS;
+        }
+
+        emit PerformanceFeeSet(fee);
+    }
+
+    /// @notice Set the address that will receive fees
+    /// @param newFeeSink Address that will receive fees
+    function setFeeSink(address newFeeSink) external onlyOwner {
+        emit FeeSinkSet(newFeeSink);
+
+        // Zero is valid. One way to disable taking fees
+        // slither-disable-next-line missing-zero-check
+        feeSink = newFeeSink;
+    }
+
+    /// @notice Set the rewarder contract used by the vault
+    /// @dev Must be set immediately on initialization/creation and only once
+    function setRewarder(address _rewarder) external {
+        if (msg.sender != factory) {
+            revert Errors.AccessDenied();
+        }
+
+        Errors.verifyNotZero(_rewarder, "rewarder");
+
+        if (address(rewarder) != address(0)) {
+            revert RewarderAlreadySet();
+        }
+
+        rewarder = IMainRewarder(_rewarder);
+
+        emit RewarderSet(_rewarder);
+    }
+
+    /// @dev See {IERC4626-asset}.
+    function asset() public view virtual override returns (address) {
+        return address(_baseAsset);
+    }
+
+    function totalAssets() public view override returns (uint256) {
+        return totalIdle + totalDebt;
+    }
+
+    /// @dev See {IERC4626-convertToShares}.
+    function convertToShares(uint256 assets) public view virtual returns (uint256 shares) {
+        shares = _convertToShares(assets, Math.Rounding.Down);
+    }
+
+    /// @dev See {IERC4626-convertToAssets}.
+    function convertToAssets(uint256 shares) public view virtual returns (uint256 assets) {
+        assets = _convertToAssets(shares, Math.Rounding.Down);
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    //								Deposit								//
+    //////////////////////////////////////////////////////////////////////
+
+    /// @dev See {IERC4626-maxDeposit}.
+    function maxDeposit(address wallet) public view virtual override returns (uint256 maxAssets) {
+        maxAssets = convertToAssets(_maxMint(wallet));
+    }
+
+    /// @dev See {IERC4626-previewDeposit}.
+    function previewDeposit(uint256 assets) public view virtual returns (uint256 shares) {
+        shares = _convertToShares(assets, Math.Rounding.Down);
+    }
+
+    function deposit(
+        uint256 assets,
+        address receiver
+    ) public virtual override nonReentrant noNavChange ensureNoNavOps returns (uint256 shares) {
+        Errors.verifyNotZero(assets, "assets");
+        if (assets > maxDeposit(receiver)) {
+            revert ERC4626DepositExceedsMax(assets, maxDeposit(receiver));
+        }
+
+        shares = previewDeposit(assets);
+
+        _transferAndMint(assets, shares, receiver);
+    }
+
+    /// @dev See {IERC4626-maxMint}.
+    function maxMint(address wallet) public view virtual override returns (uint256 maxShares) {
+        maxShares = _maxMint(wallet);
+    }
+
+    /// @dev See {IERC4626-maxWithdraw}.
+    function maxWithdraw(address owner) public view virtual returns (uint256 maxAssets) {
+        maxAssets = paused() ? 0 : previewRedeem(balanceOf(owner));
+    }
+
+    /// @dev See {IERC4626-maxRedeem}.
+    function maxRedeem(address owner) public view virtual returns (uint256 maxShares) {
+        maxShares = _maxRedeem(owner);
+    }
+
+    /// @dev See {IERC4626-previewMint}.
+    function previewMint(uint256 shares) public view virtual returns (uint256 assets) {
+        assets = _convertToAssets(shares, Math.Rounding.Up);
+    }
+
+    /// @dev See {IERC4626-previewWithdraw}.
+    function previewWithdraw(uint256 assets) public view virtual returns (uint256 shares) {
+        shares = _convertToShares(assets, Math.Rounding.Up);
+    }
+
+    /// @dev See {IERC4626-previewRedeem}.
+    function previewRedeem(uint256 shares) public view virtual override returns (uint256) {
+        return _convertToAssets(shares, Math.Rounding.Down);
+    }
+
+    /**
+     * @dev See {IERC4626-mint}.
+     *
+     * As opposed to {deposit}, minting is allowed even if the vault is in a state where the price of a share is zero.
+     * In this case, the shares will be minted without requiring any assets to be deposited.
+     */
+    function mint(
+        uint256 shares,
+        address receiver
+    ) public virtual override nonReentrant noNavChange ensureNoNavOps returns (uint256 assets) {
+        if (shares > maxMint(receiver)) {
+            revert ERC4626MintExceedsMax(shares, maxMint(receiver));
+        }
+
+        assets = previewMint(shares);
+
+        _transferAndMint(assets, shares, receiver);
+    }
+
+    //////////////////////////////////////////////////////////////////////
+    //								Withdraw							//
+    //////////////////////////////////////////////////////////////////////
+
+    /// @dev See {IERC4626-withdraw}.
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) public virtual override nonReentrant noNavDecrease ensureNoNavOps returns (uint256 shares) {
+        Errors.verifyNotZero(assets, "assets");
+        uint256 maxAssets = maxWithdraw(owner);
+        if (assets > maxAssets) {
+            revert ERC4626ExceededMaxWithdraw(owner, assets, maxAssets);
+        }
+
+        // query number of shares these assets match
+        shares = previewWithdraw(assets);
+
+        uint256 actualAssets = _withdraw(assets, shares, receiver, owner);
+
+        if (actualAssets < assets) {
+            revert TooFewAssets(assets, actualAssets);
+        }
+    }
+
+    /// @dev See {IERC4626-redeem}.
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) public virtual override nonReentrant noNavDecrease ensureNoNavOps returns (uint256 assets) {
+        uint256 maxShares = maxRedeem(owner);
+        if (shares > maxShares) {
+            revert ERC4626ExceededMaxRedeem(owner, shares, maxShares);
+        }
+        uint256 possibleAssets = previewRedeem(shares);
+
+        assets = _withdraw(possibleAssets, shares, receiver, owner);
+    }
+
+    function _calcUserWithdrawSharesToBurn(
+        IDestinationVault destVault,
+        uint256 userShares,
+        uint256 maxAssetsToPull,
+        uint256 totalVaultShares
+    ) internal returns (uint256 sharesToBurn, uint256 totalDebtBurn) {
+        (sharesToBurn, totalDebtBurn) = LMPDebt._calcUserWithdrawSharesToBurn(
+            destinationInfo[address(destVault)], destVault, userShares, maxAssetsToPull, totalVaultShares
+        );
+    }
+
+    // slither-disable-next-line cyclomatic-complexity
+    function _withdraw(
+        uint256 assets,
+        uint256 shares,
+        address receiver,
+        address owner
+    ) internal virtual returns (uint256) {
+        uint256 idle = totalIdle;
+        WithdrawInfo memory info = WithdrawInfo({
+            currentIdle: idle,
+            assetsFromIdle: assets >= idle ? idle : assets,
+            totalAssetsToPull: assets - (assets >= idle ? idle : assets),
+            totalAssetsPulled: 0,
+            idleIncrease: 0,
+            debtDecrease: 0
+        });
+
+        // If not enough funds in idle, then pull what we need from destinations
+        if (info.totalAssetsToPull > 0) {
+            uint256 totalVaultShares = totalSupply();
+
+            // Using pre-set withdrawalQueue for withdrawal order to help minimize user gas
+            uint256 withdrawalQueueLength = withdrawalQueue.length;
+            for (uint256 i = 0; i < withdrawalQueueLength; ++i) {
+                IDestinationVault destVault = IDestinationVault(withdrawalQueue[i]);
+                (uint256 sharesToBurn, uint256 totalDebtBurn) = _calcUserWithdrawSharesToBurn(
+                    destVault,
+                    shares,
+                    info.totalAssetsToPull - Math.max(info.debtDecrease, info.totalAssetsPulled),
+                    totalVaultShares
+                );
+                if (sharesToBurn == 0) {
+                    continue;
+                }
+
+                uint256 assetPreBal = _baseAsset.balanceOf(address(this));
+                uint256 assetPulled = destVault.withdrawBaseAsset(sharesToBurn, address(this));
+
+                // Destination Vault rewards will be transferred to us as part of burning out shares
+                // Back into what that amount is and make sure it gets into idle
+                info.idleIncrease += _baseAsset.balanceOf(address(this)) - assetPreBal - assetPulled;
+                info.totalAssetsPulled += assetPulled;
+                info.debtDecrease += totalDebtBurn;
+
+                // It's possible we'll get back more assets than we anticipate from a swap
+                // so if we do, throw it in idle and stop processing. You don't get more than we've calculated
+                if (info.totalAssetsPulled > info.totalAssetsToPull) {
+                    info.idleIncrease = info.totalAssetsPulled - info.totalAssetsToPull;
+                    info.totalAssetsPulled = info.totalAssetsToPull;
+                    break;
+                }
+
+                // No need to keep going if we have the amount we're looking for
+                // Any overage is accounted for above. Anything lower and we need to keep going
+                // slither-disable-next-line incorrect-equality
+                if (info.totalAssetsPulled == info.totalAssetsToPull) {
+                    break;
+                }
+            }
+        }
+
+        // At this point should have all the funds we need sitting in in the vault
+        uint256 returnedAssets = info.assetsFromIdle + info.totalAssetsPulled;
+
+        // subtract what's taken out of idle from totalIdle
+        // slither-disable-next-line events-maths
+        totalIdle = info.currentIdle + info.idleIncrease - info.assetsFromIdle;
+
+        if (info.debtDecrease > totalDebt) {
+            totalDebt = 0;
+        } else {
+            totalDebt -= info.debtDecrease;
+        }
+
+        // do the actual withdrawal (going off of total # requested)
+        uint256 allowed = allowance(owner, msg.sender);
+        if (msg.sender != owner && allowed != type(uint256).max) {
+            if (shares > allowed) revert AmountExceedsAllowance(shares, allowed);
+
+            unchecked {
+                _approve(owner, msg.sender, allowed - shares);
+            }
+        }
+
+        _burn(owner, shares);
+
+        emit Withdraw(msg.sender, receiver, owner, returnedAssets, shares);
+
+        _baseAsset.safeTransfer(receiver, returnedAssets);
+
+        return returnedAssets;
+    }
+
+    function claimRewards() public whenNotPaused {
+        rewarder.getReward(msg.sender, true);
+    }
+
+    /// @notice Transfer out non-tracked tokens
+    function recover(
+        address[] calldata tokens,
+        uint256[] calldata amounts,
+        address[] calldata _destinations
+    ) external virtual override hasRole(Roles.TOKEN_RECOVERY_ROLE) {
+        // Makes sure our params are valid
+        uint256 len = tokens.length;
+        if (len == 0) {
+            revert Errors.InvalidParams();
+        }
+        Errors.verifyArrayLengths(len, amounts.length, "tokens+amounts");
+        Errors.verifyArrayLengths(len, _destinations.length, "tokens+_destinations");
+
+        emit TokensRecovered(tokens, amounts, _destinations);
+
+        for (uint256 i = 0; i < len; ++i) {
+            (address tokenAddress, uint256 amount, address destination) = (tokens[i], amounts[i], _destinations[i]);
+
+            // Ensure this isn't an asset we care about
+            if (_isTrackedAsset(tokenAddress)) {
+                revert Errors.AssetNotAllowed(tokenAddress);
+            }
+
+            IERC20(tokenAddress).safeTransfer(destination, amount);
+        }
+    }
+
+    /// @inheritdoc ILMPVault
+    function shutdown() external onlyOwner {
+        _shutdown = true;
+
+        emit Shutdown();
+    }
+
+    /// @inheritdoc ILMPVault
+    function isShutdown() external view returns (bool) {
+        return _shutdown;
+    }
+
+    /**
+     * @dev Internal conversion function (from assets to shares) with support for rounding direction.
+     */
+    function _convertToShares(uint256 assets, Math.Rounding rounding) internal view virtual returns (uint256 shares) {
+        uint256 supply = totalSupply();
+
+        // slither-disable-next-line incorrect-equality
+        shares = (assets == 0 || supply == 0) ? assets : assets.mulDiv(supply, totalAssets(), rounding);
+    }
+
+    /// @dev Internal conversion function (from shares to assets) with support for rounding direction.
+    function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual returns (uint256 assets) {
+        uint256 supply = totalSupply();
+        assets = (supply == 0) ? shares : shares.mulDiv(totalAssets(), supply, rounding);
+    }
+
+    function _maxRedeem(address owner) internal view virtual returns (uint256 maxShares) {
+        maxShares = paused() ? 0 : balanceOf(owner);
+    }
+
+    function _transferAndMint(uint256 assets, uint256 shares, address receiver) internal virtual {
+        // From OZ documentation:
+        // ----------------------
+        // If _asset is ERC777, `transferFrom` can trigger a reentrancy BEFORE the transfer happens through the
+        // `tokensToSend` hook. On the other hand, the `tokenReceived` hook, that is triggered after the transfer,
+        // calls the vault, which is assumed not malicious.
+        //
+        // Conclusion: we need to do the transfer before we mint so that any reentrancy would happen before the
+        // assets are transferred and before the shares are minted, which is a valid state.
+        // slither-disable-next-line reentrancy-no-eth
+        _baseAsset.safeTransferFrom(msg.sender, address(this), assets);
+
+        totalIdle += assets;
+
+        _mint(receiver, shares);
+
+        emit Deposit(msg.sender, receiver, assets, shares);
+    }
+
+    ///@dev Checks if vault is "healthy" in the sense of having assets backing the circulating shares.
+    function _isVaultCollateralized() internal view returns (bool) {
+        return totalAssets() > 0 || totalSupply() == 0;
+    }
+
+    function updateDebtReporting(address[] calldata _destinations) external nonReentrant trackNavOps {
+        _updateDebtReporting(_destinations);
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    //							  Destinations     							//
+    //////////////////////////////////////////////////////////////////////////
+
+    function getDestinations() public view override returns (address[] memory) {
+        return destinations.values();
+    }
+
+    function isDestinationRegistered(address destination) external view returns (bool) {
+        return destinations.contains(destination);
+    }
+
+    function addDestinations(address[] calldata _destinations) public hasRole(Roles.DESTINATION_VAULTS_UPDATER) {
+        LMPDestinations.addDestinations(removalQueue, destinations, _destinations, systemRegistry);
+    }
+
+    function removeDestinations(address[] calldata _destinations) public hasRole(Roles.DESTINATION_VAULTS_UPDATER) {
+        LMPDestinations.removeDestinations(removalQueue, destinations, _destinations);
+    }
+
+    function getRemovalQueue() public view override returns (address[] memory) {
+        return removalQueue.values();
+    }
+
+    function removeFromRemovalQueue(address vaultToRemove) public override hasRole(Roles.REBALANCER_ROLE) {
+        LMPDestinations.removeFromRemovalQueue(removalQueue, vaultToRemove);
+    }
+
+    /// @dev Order is set as list of interfaces to minimize gas for our users
+    function setWithdrawalQueue(address[] calldata _destinations)
+        public
+        override
+        hasRole(Roles.SET_WITHDRAWAL_QUEUE_ROLE)
+    {
+        LMPDestinations.setWithdrawalQueue(withdrawalQueue, _destinations, systemRegistry);
+    }
+
+    /// @notice Get the current withdrawal queue
+    function getWithdrawalQueue() public view override returns (IDestinationVault[] memory withdrawalDestinations) {
+        return withdrawalQueue;
+    }
+
+    /// @notice Get the current snapshot debt info for a destination
+    function getDestinationInfo(address destVault)
+        external
+        view
+        nonReentrantReadOnly
+        returns (LMPDebt.DestinationInfo memory)
+    {
+        return destinationInfo[destVault];
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    //                                                                      //
+    //							Strategy Related   							//
+    //                                                                      //
+    //////////////////////////////////////////////////////////////////////////
+
+    /// @inheritdoc IStrategy
+    function rebalance(RebalanceParams memory params) public nonReentrant hasRole(Roles.SOLVER_ROLE) trackNavOps {
+        (uint256 idle, uint256 debt) = LMPDebt.rebalance(
+            destinationInfo[params.destinationOut],
+            destinationInfo[params.destinationIn],
+            params,
+            _baseAsset,
+            _shutdown,
+            totalIdle,
+            totalDebt
+        );
+        totalIdle = idle;
+        totalDebt = debt;
+        _collectFees(idle, debt, totalSupply());
+    }
+
+    /// @inheritdoc IStrategy
+    function flashRebalance(
+        IERC3156FlashBorrower receiver,
+        RebalanceParams memory rebalanceParams,
+        bytes calldata data
+    ) public nonReentrant hasRole(Roles.SOLVER_ROLE) trackNavOps {
+        (uint256 idle, uint256 debt) = LMPDebt.flashRebalance(
+            destinationInfo[rebalanceParams.destinationOut],
+            destinationInfo[rebalanceParams.destinationIn],
+            receiver,
+            rebalanceParams,
+            LMPDebt.FlashRebalanceParams({
+                totalIdle: totalIdle,
+                totalDebt: totalDebt,
+                baseAsset: _baseAsset,
+                shutdown: _shutdown
+            }),
+            data
+        );
+        totalIdle = idle;
+        totalDebt = debt;
+        _collectFees(idle, debt, totalSupply());
+    }
+
+    /// @inheritdoc IStrategy
+    function verifyRebalance(
+        address destinationIn,
+        address tokenIn,
+        uint256 amountIn,
+        address destinationOut,
+        address tokenOut,
+        uint256 amountOut
+    ) public view virtual returns (bool success, string memory message) {
+        (success, message) = LMPStrategy.verifyRebalance(
+            IStrategy.RebalanceParams({
+                destinationIn: destinationIn,
+                tokenIn: tokenIn,
+                amountIn: amountIn,
+                destinationOut: destinationOut,
+                tokenOut: tokenOut,
+                amountOut: amountOut
+            })
+        );
+    }
+
+    /// @notice Process the destinations calculating current value and snapshotting for safe deposit/mint'ing
+    function _updateDebtReporting(address[] memory _destinations) private {
+        uint256 nDest = _destinations.length;
+
+        uint256 idleIncrease = 0;
+        uint256 prevNTotalDebt = 0;
+        uint256 afterNTotalDebt = 0;
+
+        for (uint256 i = 0; i < nDest; ++i) {
+            IDestinationVault destVault = IDestinationVault(_destinations[i]);
+
+            if (!destinations.contains(address(destVault))) {
+                revert InvalidDestination(address(destVault));
+            }
+
+            // Get the reward value we've earned. DV rewards are always in terms of base asset
+            // We track the gas used purely for off-chain stats purposes
+            // Main rewarder on DV's store the earned and liquidated rewards
+            // Extra rewarders are disabled at the DV level
+            uint256 claimGasUsed = gasleft();
+            uint256 beforeBaseAsset = _baseAsset.balanceOf(address(this));
+            // We don't want any extras, those would likely not be baseAsset
+            IMainRewarder(destVault.rewarder()).getReward(address(this), false);
+            uint256 claimedRewardValue = _baseAsset.balanceOf(address(this)) - beforeBaseAsset;
+            claimGasUsed -= gasleft();
+            idleIncrease += claimedRewardValue;
+
+            // Recalculate the debt info figuring out the change in
+            // total debt value we can roll up later
+            uint256 currentShareBalance = destVault.balanceOf(address(this));
+            (uint256 totalDebtDecrease, uint256 totalDebtIncrease) = LMPDebt.recalculateDestInfo(
+                destinationInfo[address(destVault)], destVault, currentShareBalance, currentShareBalance, false
+            );
+            prevNTotalDebt += totalDebtDecrease;
+            afterNTotalDebt += totalDebtIncrease;
+
+            emit DestinationDebtReporting(address(destVault), totalDebtIncrease, claimedRewardValue, claimGasUsed);
+        }
+
+        // Persist our change in idle and debt
+        uint256 idle = totalIdle + idleIncrease;
+        uint256 debt = totalDebt - prevNTotalDebt + afterNTotalDebt;
+
+        totalIdle = idle;
+        totalDebt = debt;
+
+        _collectFees(idle, debt, totalSupply());
+    }
+
+    function _collectFees(uint256 idle, uint256 debt, uint256 totalSupply) internal {
+        address sink = feeSink;
+        uint256 fees = 0;
+        uint256 shares = 0;
+        uint256 profit = 0;
+
+        // If there's no supply then there should be no assets and so nothing
+        // to actually take fees on
+        if (totalSupply == 0) {
+            return;
+        }
+
+        uint256 currentNavPerShare = ((idle + debt) * MAX_FEE_BPS) / totalSupply;
+        uint256 effectiveNavPerShareHighMark = navPerShareHighMark;
+
+        if (currentNavPerShare > effectiveNavPerShareHighMark) {
+            // Even if we aren't going to take the fee (haven't set a sink)
+            // We still want to calculate so we can emit for off-chain analysis
+            profit = (currentNavPerShare - effectiveNavPerShareHighMark) * totalSupply;
+            fees = profit.mulDiv(performanceFeeBps, (MAX_FEE_BPS ** 2), Math.Rounding.Up);
+            if (fees > 0 && sink != address(0)) {
+                // Calculated separate from other mints as normal share mint is round down
+                shares = _convertToShares(fees, Math.Rounding.Up);
+                _mint(sink, shares);
+                emit Deposit(address(this), sink, fees, shares);
+            }
+            // Set our new high water mark, the last nav/share height we took fees
+            navPerShareHighMark = currentNavPerShare;
+            navPerShareHighMarkTimestamp = block.timestamp;
+            emit NewNavHighWatermark(currentNavPerShare, block.timestamp);
+        }
+        emit FeeCollected(fees, sink, shares, profit, idle, debt);
+    }
+
+    function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override whenNotPaused {
+        // Nothing to do really do here
+        if (from == to) {
+            return;
+        }
+
+        // If this isn't a mint of new tokens, then they are being transferred
+        // from someone who is "staked" in the rewarder. Make sure they stop earning
+        // When they transfer those funds
+        if (from != address(0)) {
+            rewarder.withdraw(from, amount, true);
+        }
+
+        // Make sure the destination wallet total share balance doesn't go above the
+        // current perWalletLimit
+        if (balanceOf(to) + amount > perWalletLimit) {
+            revert OverWalletLimit(to);
+        }
+    }
+
+    function _afterTokenTransfer(address from, address to, uint256 amount) internal virtual override {
+        // Nothing to do really do here
+        if (from == to) {
+            return;
+        }
+
+        // If this isn't a burn, then the recipient should be earning in the rewarder
+        // "Stake" the tokens there so they start earning
+        if (to != address(0)) {
+            rewarder.stake(to, amount);
+        }
+    }
+
+    function _snapStartNav() private view returns (uint256 oldNav, uint256 startingTotalSupply) {
+        startingTotalSupply = totalSupply();
+        if (startingTotalSupply == 0) {
+            return (0, 0);
+        }
+        oldNav = (totalAssets() * MAX_FEE_BPS) / startingTotalSupply;
+    }
+
+    /// @notice Vault nav/share should not change on deposit/mint within rounding tolerance
+    /// @dev Disregarded for initial deposit
+    function _ensureNoNavChange(uint256 oldNav, uint256 startingTotalSupply) private view {
+        // Can change on initial deposit
+        if (startingTotalSupply == 0) {
+            return;
+        }
+
+        uint256 ts = totalSupply();
+
+        // Calculate the valid range
+        uint256 lowerBound = Math.max(oldNav, NAV_CHANGE_ROUNDING_BUFFER) - NAV_CHANGE_ROUNDING_BUFFER;
+        uint256 upperBound = oldNav > type(uint256).max - NAV_CHANGE_ROUNDING_BUFFER
+            ? type(uint256).max
+            : oldNav + NAV_CHANGE_ROUNDING_BUFFER;
+
+        // Make sure new nav is in range
+        uint256 newNav = (totalAssets() * MAX_FEE_BPS) / ts;
+        if (newNav < lowerBound || newNav > upperBound) {
+            revert NavChanged(oldNav, newNav);
+        }
+    }
+
+    /// @notice Vault nav/share shouldn't decrease on withdraw/redeem within rounding tolerance
+    /// @dev No check when no shares
+    function _ensureNoNavDecrease(uint256 oldNav, uint256 startingTotalSupply) private view {
+        uint256 ts = totalSupply();
+        if (ts == 0 || startingTotalSupply == 0) {
+            return;
+        }
+        uint256 lowerBound = Math.max(oldNav, NAV_CHANGE_ROUNDING_BUFFER) - NAV_CHANGE_ROUNDING_BUFFER;
+        uint256 newNav = (totalAssets() * MAX_FEE_BPS) / ts;
+        if (newNav < lowerBound) {
+            revert NavChanged(oldNav, newNav);
+        }
+    }
+
+    /// @notice Returns true if the provided asset one that is allowed to be transferred out via recover()
+    function _isTrackedAsset(address _asset) private view returns (bool) {
+        // Any asset that is core to functionality of this vault should not be removed
+        if (_asset == address(this) || _asset == address(_baseAsset)) {
+            return true;
+        }
+        return destinations.contains(_asset);
+    }
+
+    function _maxMint(address wallet) internal view virtual returns (uint256 shares) {
+        // If we are temporarily paused, or in full shutdown mode,
+        // no new shares are able to be minted
+        if (paused() || _shutdown) {
+            return 0;
+        }
+
+        uint256 tsLimit = totalSupplyLimit;
+        uint256 walletLimit = perWalletLimit;
+
+        if (!_isVaultCollateralized()) {
+            return Math.min(tsLimit, walletLimit);
+        }
+
+        // Return max if there is no limit as per spec
+        if (tsLimit == type(uint256).max && walletLimit == type(uint256).max) {
+            return type(uint256).max;
+        }
+
+        // Ensure we aren't over the total supply limit
+        uint256 totalSupply = totalSupply();
+        if (totalSupply >= tsLimit) {
+            return 0;
+        }
+
+        // Ensure the wallet isn't over the per wallet limit
+        uint256 walletBalance = balanceOf(wallet);
+
+        if (walletBalance >= perWalletLimit) {
+            return 0;
+        }
+
+        // User gets the minimum of of the limit buffers
+        shares = Math.min(tsLimit - totalSupply, walletLimit - walletBalance);
+    }
+
+    /// @notice Set the global share limit
+    /// @dev Zero is allowed here and used as a way to stop deposits but allow withdrawals
+    /// @param newSupplyLimit new total amount of shares allowed to be minted
+    function _setTotalSupplyLimit(uint256 newSupplyLimit) private {
+        // We do not expect that a decrease in this value will affect any shares already minted
+        // Just that new shares won't be minted until existing fall below the limit
+
+        totalSupplyLimit = newSupplyLimit;
+
+        emit TotalSupplyLimitSet(newSupplyLimit);
+    }
+
+    /// @notice Set the per-wallet share limit
+    /// @param newWalletLimit new total shares a wallet is allowed to hold
+    function _setPerWalletLimit(uint256 newWalletLimit) private {
+        // Any decrease in this value shouldn't affect what a wallet is already holding
+        // Just that their amount can't increase
+        Errors.verifyNotZero(newWalletLimit, "newWalletLimit");
+
+        perWalletLimit = newWalletLimit;
+
+        emit PerWalletLimitSet(newWalletLimit);
+    }
+}
+
+//slither-disable-end reentrancy-no-eth,reentrancy-benign
+// ===== END SOURCE FILE: src/vault/LMPVault.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/LMPVaultFactory.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { ILMPVaultFactory } from "src/interfaces/vault/ILMPVaultFactory.sol";
+import { ILMPVaultRegistry } from "src/interfaces/vault/ILMPVaultRegistry.sol";
+import { ILMPVault, LMPVault } from "src/vault/LMPVault.sol";
+import { StrategyFactory } from "src/strategy/StrategyFactory.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { Clones } from "openzeppelin-contracts/proxy/Clones.sol";
+import { MainRewarder } from "src/rewarders/MainRewarder.sol";
+import { Roles } from "src/libs/Roles.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+
+contract LMPVaultFactory is SystemComponent, ILMPVaultFactory, SecurityBase {
+    using Clones for address;
+    using EnumerableSet for EnumerableSet.Bytes32Set;
+
+    ILMPVaultRegistry public immutable vaultRegistry;
+    address public immutable template;
+
+    mapping(bytes32 => address) public vaultTypeToPrototype;
+    uint256 public defaultRewardRatio;
+    uint256 public defaultRewardBlockDuration;
+
+    modifier onlyVaultCreator() {
+        if (!_hasRole(Roles.CREATE_POOL_ROLE, msg.sender)) {
+            revert Errors.AccessDenied();
+        }
+        _;
+    }
+
+    event DefaultRewardRatioSet(uint256 rewardRatio);
+    event DefaultBlockDurationSet(uint256 blockDuration);
+
+    constructor(
+        ISystemRegistry _systemRegistry,
+        address _template,
+        uint256 _defaultRewardRatio,
+        uint256 _defaultRewardBlockDuration
+    ) SystemComponent(_systemRegistry) SecurityBase(address(_systemRegistry.accessController())) {
+        Errors.verifyNotZero(_template, "template");
+
+        // slither-disable-next-line missing-zero-check
+        template = _template;
+        vaultRegistry = systemRegistry.lmpVaultRegistry();
+
+        // Zero is valid here
+        _setDefaultRewardRatio(_defaultRewardRatio);
+        _setDefaultRewardBlockDuration(_defaultRewardBlockDuration);
+    }
+
+    function setDefaultRewardRatio(uint256 rewardRatio) external onlyOwner {
+        _setDefaultRewardRatio(rewardRatio);
+    }
+
+    function setDefaultRewardBlockDuration(uint256 blockDuration) external onlyOwner {
+        _setDefaultRewardBlockDuration(blockDuration);
+    }
+
+    function createVault(
+        uint256 supplyLimit,
+        uint256 walletLimit,
+        string memory symbolSuffix,
+        string memory descPrefix,
+        bytes32 salt,
+        bytes calldata extraParams
+    ) external onlyVaultCreator returns (address newVaultAddress) {
+        // verify params
+        Errors.verifyNotZero(salt, "salt");
+
+        address newToken = template.predictDeterministicAddress(salt);
+
+        MainRewarder mainRewarder = new MainRewarder{ salt: salt}(
+            systemRegistry,
+            newToken,
+            address(systemRegistry.toke()),
+            defaultRewardRatio,
+            defaultRewardBlockDuration,
+            true // allowExtraRewards
+        );
+
+        newVaultAddress = template.cloneDeterministic(salt);
+
+        LMPVault(newVaultAddress).initialize(supplyLimit, walletLimit, symbolSuffix, descPrefix, extraParams);
+        LMPVault(newVaultAddress).setRewarder(address(mainRewarder));
+
+        // add to VaultRegistry
+        vaultRegistry.addVault(newVaultAddress);
+    }
+
+    function _setDefaultRewardRatio(uint256 rewardRatio) private {
+        defaultRewardRatio = rewardRatio;
+
+        emit DefaultRewardRatioSet(rewardRatio);
+    }
+
+    function _setDefaultRewardBlockDuration(uint256 blockDuration) private {
+        defaultRewardBlockDuration = blockDuration;
+
+        emit DefaultBlockDurationSet(blockDuration);
+    }
+}
+// ===== END SOURCE FILE: src/vault/LMPVaultFactory.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/LMPVaultRegistry.sol =====
+//SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { AccessControl } from "openzeppelin-contracts/access/AccessControl.sol";
+import { EnumerableSet } from "openzeppelin-contracts/utils/structs/EnumerableSet.sol";
+
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { Roles } from "src/libs/Roles.sol";
+import { VaultTypes } from "src/vault/VaultTypes.sol";
+
+import { ILMPVaultRegistry } from "src/interfaces/vault/ILMPVaultRegistry.sol";
+import { ILMPVault } from "src/interfaces/vault/ILMPVault.sol";
+
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+
+import { Errors } from "src/utils/Errors.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+
+contract LMPVaultRegistry is SystemComponent, ILMPVaultRegistry, SecurityBase {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    EnumerableSet.AddressSet private _vaults;
+    EnumerableSet.AddressSet private _assets;
+
+    // registry of vaults for a given asset
+    mapping(address => EnumerableSet.AddressSet) private _vaultsByAsset;
+    // registry of vaults for a given type
+    mapping(bytes32 => EnumerableSet.AddressSet) private _vaultsByType;
+
+    constructor(ISystemRegistry _systemRegistry)
+        SystemComponent(_systemRegistry)
+        SecurityBase(address(_systemRegistry.accessController()))
+    { }
+
+    modifier onlyUpdater() {
+        if (!_hasRole(Roles.REGISTRY_UPDATER, msg.sender)) revert Errors.AccessDenied();
+        _;
+    }
+
+    ///////////////////////////////////////////////////////////////////
+    //
+    //                        Update Methods
+    //
+    ///////////////////////////////////////////////////////////////////
+
+    function addVault(address vaultAddress) external onlyUpdater {
+        Errors.verifyNotZero(vaultAddress, "vaultAddress");
+
+        ILMPVault vault = ILMPVault(vaultAddress);
+
+        address asset = vault.asset();
+        bytes32 vaultType = vault.vaultType();
+
+        if (!_vaults.add(vaultAddress)) revert VaultAlreadyExists(vaultAddress);
+        //slither-disable-next-line unused-return
+        if (!_assets.contains(asset)) _assets.add(asset);
+
+        if (!_vaultsByAsset[asset].add(vaultAddress)) revert VaultAlreadyExists(vaultAddress);
+        if (!_vaultsByType[vaultType].add(vaultAddress)) revert VaultAlreadyExists(vaultAddress);
+
+        emit VaultAdded(asset, vaultAddress);
+    }
+
+    function removeVault(address vaultAddress) external onlyUpdater {
+        Errors.verifyNotZero(vaultAddress, "vaultAddress");
+
+        // remove from vaults list
+        if (!_vaults.remove(vaultAddress)) revert VaultNotFound(vaultAddress);
+
+        address asset = ILMPVault(vaultAddress).asset();
+
+        // remove from assets list if this was the last vault for that asset
+        if (_vaultsByAsset[asset].length() == 1) {
+            //slither-disable-next-line unused-return
+            _assets.remove(asset);
+        }
+
+        // remove from vaultsByAsset mapping
+        if (!_vaultsByAsset[asset].remove(vaultAddress)) revert VaultNotFound(vaultAddress);
+
+        emit VaultRemoved(asset, vaultAddress);
+    }
+
+    ///////////////////////////////////////////////////////////////////
+    //
+    //                        Enumeration Methods
+    //
+    ///////////////////////////////////////////////////////////////////
+
+    function isVault(address vaultAddress) external view override returns (bool) {
+        return _vaults.contains(vaultAddress);
+    }
+
+    function listVaults() external view returns (address[] memory) {
+        return _vaults.values();
+    }
+
+    function listVaultsForAsset(address asset) external view returns (address[] memory) {
+        return _vaultsByAsset[asset].values();
+    }
+
+    function listVaultsForType(bytes32 _vaultType) external view returns (address[] memory) {
+        return _vaultsByType[_vaultType].values();
+    }
+}
+// ===== END SOURCE FILE: src/vault/LMPVaultRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/LMPVaultRouter.sol =====
+// forked from https://github.com/fei-protocol/ERC4626/blob/main/src/ERC4626Router.sol
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.17;
+
+import { IERC20, SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { Address } from "openzeppelin-contracts/utils/Address.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { ILMPVault, ILMPVaultRouter } from "src/interfaces/vault/ILMPVaultRouter.sol";
+import { SwapParams } from "src/interfaces/liquidation/IAsyncSwapper.sol";
+import { LMPVaultRouterBase } from "src/vault/LMPVaultRouterBase.sol";
+
+/// @title ERC4626Router contract
+contract LMPVaultRouter is ILMPVaultRouter, LMPVaultRouterBase {
+    using SafeERC20 for IERC20;
+    using Address for address;
+
+    ISystemRegistry private immutable systemRegistry;
+
+    constructor(ISystemRegistry _systemRegistry, address _weth9) LMPVaultRouterBase(_weth9) {
+        systemRegistry = _systemRegistry;
+    }
+
+    // For the below, no approval needed, assumes vault is already max approved
+
+    /// @inheritdoc ILMPVaultRouter
+    function withdrawToDeposit(
+        ILMPVault fromVault,
+        ILMPVault toVault,
+        address to,
+        uint256 amount,
+        uint256 maxSharesIn,
+        uint256 minSharesOut
+    ) external override returns (uint256 sharesOut) {
+        withdraw(fromVault, address(this), amount, maxSharesIn, false);
+        return _deposit(toVault, to, amount, minSharesOut);
+    }
+
+    /// @inheritdoc ILMPVaultRouter
+    function swapAndDepositToVault(
+        address swapper,
+        SwapParams memory swapParams,
+        ILMPVault vault,
+        address to,
+        uint256 minSharesOut
+    ) external returns (uint256 sharesOut) {
+        systemRegistry.asyncSwapperRegistry().verifyIsRegistered(swapper);
+        pullToken(IERC20(swapParams.sellTokenAddress), swapParams.sellAmount, address(this));
+
+        // verify that the swap is for the vault asset
+        if (swapParams.buyTokenAddress != vault.asset()) revert Errors.InvalidParams();
+
+        bytes memory data = swapper.functionDelegateCall(
+            abi.encodeWithSignature("swap((address,uint256,address,uint256,bytes,bytes))", swapParams), "SwapFailed"
+        );
+
+        uint256 amountReceived = abi.decode(data, (uint256));
+
+        return _deposit(vault, to, amountReceived, minSharesOut);
+    }
+
+    /// @inheritdoc ILMPVaultRouter
+    function redeemToDeposit(
+        ILMPVault fromVault,
+        ILMPVault toVault,
+        address to,
+        uint256 shares,
+        uint256 minSharesOut
+    ) external override returns (uint256 sharesOut) {
+        // amount out passes through so only one slippage check is needed
+        uint256 amount = redeem(fromVault, address(this), shares, 0, false);
+        return _deposit(toVault, to, amount, minSharesOut);
+    }
+
+    /// @inheritdoc ILMPVaultRouter
+    function depositMax(
+        ILMPVault vault,
+        address to,
+        uint256 minSharesOut
+    ) public override returns (uint256 sharesOut) {
+        IERC20 asset = IERC20(vault.asset());
+        uint256 assetBalance = asset.balanceOf(msg.sender);
+        uint256 maxDeposit = vault.maxDeposit(to);
+        uint256 amount = maxDeposit < assetBalance ? maxDeposit : assetBalance;
+        pullToken(asset, amount, address(this));
+        return _deposit(vault, to, amount, minSharesOut);
+    }
+
+    /// @inheritdoc ILMPVaultRouter
+    function redeemMax(ILMPVault vault, address to, uint256 minAmountOut) public override returns (uint256 amountOut) {
+        uint256 shareBalance = vault.balanceOf(msg.sender);
+        uint256 maxRedeem = vault.maxRedeem(msg.sender);
+        uint256 amountShares = maxRedeem < shareBalance ? maxRedeem : shareBalance;
+        return redeem(vault, to, amountShares, minAmountOut, false);
+    }
+}
+// ===== END SOURCE FILE: src/vault/LMPVaultRouter.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/LMPVaultRouterBase.sol =====
+// forked from https://github.com/fei-protocol/ERC4626/blob/main/src/ERC4626RouterBase.sol
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.17;
+
+import { IERC20, SafeERC20, Address } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { ILMPVault, ILMPVaultRouterBase } from "src/interfaces/vault/ILMPVaultRouterBase.sol";
+
+import { SelfPermit } from "src/utils/SelfPermit.sol";
+import { PeripheryPayments } from "src/utils/PeripheryPayments.sol";
+import { Multicall } from "src/utils/Multicall.sol";
+
+import { IWETH9 } from "src/interfaces/utils/IWETH9.sol";
+
+/// @title LMPVault Router Base Contract
+abstract contract LMPVaultRouterBase is ILMPVaultRouterBase, SelfPermit, Multicall, PeripheryPayments {
+    using SafeERC20 for IERC20;
+
+    error InvalidAsset();
+
+    constructor(address _weth9) PeripheryPayments(IWETH9(_weth9)) { }
+
+    /// @inheritdoc ILMPVaultRouterBase
+    function mint(
+        ILMPVault vault,
+        address to,
+        uint256 shares,
+        uint256 maxAmountIn
+    ) public payable virtual override returns (uint256 amountIn) {
+        // handle possible eth
+        _processEthIn(vault);
+
+        IERC20 vaultAsset = IERC20(vault.asset());
+        uint256 assets = vault.previewMint(shares);
+        pullToken(vaultAsset, assets, address(this));
+        vaultAsset.safeApprove(address(vault), assets);
+
+        amountIn = vault.mint(shares, to);
+        if (amountIn > maxAmountIn) {
+            revert MaxAmountError();
+        }
+    }
+
+    /// @inheritdoc ILMPVaultRouterBase
+    function deposit(
+        ILMPVault vault,
+        address to,
+        uint256 amount,
+        uint256 minSharesOut
+    ) public payable virtual override returns (uint256 sharesOut) {
+        // handle possible eth
+        _processEthIn(vault);
+
+        IERC20 vaultAsset = IERC20(vault.asset());
+        pullToken(vaultAsset, amount, address(this));
+
+        return _deposit(vault, to, amount, minSharesOut);
+    }
+
+    /// @dev Assumes tokens are already in the router
+    function _deposit(
+        ILMPVault vault,
+        address to,
+        uint256 amount,
+        uint256 minSharesOut
+    ) internal returns (uint256 sharesOut) {
+        approve(IERC20(vault.asset()), address(vault), amount);
+        if ((sharesOut = vault.deposit(amount, to)) < minSharesOut) {
+            revert MinSharesError();
+        }
+    }
+
+    /// @inheritdoc ILMPVaultRouterBase
+    function withdraw(
+        ILMPVault vault,
+        address to,
+        uint256 amount,
+        uint256 maxSharesOut,
+        bool unwrapWETH
+    ) public virtual override returns (uint256 sharesOut) {
+        address destination = unwrapWETH ? address(this) : to;
+
+        sharesOut = vault.withdraw(amount, destination, msg.sender);
+        if (sharesOut > maxSharesOut) {
+            revert MaxSharesError();
+        }
+
+        if (unwrapWETH) {
+            _processWethOut(to);
+        }
+    }
+
+    /// @inheritdoc ILMPVaultRouterBase
+    function redeem(
+        ILMPVault vault,
+        address to,
+        uint256 shares,
+        uint256 minAmountOut,
+        bool unwrapWETH
+    ) public virtual override returns (uint256 amountOut) {
+        address destination = unwrapWETH ? address(this) : to;
+
+        if ((amountOut = vault.redeem(shares, destination, msg.sender)) < minAmountOut) {
+            revert MinAmountError();
+        }
+
+        if (unwrapWETH) {
+            _processWethOut(to);
+        }
+    }
+
+    function _processEthIn(ILMPVault vault) internal {
+        // if any eth sent, wrap it first
+        if (msg.value > 0) {
+            // if asset is not weth, revert
+            if (address(vault.asset()) != address(weth9)) {
+                revert InvalidAsset();
+            }
+
+            // wrap eth
+            weth9.deposit{ value: msg.value }();
+        }
+    }
+
+    function _processWethOut(address to) internal {
+        uint256 balanceWETH9 = weth9.balanceOf(address(this));
+
+        if (balanceWETH9 > 0) {
+            weth9.withdraw(balanceWETH9);
+            Address.sendValue(payable(to), balanceWETH9);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/vault/LMPVaultRouterBase.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/MaverickDestinationVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { DestinationVault } from "src/vault/DestinationVault.sol";
+import { IPool } from "src/interfaces/external/maverick/IPool.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IRouter } from "src/interfaces/external/maverick/IRouter.sol";
+import { IReward } from "src/interfaces/external/maverick/IReward.sol";
+import { IPosition } from "src/interfaces/external/maverick/IPosition.sol";
+import { IMainRewarder } from "src/interfaces/rewarders/IMainRewarder.sol";
+import { IPoolPositionSlim } from "src/interfaces/external/maverick/IPoolPositionSlim.sol";
+import { MaverickStakingAdapter } from "src/destinations/adapters/staking/MaverickStakingAdapter.sol";
+import { MaverickRewardsAdapter } from "src/destinations/adapters/rewards/MaverickRewardsAdapter.sol";
+import { IERC20Metadata as IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+contract MaverickDestinationVault is DestinationVault {
+    error NothingToClaim();
+    error NoDebtReclaimed();
+
+    /// @notice Only used to initialize the vault
+    struct InitParams {
+        /// @notice Maverick swap and liquidity router
+        address maverickRouter;
+        /// @notice Maverick Boosted Position contract
+        address maverickBoostedPosition;
+        /// @notice Rewarder contract for the Boosted Position
+        address maverickRewarder;
+        /// @notice Pool that the Boosted Position proxies
+        address maverickPool;
+    }
+
+    string private constant EXCHANGE_NAME = "maverick";
+
+    /// @dev Tokens that make up the pool
+    address[] private constituentTokens;
+
+    /// @notice Maverick swap and liquidity router
+    IRouter public maverickRouter;
+
+    /// @notice Maverick Boosted Position contract
+    IPoolPositionSlim public maverickBoostedPosition;
+
+    /// @notice Rewarder contract for the Boosted Position
+    IReward public maverickRewarder;
+
+    /// @notice Pool that the Boosted Position proxies
+    IPool public maverickPool;
+
+    /// @notice Address Mavericks Position NFT
+    IPosition public positionNft;
+
+    error InvalidConfiguration();
+
+    constructor(ISystemRegistry sysRegistry) DestinationVault(sysRegistry) { }
+
+    /// @inheritdoc DestinationVault
+    function initialize(
+        IERC20 baseAsset_,
+        IERC20 underlyer_,
+        IMainRewarder rewarder_,
+        address[] memory additionalTrackedTokens_,
+        bytes memory params_
+    ) public virtual override {
+        // Base class has the initializer() modifier to prevent double-setup
+        // If you don't call the base initialize, make sure you protect this call
+        super.initialize(baseAsset_, underlyer_, rewarder_, additionalTrackedTokens_, params_);
+
+        // Decode the init params, validate, and save off
+        InitParams memory initParams = abi.decode(params_, (InitParams));
+
+        Errors.verifyNotZero(initParams.maverickRouter, "maverickRouter");
+        Errors.verifyNotZero(initParams.maverickBoostedPosition, "maverickBoostedPosition");
+        Errors.verifyNotZero(initParams.maverickRewarder, "maverickRewarder");
+        Errors.verifyNotZero(initParams.maverickPool, "maverickPool");
+
+        maverickRouter = IRouter(initParams.maverickRouter);
+        maverickBoostedPosition = IPoolPositionSlim(initParams.maverickBoostedPosition);
+        maverickRewarder = IReward(initParams.maverickRewarder);
+        maverickPool = IPool(initParams.maverickPool);
+
+        positionNft = IRouter(initParams.maverickRouter).position();
+        address stakingToken = IReward(initParams.maverickRewarder).stakingToken();
+
+        if (address(stakingToken) != address(_underlying)) {
+            revert InvalidConfiguration();
+        }
+
+        address tokenA = address(IPool(initParams.maverickPool).tokenA());
+        address tokenB = address(IPool(initParams.maverickPool).tokenB());
+        _addTrackedToken(tokenA);
+        _addTrackedToken(tokenB);
+
+        constituentTokens = new address[](2);
+        constituentTokens[0] = tokenA;
+        constituentTokens[1] = tokenB;
+    }
+
+    /// @notice Get the balance of underlyer currently staked in Maverick Rewarder
+    /// @return Balance of underlyer currently staked in Maverick Rewarder
+    function externalBalance() public view override returns (uint256) {
+        return maverickRewarder.balanceOf(address(this));
+    }
+
+    /// @inheritdoc DestinationVault
+    function exchangeName() external pure override returns (string memory) {
+        return EXCHANGE_NAME;
+    }
+
+    /// @inheritdoc DestinationVault
+    function underlyingTokens() external view override returns (address[] memory result) {
+        result = new address[](2);
+        for (uint256 i = 0; i < 2; ++i) {
+            result[i] = constituentTokens[i];
+        }
+    }
+
+    /// @notice Callback during a deposit after the sender has been minted shares (if applicable)
+    /// @dev Should be used for staking tokens into protocols, etc
+    /// @param amount underlying tokens received
+    function _onDeposit(uint256 amount) internal virtual override {
+        MaverickStakingAdapter.stakeLPs(maverickRewarder, amount);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _ensureLocalUnderlyingBalance(uint256 amount) internal virtual override {
+        // We should almost always have our balance of LP in the rewarder
+        uint256 localLpBalance = internalBalance();
+        if (amount > localLpBalance) {
+            MaverickStakingAdapter.unstakeLPs(maverickRewarder, amount - localLpBalance);
+        }
+    }
+
+    /// @inheritdoc DestinationVault
+    function _collectRewards() internal virtual override returns (uint256[] memory amounts, address[] memory tokens) {
+        (amounts, tokens) = MaverickRewardsAdapter.claimRewards(address(maverickRewarder), msg.sender);
+    }
+
+    /// @inheritdoc DestinationVault
+    function _burnUnderlyer(uint256 underlyerAmount)
+        internal
+        virtual
+        override
+        returns (address[] memory tokens, uint256[] memory amounts)
+    {
+        //slither-disable-start similar-names
+        (uint256 sellAmountA, uint256 sellAmountB) =
+            maverickBoostedPosition.burnFromToAddressAsReserves(address(this), address(this), underlyerAmount);
+
+        tokens = new address[](2);
+        amounts = new uint256[](2);
+
+        tokens[0] = constituentTokens[0];
+        tokens[1] = constituentTokens[1];
+
+        amounts[0] = sellAmountA;
+        amounts[1] = sellAmountB;
+        //slither-disable-end similar-names
+    }
+}
+// ===== END SOURCE FILE: src/vault/MaverickDestinationVault.sol =====
+// ===== BEGIN SOURCE FILE: src/vault/VaultTypes.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+library VaultTypes {
+    bytes32 public constant LST = keccak256("LST");
+    bytes32 public constant STABLE = keccak256("STABLE");
+}
+// ===== END SOURCE FILE: src/vault/VaultTypes.sol =====

@@ -1,0 +1,5065 @@
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/libraries/TransferHelper.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.6.0;
+
+import "../interfaces/IERC20Minimal.sol";
+
+/// @title TransferHelper
+/// @notice Contains helper methods for interacting with ERC20 tokens that do not consistently return true/false
+library TransferHelper {
+    /// @notice Transfers tokens from msg.sender to a recipient
+    /// @dev Calls transfer on token contract, errors with TF if transfer fails
+    /// @param token The contract address of the token which will be transferred
+    /// @param to The recipient of the transfer
+    /// @param value The value of the transfer
+    function safeTransfer(
+        address token,
+        address to,
+        uint256 value
+    ) internal {
+        (bool success, bytes memory data) = token.call(
+            abi.encodeWithSelector(IERC20Minimal.transfer.selector, to, value)
+        );
+        require(
+            success && (data.length == 0 || abi.decode(data, (bool))),
+            "TF"
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/libraries/TransferHelper.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/libraries/UnsafeMath.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.5.0;
+
+/// @title Math functions that do not check inputs or outputs
+/// @notice Contains methods that perform common math functions but do not do any overflow or underflow checks
+library UnsafeMath {
+    /// @notice Returns ceil(x / y)
+    /// @dev division by 0 has unspecified behavior, and must be checked externally
+    /// @param x The dividend
+    /// @param y The divisor
+    /// @return z The quotient, ceil(x / y)
+    function divRoundingUp(uint256 x, uint256 y)
+        internal
+        pure
+        returns (uint256 z)
+    {
+        assembly {
+            z := add(div(x, y), gt(mod(x, y), 0))
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/libraries/UnsafeMath.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/NoDelegateCall.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity =0.7.6;
+
+/// @title Prevents delegatecall to a contract
+/// @notice Base contract that provides a modifier for preventing delegatecall to methods in a child contract
+abstract contract NoDelegateCall {
+    /// @dev The original address of this contract
+    address private immutable original;
+
+    constructor() {
+        // Immutables are computed in the init code of the contract, and then inlined into the deployed bytecode.
+        // In other words, this variable won't change when it's checked at runtime.
+        original = address(this);
+    }
+
+    /// @dev Private method is used instead of inlining into modifier because modifiers are copied into each method,
+    ///     and the use of immutable means the address bytes are copied in every place the modifier is used.
+    function checkNotDelegateCall() private view {
+        require(address(this) == original);
+    }
+
+    /// @notice Prevents delegatecall into the modified method
+    modifier noDelegateCall() {
+        checkNotDelegateCall();
+        _;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/NoDelegateCall.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/UniswapV3Factory.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity =0.7.6;
+
+import "./interfaces/IUniswapV3Factory.sol";
+
+import "./UniswapV3PoolDeployer.sol";
+import "./NoDelegateCall.sol";
+
+import "./UniswapV3Pool.sol";
+
+/// @title Canonical Uniswap V3 factory
+/// @notice Deploys Uniswap V3 pools and manages ownership and control over pool protocol fees
+contract UniswapV3Factory is
+    IUniswapV3Factory,
+    UniswapV3PoolDeployer,
+    NoDelegateCall
+{
+    /// @inheritdoc IUniswapV3Factory
+    address public override owner;
+
+    /// @inheritdoc IUniswapV3Factory
+    mapping(uint24 => int24) public override feeAmountTickSpacing;
+    /// @inheritdoc IUniswapV3Factory
+    mapping(address => mapping(address => mapping(uint24 => address)))
+        public
+        override getPool;
+
+    constructor() {
+        owner = msg.sender;
+        emit OwnerChanged(address(0), msg.sender);
+
+        feeAmountTickSpacing[500] = 10;
+        emit FeeAmountEnabled(500, 10);
+        feeAmountTickSpacing[3000] = 60;
+        emit FeeAmountEnabled(3000, 60);
+        feeAmountTickSpacing[10000] = 200;
+        emit FeeAmountEnabled(10000, 200);
+    }
+
+    /// @inheritdoc IUniswapV3Factory
+    function createPool(
+        address tokenA,
+        address tokenB,
+        uint24 fee
+    ) external override noDelegateCall returns (address pool) {
+        require(tokenA != tokenB);
+        (address token0, address token1) = tokenA < tokenB
+            ? (tokenA, tokenB)
+            : (tokenB, tokenA);
+        require(token0 != address(0));
+        int24 tickSpacing = feeAmountTickSpacing[fee];
+        require(tickSpacing != 0);
+        require(getPool[token0][token1][fee] == address(0));
+        pool = deploy(address(this), token0, token1, fee, tickSpacing);
+        getPool[token0][token1][fee] = pool;
+        // populate mapping in the reverse direction, deliberate choice to avoid the cost of comparing addresses
+        getPool[token1][token0][fee] = pool;
+        emit PoolCreated(token0, token1, fee, tickSpacing, pool);
+    }
+
+    /// @inheritdoc IUniswapV3Factory
+    function setOwner(address _owner) external override {
+        require(msg.sender == owner);
+        emit OwnerChanged(owner, _owner);
+        owner = _owner;
+    }
+
+    /// @inheritdoc IUniswapV3Factory
+    function enableFeeAmount(uint24 fee, int24 tickSpacing) public override {
+        require(msg.sender == owner);
+        require(fee < 1000000);
+        // tick spacing is capped at 16384 to prevent the situation where tickSpacing is so large that
+        // TickBitmap#nextInitializedTickWithinOneWord overflows int24 container from a valid tick
+        // 16384 ticks represents a >5x price change with ticks of 1 bips
+        require(tickSpacing > 0 && tickSpacing < 16384);
+        require(feeAmountTickSpacing[fee] == 0);
+
+        feeAmountTickSpacing[fee] = tickSpacing;
+        emit FeeAmountEnabled(fee, tickSpacing);
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/UniswapV3Factory.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/UniswapV3Pool.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity =0.7.6;
+
+import "./interfaces/IUniswapV3Pool.sol";
+
+import "./NoDelegateCall.sol";
+
+import "./libraries/LowGasSafeMath.sol";
+import "./libraries/SafeCast.sol";
+import "./libraries/Tick.sol";
+import "./libraries/TickBitmap.sol";
+import "./libraries/Position.sol";
+import "./libraries/Oracle.sol";
+
+import "./libraries/FullMath.sol";
+import "./libraries/FixedPoint128.sol";
+import "./libraries/TransferHelper.sol";
+import "./libraries/TickMath.sol";
+import "./libraries/LiquidityMath.sol";
+import "./libraries/SqrtPriceMath.sol";
+import "./libraries/SwapMath.sol";
+
+import "./interfaces/IUniswapV3PoolDeployer.sol";
+import "./interfaces/IUniswapV3Factory.sol";
+import "./interfaces/IERC20Minimal.sol";
+import "./interfaces/callback/IUniswapV3MintCallback.sol";
+import "./interfaces/callback/IUniswapV3SwapCallback.sol";
+import "./interfaces/callback/IUniswapV3FlashCallback.sol";
+
+contract UniswapV3Pool is IUniswapV3Pool, NoDelegateCall {
+    using LowGasSafeMath for uint256;
+    using LowGasSafeMath for int256;
+    using SafeCast for uint256;
+    using SafeCast for int256;
+    using Tick for mapping(int24 => Tick.Info);
+    using TickBitmap for mapping(int16 => uint256);
+    using Position for mapping(bytes32 => Position.Info);
+    using Position for Position.Info;
+    using Oracle for Oracle.Observation[65535];
+
+    /// @inheritdoc IUniswapV3PoolImmutables
+    address public immutable override factory;
+    /// @inheritdoc IUniswapV3PoolImmutables
+    address public immutable override token0;
+    /// @inheritdoc IUniswapV3PoolImmutables
+    address public immutable override token1;
+    /// @inheritdoc IUniswapV3PoolImmutables
+    uint24 public immutable override fee;
+
+    /// @inheritdoc IUniswapV3PoolImmutables
+    int24 public immutable override tickSpacing;
+
+    /// @inheritdoc IUniswapV3PoolImmutables
+    uint128 public immutable override maxLiquidityPerTick;
+
+    struct Slot0 {
+        // the current price
+        uint160 sqrtPriceX96;
+        // the current tick
+        int24 tick;
+        // the most-recently updated index of the observations array
+        uint16 observationIndex;
+        // the current maximum number of observations that are being stored
+        uint16 observationCardinality;
+        // the next maximum number of observations to store, triggered in observations.write
+        uint16 observationCardinalityNext;
+        // the current protocol fee as a percentage of the swap fee taken on withdrawal
+        // represented as an integer denominator (1/x)%
+        uint8 feeProtocol;
+        // whether the pool is locked
+        bool unlocked;
+    }
+    /// @inheritdoc IUniswapV3PoolState
+    Slot0 public override slot0;
+
+    /// @inheritdoc IUniswapV3PoolState
+    uint256 public override feeGrowthGlobal0X128;
+    /// @inheritdoc IUniswapV3PoolState
+    uint256 public override feeGrowthGlobal1X128;
+
+    // accumulated protocol fees in token0/token1 units
+    struct ProtocolFees {
+        uint128 token0;
+        uint128 token1;
+    }
+    /// @inheritdoc IUniswapV3PoolState
+    ProtocolFees public override protocolFees;
+
+    /// @inheritdoc IUniswapV3PoolState
+    uint128 public override liquidity;
+
+    /// @inheritdoc IUniswapV3PoolState
+    mapping(int24 => Tick.Info) public override ticks;
+    /// @inheritdoc IUniswapV3PoolState
+    mapping(int16 => uint256) public override tickBitmap;
+    /// @inheritdoc IUniswapV3PoolState
+    mapping(bytes32 => Position.Info) public override positions;
+    /// @inheritdoc IUniswapV3PoolState
+    Oracle.Observation[65535] public override observations;
+
+    /// @dev Mutually exclusive reentrancy protection into the pool to/from a method. This method also prevents entrance
+    /// to a function before the pool is initialized. The reentrancy guard is required throughout the contract because
+    /// we use balance checks to determine the payment status of interactions such as mint, swap and flash.
+    modifier lock() {
+        require(slot0.unlocked, "LOK");
+        slot0.unlocked = false;
+        _;
+        slot0.unlocked = true;
+    }
+
+    /// @dev Prevents calling a function from anyone except the address returned by IUniswapV3Factory#owner()
+    modifier onlyFactoryOwner() {
+        require(msg.sender == IUniswapV3Factory(factory).owner());
+        _;
+    }
+
+    constructor() {
+        int24 _tickSpacing;
+        (factory, token0, token1, fee, _tickSpacing) = IUniswapV3PoolDeployer(
+            msg.sender
+        ).parameters();
+        tickSpacing = _tickSpacing;
+
+        maxLiquidityPerTick = Tick.tickSpacingToMaxLiquidityPerTick(
+            _tickSpacing
+        );
+    }
+
+    /// @dev Common checks for valid tick inputs.
+    function checkTicks(int24 tickLower, int24 tickUpper) private pure {
+        require(tickLower < tickUpper, "TLU");
+        require(tickLower >= TickMath.MIN_TICK, "TLM");
+        require(tickUpper <= TickMath.MAX_TICK, "TUM");
+    }
+
+    /// @dev Returns the block timestamp truncated to 32 bits, i.e. mod 2**32. This method is overridden in tests.
+    function _blockTimestamp() internal view virtual returns (uint32) {
+        return uint32(block.timestamp); // truncation is desired
+    }
+
+    /// @dev Get the pool's balance of token0
+    /// @dev This function is gas optimized to avoid a redundant extcodesize check in addition to the returndatasize
+    /// check
+    function balance0() private view returns (uint256) {
+        (bool success, bytes memory data) = token0.staticcall(
+            abi.encodeWithSelector(
+                IERC20Minimal.balanceOf.selector,
+                address(this)
+            )
+        );
+        require(success && data.length >= 32);
+        return abi.decode(data, (uint256));
+    }
+
+    /// @dev Get the pool's balance of token1
+    /// @dev This function is gas optimized to avoid a redundant extcodesize check in addition to the returndatasize
+    /// check
+    function balance1() private view returns (uint256) {
+        (bool success, bytes memory data) = token1.staticcall(
+            abi.encodeWithSelector(
+                IERC20Minimal.balanceOf.selector,
+                address(this)
+            )
+        );
+        require(success && data.length >= 32);
+        return abi.decode(data, (uint256));
+    }
+
+    /// @inheritdoc IUniswapV3PoolDerivedState
+    function snapshotCumulativesInside(int24 tickLower, int24 tickUpper)
+        external
+        view
+        override
+        noDelegateCall
+        returns (
+            int56 tickCumulativeInside,
+            uint160 secondsPerLiquidityInsideX128,
+            uint32 secondsInside
+        )
+    {
+        checkTicks(tickLower, tickUpper);
+
+        int56 tickCumulativeLower;
+        int56 tickCumulativeUpper;
+        uint160 secondsPerLiquidityOutsideLowerX128;
+        uint160 secondsPerLiquidityOutsideUpperX128;
+        uint32 secondsOutsideLower;
+        uint32 secondsOutsideUpper;
+
+        {
+            Tick.Info storage lower = ticks[tickLower];
+            Tick.Info storage upper = ticks[tickUpper];
+            bool initializedLower;
+            (
+                tickCumulativeLower,
+                secondsPerLiquidityOutsideLowerX128,
+                secondsOutsideLower,
+                initializedLower
+            ) = (
+                lower.tickCumulativeOutside,
+                lower.secondsPerLiquidityOutsideX128,
+                lower.secondsOutside,
+                lower.initialized
+            );
+            require(initializedLower);
+
+            bool initializedUpper;
+            (
+                tickCumulativeUpper,
+                secondsPerLiquidityOutsideUpperX128,
+                secondsOutsideUpper,
+                initializedUpper
+            ) = (
+                upper.tickCumulativeOutside,
+                upper.secondsPerLiquidityOutsideX128,
+                upper.secondsOutside,
+                upper.initialized
+            );
+            require(initializedUpper);
+        }
+
+        Slot0 memory _slot0 = slot0;
+
+        if (_slot0.tick < tickLower) {
+            return (
+                tickCumulativeLower - tickCumulativeUpper,
+                secondsPerLiquidityOutsideLowerX128 -
+                    secondsPerLiquidityOutsideUpperX128,
+                secondsOutsideLower - secondsOutsideUpper
+            );
+        } else if (_slot0.tick < tickUpper) {
+            uint32 time = _blockTimestamp();
+            (
+                int56 tickCumulative,
+                uint160 secondsPerLiquidityCumulativeX128
+            ) = observations.observeSingle(
+                    time,
+                    0,
+                    _slot0.tick,
+                    _slot0.observationIndex,
+                    liquidity,
+                    _slot0.observationCardinality
+                );
+            return (
+                tickCumulative - tickCumulativeLower - tickCumulativeUpper,
+                secondsPerLiquidityCumulativeX128 -
+                    secondsPerLiquidityOutsideLowerX128 -
+                    secondsPerLiquidityOutsideUpperX128,
+                time - secondsOutsideLower - secondsOutsideUpper
+            );
+        } else {
+            return (
+                tickCumulativeUpper - tickCumulativeLower,
+                secondsPerLiquidityOutsideUpperX128 -
+                    secondsPerLiquidityOutsideLowerX128,
+                secondsOutsideUpper - secondsOutsideLower
+            );
+        }
+    }
+
+    /// @inheritdoc IUniswapV3PoolDerivedState
+    function observe(uint32[] calldata secondsAgos)
+        external
+        view
+        override
+        noDelegateCall
+        returns (
+            int56[] memory tickCumulatives,
+            uint160[] memory secondsPerLiquidityCumulativeX128s
+        )
+    {
+        return
+            observations.observe(
+                _blockTimestamp(),
+                secondsAgos,
+                slot0.tick,
+                slot0.observationIndex,
+                liquidity,
+                slot0.observationCardinality
+            );
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    function increaseObservationCardinalityNext(
+        uint16 observationCardinalityNext
+    ) external override lock noDelegateCall {
+        uint16 observationCardinalityNextOld = slot0.observationCardinalityNext; // for the event
+        uint16 observationCardinalityNextNew = observations.grow(
+            observationCardinalityNextOld,
+            observationCardinalityNext
+        );
+        slot0.observationCardinalityNext = observationCardinalityNextNew;
+        if (observationCardinalityNextOld != observationCardinalityNextNew)
+            emit IncreaseObservationCardinalityNext(
+                observationCardinalityNextOld,
+                observationCardinalityNextNew
+            );
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    /// @dev not locked because it initializes unlocked
+    function initialize(uint160 sqrtPriceX96) external override {
+        require(slot0.sqrtPriceX96 == 0, "AI");
+
+        int24 tick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+
+        (uint16 cardinality, uint16 cardinalityNext) = observations.initialize(
+            _blockTimestamp()
+        );
+
+        slot0 = Slot0({
+            sqrtPriceX96: sqrtPriceX96,
+            tick: tick,
+            observationIndex: 0,
+            observationCardinality: cardinality,
+            observationCardinalityNext: cardinalityNext,
+            feeProtocol: 0,
+            unlocked: true
+        });
+
+        emit Initialize(sqrtPriceX96, tick);
+    }
+
+    struct ModifyPositionParams {
+        // the address that owns the position
+        address owner;
+        // the lower and upper tick of the position
+        int24 tickLower;
+        int24 tickUpper;
+        // any change in liquidity
+        int128 liquidityDelta;
+    }
+
+    /// @dev Effect some changes to a position
+    /// @param params the position details and the change to the position's liquidity to effect
+    /// @return position a storage pointer referencing the position with the given owner and tick range
+    /// @return amount0 the amount of token0 owed to the pool, negative if the pool should pay the recipient
+    /// @return amount1 the amount of token1 owed to the pool, negative if the pool should pay the recipient
+    function _modifyPosition(ModifyPositionParams memory params)
+        private
+        noDelegateCall
+        returns (
+            Position.Info storage position,
+            int256 amount0,
+            int256 amount1
+        )
+    {
+        checkTicks(params.tickLower, params.tickUpper);
+
+        Slot0 memory _slot0 = slot0; // SLOAD for gas optimization
+
+        position = _updatePosition(
+            params.owner,
+            params.tickLower,
+            params.tickUpper,
+            params.liquidityDelta,
+            _slot0.tick
+        );
+
+        if (params.liquidityDelta != 0) {
+            if (_slot0.tick < params.tickLower) {
+                // current tick is below the passed range; liquidity can only become in range by crossing from left to
+                // right, when we'll need _more_ token0 (it's becoming more valuable) so user must provide it
+                amount0 = SqrtPriceMath.getAmount0Delta(
+                    TickMath.getSqrtRatioAtTick(params.tickLower),
+                    TickMath.getSqrtRatioAtTick(params.tickUpper),
+                    params.liquidityDelta
+                );
+            } else if (_slot0.tick < params.tickUpper) {
+                // current tick is inside the passed range
+                uint128 liquidityBefore = liquidity; // SLOAD for gas optimization
+
+                // write an oracle entry
+                (
+                    slot0.observationIndex,
+                    slot0.observationCardinality
+                ) = observations.write(
+                    _slot0.observationIndex,
+                    _blockTimestamp(),
+                    _slot0.tick,
+                    liquidityBefore,
+                    _slot0.observationCardinality,
+                    _slot0.observationCardinalityNext
+                );
+
+                amount0 = SqrtPriceMath.getAmount0Delta(
+                    _slot0.sqrtPriceX96,
+                    TickMath.getSqrtRatioAtTick(params.tickUpper),
+                    params.liquidityDelta
+                );
+                amount1 = SqrtPriceMath.getAmount1Delta(
+                    TickMath.getSqrtRatioAtTick(params.tickLower),
+                    _slot0.sqrtPriceX96,
+                    params.liquidityDelta
+                );
+
+                liquidity = LiquidityMath.addDelta(
+                    liquidityBefore,
+                    params.liquidityDelta
+                );
+            } else {
+                // current tick is above the passed range; liquidity can only become in range by crossing from right to
+                // left, when we'll need _more_ token1 (it's becoming more valuable) so user must provide it
+                amount1 = SqrtPriceMath.getAmount1Delta(
+                    TickMath.getSqrtRatioAtTick(params.tickLower),
+                    TickMath.getSqrtRatioAtTick(params.tickUpper),
+                    params.liquidityDelta
+                );
+            }
+        }
+    }
+
+    /// @dev Gets and updates a position with the given liquidity delta
+    /// @param owner the owner of the position
+    /// @param tickLower the lower tick of the position's tick range
+    /// @param tickUpper the upper tick of the position's tick range
+    /// @param tick the current tick, passed to avoid sloads
+    function _updatePosition(
+        address owner,
+        int24 tickLower,
+        int24 tickUpper,
+        int128 liquidityDelta,
+        int24 tick
+    ) private returns (Position.Info storage position) {
+        position = positions.get(owner, tickLower, tickUpper);
+
+        uint256 _feeGrowthGlobal0X128 = feeGrowthGlobal0X128; // SLOAD for gas optimization
+        uint256 _feeGrowthGlobal1X128 = feeGrowthGlobal1X128; // SLOAD for gas optimization
+
+        // if we need to update the ticks, do it
+        bool flippedLower;
+        bool flippedUpper;
+        if (liquidityDelta != 0) {
+            uint32 time = _blockTimestamp();
+            (
+                int56 tickCumulative,
+                uint160 secondsPerLiquidityCumulativeX128
+            ) = observations.observeSingle(
+                    time,
+                    0,
+                    slot0.tick,
+                    slot0.observationIndex,
+                    liquidity,
+                    slot0.observationCardinality
+                );
+
+            flippedLower = ticks.update(
+                tickLower,
+                tick,
+                liquidityDelta,
+                _feeGrowthGlobal0X128,
+                _feeGrowthGlobal1X128,
+                secondsPerLiquidityCumulativeX128,
+                tickCumulative,
+                time,
+                false,
+                maxLiquidityPerTick
+            );
+            flippedUpper = ticks.update(
+                tickUpper,
+                tick,
+                liquidityDelta,
+                _feeGrowthGlobal0X128,
+                _feeGrowthGlobal1X128,
+                secondsPerLiquidityCumulativeX128,
+                tickCumulative,
+                time,
+                true,
+                maxLiquidityPerTick
+            );
+
+            if (flippedLower) {
+                tickBitmap.flipTick(tickLower, tickSpacing);
+            }
+            if (flippedUpper) {
+                tickBitmap.flipTick(tickUpper, tickSpacing);
+            }
+        }
+
+        (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) = ticks
+            .getFeeGrowthInside(
+                tickLower,
+                tickUpper,
+                tick,
+                _feeGrowthGlobal0X128,
+                _feeGrowthGlobal1X128
+            );
+
+        position.update(
+            liquidityDelta,
+            feeGrowthInside0X128,
+            feeGrowthInside1X128
+        );
+
+        // clear any tick data that is no longer needed
+        if (liquidityDelta < 0) {
+            if (flippedLower) {
+                ticks.clear(tickLower);
+            }
+            if (flippedUpper) {
+                ticks.clear(tickUpper);
+            }
+        }
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    /// @dev noDelegateCall is applied indirectly via _modifyPosition
+    function mint(
+        address recipient,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 amount,
+        bytes calldata data
+    ) external override lock returns (uint256 amount0, uint256 amount1) {
+        require(amount > 0);
+        (, int256 amount0Int, int256 amount1Int) = _modifyPosition(
+            ModifyPositionParams({
+                owner: recipient,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: int256(amount).toInt128()
+            })
+        );
+
+        amount0 = uint256(amount0Int);
+        amount1 = uint256(amount1Int);
+
+        uint256 balance0Before;
+        uint256 balance1Before;
+        if (amount0 > 0) balance0Before = balance0();
+        if (amount1 > 0) balance1Before = balance1();
+        IUniswapV3MintCallback(msg.sender).uniswapV3MintCallback(
+            amount0,
+            amount1,
+            data
+        );
+        if (amount0 > 0)
+            require(balance0Before.add(amount0) <= balance0(), "M0");
+        if (amount1 > 0)
+            require(balance1Before.add(amount1) <= balance1(), "M1");
+
+        emit Mint(
+            msg.sender,
+            recipient,
+            tickLower,
+            tickUpper,
+            amount,
+            amount0,
+            amount1
+        );
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    function collect(
+        address recipient,
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 amount0Requested,
+        uint128 amount1Requested
+    ) external override lock returns (uint128 amount0, uint128 amount1) {
+        // we don't need to checkTicks here, because invalid positions will never have non-zero tokensOwed{0,1}
+        Position.Info storage position = positions.get(
+            msg.sender,
+            tickLower,
+            tickUpper
+        );
+
+        amount0 = amount0Requested > position.tokensOwed0
+            ? position.tokensOwed0
+            : amount0Requested;
+        amount1 = amount1Requested > position.tokensOwed1
+            ? position.tokensOwed1
+            : amount1Requested;
+
+        if (amount0 > 0) {
+            position.tokensOwed0 -= amount0;
+            TransferHelper.safeTransfer(token0, recipient, amount0);
+        }
+        if (amount1 > 0) {
+            position.tokensOwed1 -= amount1;
+            TransferHelper.safeTransfer(token1, recipient, amount1);
+        }
+
+        emit Collect(
+            msg.sender,
+            recipient,
+            tickLower,
+            tickUpper,
+            amount0,
+            amount1
+        );
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    /// @dev noDelegateCall is applied indirectly via _modifyPosition
+    function burn(
+        int24 tickLower,
+        int24 tickUpper,
+        uint128 amount
+    ) external override lock returns (uint256 amount0, uint256 amount1) {
+        (
+            Position.Info storage position,
+            int256 amount0Int,
+            int256 amount1Int
+        ) = _modifyPosition(
+                ModifyPositionParams({
+                    owner: msg.sender,
+                    tickLower: tickLower,
+                    tickUpper: tickUpper,
+                    liquidityDelta: -int256(amount).toInt128()
+                })
+            );
+
+        amount0 = uint256(-amount0Int);
+        amount1 = uint256(-amount1Int);
+
+        if (amount0 > 0 || amount1 > 0) {
+            (position.tokensOwed0, position.tokensOwed1) = (
+                position.tokensOwed0 + uint128(amount0),
+                position.tokensOwed1 + uint128(amount1)
+            );
+        }
+
+        emit Burn(msg.sender, tickLower, tickUpper, amount, amount0, amount1);
+    }
+
+    struct SwapCache {
+        // the protocol fee for the input token
+        uint8 feeProtocol;
+        // liquidity at the beginning of the swap
+        uint128 liquidityStart;
+        // the timestamp of the current block
+        uint32 blockTimestamp;
+        // the current value of the tick accumulator, computed only if we cross an initialized tick
+        int56 tickCumulative;
+        // the current value of seconds per liquidity accumulator, computed only if we cross an initialized tick
+        uint160 secondsPerLiquidityCumulativeX128;
+        // whether we've computed and cached the above two accumulators
+        bool computedLatestObservation;
+    }
+
+    // the top level state of the swap, the results of which are recorded in storage at the end
+    struct SwapState {
+        // the amount remaining to be swapped in/out of the input/output asset
+        int256 amountSpecifiedRemaining;
+        // the amount already swapped out/in of the output/input asset
+        int256 amountCalculated;
+        // current sqrt(price)
+        uint160 sqrtPriceX96;
+        // the tick associated with the current price
+        int24 tick;
+        // the global fee growth of the input token
+        uint256 feeGrowthGlobalX128;
+        // amount of input token paid as protocol fee
+        uint128 protocolFee;
+        // the current liquidity in range
+        uint128 liquidity;
+    }
+
+    struct StepComputations {
+        // the price at the beginning of the step
+        uint160 sqrtPriceStartX96;
+        // the next tick to swap to from the current tick in the swap direction
+        int24 tickNext;
+        // whether tickNext is initialized or not
+        bool initialized;
+        // sqrt(price) for the next tick (1/0)
+        uint160 sqrtPriceNextX96;
+        // how much is being swapped in in this step
+        uint256 amountIn;
+        // how much is being swapped out
+        uint256 amountOut;
+        // how much fee is being paid in
+        uint256 feeAmount;
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    function swap(
+        address recipient,
+        bool zeroForOne,
+        int256 amountSpecified,
+        uint160 sqrtPriceLimitX96,
+        bytes calldata data
+    )
+        external
+        override
+        noDelegateCall
+        returns (int256 amount0, int256 amount1)
+    {
+        require(amountSpecified != 0, "AS");
+
+        Slot0 memory slot0Start = slot0;
+
+        require(slot0Start.unlocked, "LOK");
+        require(
+            zeroForOne
+                ? sqrtPriceLimitX96 < slot0Start.sqrtPriceX96 &&
+                    sqrtPriceLimitX96 > TickMath.MIN_SQRT_RATIO
+                : sqrtPriceLimitX96 > slot0Start.sqrtPriceX96 &&
+                    sqrtPriceLimitX96 < TickMath.MAX_SQRT_RATIO,
+            "SPL"
+        );
+
+        slot0.unlocked = false;
+
+        SwapCache memory cache = SwapCache({
+            liquidityStart: liquidity,
+            blockTimestamp: _blockTimestamp(),
+            feeProtocol: zeroForOne
+                ? (slot0Start.feeProtocol % 16)
+                : (slot0Start.feeProtocol >> 4),
+            secondsPerLiquidityCumulativeX128: 0,
+            tickCumulative: 0,
+            computedLatestObservation: false
+        });
+
+        bool exactInput = amountSpecified > 0;
+
+        SwapState memory state = SwapState({
+            amountSpecifiedRemaining: amountSpecified,
+            amountCalculated: 0,
+            sqrtPriceX96: slot0Start.sqrtPriceX96,
+            tick: slot0Start.tick,
+            feeGrowthGlobalX128: zeroForOne
+                ? feeGrowthGlobal0X128
+                : feeGrowthGlobal1X128,
+            protocolFee: 0,
+            liquidity: cache.liquidityStart
+        });
+
+        // continue swapping as long as we haven't used the entire input/output and haven't reached the price limit
+        while (
+            state.amountSpecifiedRemaining != 0 &&
+            state.sqrtPriceX96 != sqrtPriceLimitX96
+        ) {
+            StepComputations memory step;
+
+            step.sqrtPriceStartX96 = state.sqrtPriceX96;
+
+            (step.tickNext, step.initialized) = tickBitmap
+                .nextInitializedTickWithinOneWord(
+                    state.tick,
+                    tickSpacing,
+                    zeroForOne
+                );
+
+            // ensure that we do not overshoot the min/max tick, as the tick bitmap is not aware of these bounds
+            if (step.tickNext < TickMath.MIN_TICK) {
+                step.tickNext = TickMath.MIN_TICK;
+            } else if (step.tickNext > TickMath.MAX_TICK) {
+                step.tickNext = TickMath.MAX_TICK;
+            }
+
+            // get the price for the next tick
+            step.sqrtPriceNextX96 = TickMath.getSqrtRatioAtTick(step.tickNext);
+
+            // compute values to swap to the target tick, price limit, or point where input/output amount is exhausted
+            (
+                state.sqrtPriceX96,
+                step.amountIn,
+                step.amountOut,
+                step.feeAmount
+            ) = SwapMath.computeSwapStep(
+                state.sqrtPriceX96,
+                (
+                    zeroForOne
+                        ? step.sqrtPriceNextX96 < sqrtPriceLimitX96
+                        : step.sqrtPriceNextX96 > sqrtPriceLimitX96
+                )
+                    ? sqrtPriceLimitX96
+                    : step.sqrtPriceNextX96,
+                state.liquidity,
+                state.amountSpecifiedRemaining,
+                fee
+            );
+
+            if (exactInput) {
+                state.amountSpecifiedRemaining -= (step.amountIn +
+                    step.feeAmount).toInt256();
+                state.amountCalculated = state.amountCalculated.sub(
+                    step.amountOut.toInt256()
+                );
+            } else {
+                state.amountSpecifiedRemaining += step.amountOut.toInt256();
+                state.amountCalculated = state.amountCalculated.add(
+                    (step.amountIn + step.feeAmount).toInt256()
+                );
+            }
+
+            // if the protocol fee is on, calculate how much is owed, decrement feeAmount, and increment protocolFee
+            if (cache.feeProtocol > 0) {
+                uint256 delta = step.feeAmount / cache.feeProtocol;
+                step.feeAmount -= delta;
+                state.protocolFee += uint128(delta);
+            }
+
+            // update global fee tracker
+            if (state.liquidity > 0)
+                state.feeGrowthGlobalX128 += FullMath.mulDiv(
+                    step.feeAmount,
+                    FixedPoint128.Q128,
+                    state.liquidity
+                );
+
+            // shift tick if we reached the next price
+            if (state.sqrtPriceX96 == step.sqrtPriceNextX96) {
+                // if the tick is initialized, run the tick transition
+                if (step.initialized) {
+                    // check for the placeholder value, which we replace with the actual value the first time the swap
+                    // crosses an initialized tick
+                    if (!cache.computedLatestObservation) {
+                        (
+                            cache.tickCumulative,
+                            cache.secondsPerLiquidityCumulativeX128
+                        ) = observations.observeSingle(
+                            cache.blockTimestamp,
+                            0,
+                            slot0Start.tick,
+                            slot0Start.observationIndex,
+                            cache.liquidityStart,
+                            slot0Start.observationCardinality
+                        );
+                        cache.computedLatestObservation = true;
+                    }
+                    int128 liquidityNet = ticks.cross(
+                        step.tickNext,
+                        (
+                            zeroForOne
+                                ? state.feeGrowthGlobalX128
+                                : feeGrowthGlobal0X128
+                        ),
+                        (
+                            zeroForOne
+                                ? feeGrowthGlobal1X128
+                                : state.feeGrowthGlobalX128
+                        ),
+                        cache.secondsPerLiquidityCumulativeX128,
+                        cache.tickCumulative,
+                        cache.blockTimestamp
+                    );
+                    // if we're moving leftward, we interpret liquidityNet as the opposite sign
+                    // safe because liquidityNet cannot be type(int128).min
+                    if (zeroForOne) liquidityNet = -liquidityNet;
+
+                    state.liquidity = LiquidityMath.addDelta(
+                        state.liquidity,
+                        liquidityNet
+                    );
+                }
+
+                state.tick = zeroForOne ? step.tickNext - 1 : step.tickNext;
+            } else if (state.sqrtPriceX96 != step.sqrtPriceStartX96) {
+                // recompute unless we're on a lower tick boundary (i.e. already transitioned ticks), and haven't moved
+                state.tick = TickMath.getTickAtSqrtRatio(state.sqrtPriceX96);
+            }
+        }
+
+        // update tick and write an oracle entry if the tick change
+        if (state.tick != slot0Start.tick) {
+            (
+                uint16 observationIndex,
+                uint16 observationCardinality
+            ) = observations.write(
+                    slot0Start.observationIndex,
+                    cache.blockTimestamp,
+                    slot0Start.tick,
+                    cache.liquidityStart,
+                    slot0Start.observationCardinality,
+                    slot0Start.observationCardinalityNext
+                );
+            (
+                slot0.sqrtPriceX96,
+                slot0.tick,
+                slot0.observationIndex,
+                slot0.observationCardinality
+            ) = (
+                state.sqrtPriceX96,
+                state.tick,
+                observationIndex,
+                observationCardinality
+            );
+        } else {
+            // otherwise just update the price
+            slot0.sqrtPriceX96 = state.sqrtPriceX96;
+        }
+
+        // update liquidity if it changed
+        if (cache.liquidityStart != state.liquidity)
+            liquidity = state.liquidity;
+
+        // update fee growth global and, if necessary, protocol fees
+        // overflow is acceptable, protocol has to withdraw before it hits type(uint128).max fees
+        if (zeroForOne) {
+            feeGrowthGlobal0X128 = state.feeGrowthGlobalX128;
+            if (state.protocolFee > 0) protocolFees.token0 += state.protocolFee;
+        } else {
+            feeGrowthGlobal1X128 = state.feeGrowthGlobalX128;
+            if (state.protocolFee > 0) protocolFees.token1 += state.protocolFee;
+        }
+
+        (amount0, amount1) = zeroForOne == exactInput
+            ? (
+                amountSpecified - state.amountSpecifiedRemaining,
+                state.amountCalculated
+            )
+            : (
+                state.amountCalculated,
+                amountSpecified - state.amountSpecifiedRemaining
+            );
+
+        // do the transfers and collect payment
+        if (zeroForOne) {
+            if (amount1 < 0)
+                TransferHelper.safeTransfer(
+                    token1,
+                    recipient,
+                    uint256(-amount1)
+                );
+
+            uint256 balance0Before = balance0();
+            IUniswapV3SwapCallback(msg.sender).uniswapV3SwapCallback(
+                amount0,
+                amount1,
+                data
+            );
+            require(balance0Before.add(uint256(amount0)) <= balance0(), "IIA");
+        } else {
+            if (amount0 < 0)
+                TransferHelper.safeTransfer(
+                    token0,
+                    recipient,
+                    uint256(-amount0)
+                );
+
+            uint256 balance1Before = balance1();
+            IUniswapV3SwapCallback(msg.sender).uniswapV3SwapCallback(
+                amount0,
+                amount1,
+                data
+            );
+            require(balance1Before.add(uint256(amount1)) <= balance1(), "IIA");
+        }
+
+        emit Swap(
+            msg.sender,
+            recipient,
+            amount0,
+            amount1,
+            state.sqrtPriceX96,
+            state.liquidity,
+            state.tick
+        );
+        slot0.unlocked = true;
+    }
+
+    /// @inheritdoc IUniswapV3PoolActions
+    function flash(
+        address recipient,
+        uint256 amount0,
+        uint256 amount1,
+        bytes calldata data
+    ) external override lock noDelegateCall {
+        uint128 _liquidity = liquidity;
+        require(_liquidity > 0, "L");
+
+        uint256 fee0 = FullMath.mulDivRoundingUp(amount0, fee, 1e6);
+        uint256 fee1 = FullMath.mulDivRoundingUp(amount1, fee, 1e6);
+        uint256 balance0Before = balance0();
+        uint256 balance1Before = balance1();
+
+        if (amount0 > 0)
+            TransferHelper.safeTransfer(token0, recipient, amount0);
+        if (amount1 > 0)
+            TransferHelper.safeTransfer(token1, recipient, amount1);
+
+        IUniswapV3FlashCallback(msg.sender).uniswapV3FlashCallback(
+            fee0,
+            fee1,
+            data
+        );
+
+        uint256 balance0After = balance0();
+        uint256 balance1After = balance1();
+
+        require(balance0Before.add(fee0) <= balance0After, "F0");
+        require(balance1Before.add(fee1) <= balance1After, "F1");
+
+        // sub is safe because we know balanceAfter is gt balanceBefore by at least fee
+        uint256 paid0 = balance0After - balance0Before;
+        uint256 paid1 = balance1After - balance1Before;
+
+        if (paid0 > 0) {
+            uint8 feeProtocol0 = slot0.feeProtocol % 16;
+            uint256 fees0 = feeProtocol0 == 0 ? 0 : paid0 / feeProtocol0;
+            if (uint128(fees0) > 0) protocolFees.token0 += uint128(fees0);
+            feeGrowthGlobal0X128 += FullMath.mulDiv(
+                paid0 - fees0,
+                FixedPoint128.Q128,
+                _liquidity
+            );
+        }
+        if (paid1 > 0) {
+            uint8 feeProtocol1 = slot0.feeProtocol >> 4;
+            uint256 fees1 = feeProtocol1 == 0 ? 0 : paid1 / feeProtocol1;
+            if (uint128(fees1) > 0) protocolFees.token1 += uint128(fees1);
+            feeGrowthGlobal1X128 += FullMath.mulDiv(
+                paid1 - fees1,
+                FixedPoint128.Q128,
+                _liquidity
+            );
+        }
+
+        emit Flash(msg.sender, recipient, amount0, amount1, paid0, paid1);
+    }
+
+    /// @inheritdoc IUniswapV3PoolOwnerActions
+    function setFeeProtocol(uint8 feeProtocol0, uint8 feeProtocol1)
+        external
+        override
+        lock
+        onlyFactoryOwner
+    {
+        require(
+            (feeProtocol0 == 0 || (feeProtocol0 >= 4 && feeProtocol0 <= 10)) &&
+                (feeProtocol1 == 0 || (feeProtocol1 >= 4 && feeProtocol1 <= 10))
+        );
+        uint8 feeProtocolOld = slot0.feeProtocol;
+        slot0.feeProtocol = feeProtocol0 + (feeProtocol1 << 4);
+        emit SetFeeProtocol(
+            feeProtocolOld % 16,
+            feeProtocolOld >> 4,
+            feeProtocol0,
+            feeProtocol1
+        );
+    }
+
+    /// @inheritdoc IUniswapV3PoolOwnerActions
+    function collectProtocol(
+        address recipient,
+        uint128 amount0Requested,
+        uint128 amount1Requested
+    )
+        external
+        override
+        lock
+        onlyFactoryOwner
+        returns (uint128 amount0, uint128 amount1)
+    {
+        amount0 = amount0Requested > protocolFees.token0
+            ? protocolFees.token0
+            : amount0Requested;
+        amount1 = amount1Requested > protocolFees.token1
+            ? protocolFees.token1
+            : amount1Requested;
+
+        if (amount0 > 0) {
+            if (amount0 == protocolFees.token0) amount0--; // ensure that the slot is not cleared, for gas savings
+            protocolFees.token0 -= amount0;
+            TransferHelper.safeTransfer(token0, recipient, amount0);
+        }
+        if (amount1 > 0) {
+            if (amount1 == protocolFees.token1) amount1--; // ensure that the slot is not cleared, for gas savings
+            protocolFees.token1 -= amount1;
+            TransferHelper.safeTransfer(token1, recipient, amount1);
+        }
+
+        emit CollectProtocol(msg.sender, recipient, amount0, amount1);
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/UniswapV3Pool.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/univ3/UniswapV3PoolDeployer.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity =0.7.6;
+
+import "./interfaces/IUniswapV3PoolDeployer.sol";
+
+import "./UniswapV3Pool.sol";
+
+contract UniswapV3PoolDeployer is IUniswapV3PoolDeployer {
+    struct Parameters {
+        address factory;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickSpacing;
+    }
+
+    /// @inheritdoc IUniswapV3PoolDeployer
+    Parameters public override parameters;
+
+    /// @dev Deploys a pool with the given parameters by transiently setting the parameters storage slot and then
+    /// clearing it after deploying the pool.
+    /// @param factory The contract address of the Uniswap V3 factory
+    /// @param token0 The first token of the pool by address sort order
+    /// @param token1 The second token of the pool by address sort order
+    /// @param fee The fee collected upon every swap in the pool, denominated in hundredths of a bip
+    /// @param tickSpacing The spacing between usable ticks
+    function deploy(
+        address factory,
+        address token0,
+        address token1,
+        uint24 fee,
+        int24 tickSpacing
+    ) internal returns (address pool) {
+        parameters = Parameters({
+            factory: factory,
+            token0: token0,
+            token1: token1,
+            fee: fee,
+            tickSpacing: tickSpacing
+        });
+        pool = address(
+            new UniswapV3Pool{
+                salt: keccak256(abi.encode(token0, token1, fee))
+            }()
+        );
+        delete parameters;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/univ3/UniswapV3PoolDeployer.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/weth/WETH9.sol =====
+// Copyright (C) 2015, 2016, 2017 Dapphub
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+contract WETH9 {
+    string public name = "Wrapped Ether";
+    string public symbol = "WETH";
+    uint8 public decimals = 18;
+
+    event Approval(address indexed src, address indexed guy, uint256 wad);
+    event Transfer(address indexed src, address indexed dst, uint256 wad);
+    event Deposit(address indexed dst, uint256 wad);
+    event Withdrawal(address indexed src, uint256 wad);
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    receive() external payable {
+        deposit();
+    }
+
+    function deposit() public payable {
+        balanceOf[msg.sender] += msg.value;
+        emit Deposit(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 wad) public {
+        require(balanceOf[msg.sender] >= wad);
+        balanceOf[msg.sender] -= wad;
+        payable(msg.sender).transfer(wad);
+        // msg.sender would have ethereum
+        emit Withdrawal(msg.sender, wad);
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return address(this).balance;
+    }
+
+    function approve(address guy, uint256 wad) public returns (bool) {
+        allowance[msg.sender][guy] = wad;
+        emit Approval(msg.sender, guy, wad);
+        return true;
+    }
+
+    function transfer(address dst, uint256 wad) public returns (bool) {
+        return transferFrom(msg.sender, dst, wad);
+    }
+
+    function transferFrom(
+        address src,
+        address dst,
+        uint256 wad
+    ) public returns (bool) {
+        require(balanceOf[src] >= wad);
+
+        if (
+            src != msg.sender && allowance[src][msg.sender] != type(uint256).max
+        ) {
+            require(allowance[src][msg.sender] >= wad);
+            allowance[src][msg.sender] -= wad;
+        }
+
+        balanceOf[src] -= wad;
+        balanceOf[dst] += wad;
+
+        emit Transfer(src, dst, wad);
+
+        return true;
+    }
+}
+
+/*
+                    GNU GENERAL PUBLIC LICENSE
+                       Version 3, 29 June 2007
+
+ Copyright (C) 2007 Free Software Foundation, Inc. <http://fsf.org/>
+ Everyone is permitted to copy and distribute verbatim copies
+ of this license document, but changing it is not allowed.
+
+                            Preamble
+
+  The GNU General Public License is a free, copyleft license for
+software and other kinds of works.
+
+  The licenses for most software and other practical works are designed
+to take away your freedom to share and change the works.  By contrast,
+the GNU General Public License is intended to guarantee your freedom to
+share and change all versions of a program--to make sure it remains free
+software for all its users.  We, the Free Software Foundation, use the
+GNU General Public License for most of our software; it applies also to
+any other work released this way by its authors.  You can apply it to
+your programs, too.
+
+  When we speak of free software, we are referring to freedom, not
+price.  Our General Public Licenses are designed to make sure that you
+have the freedom to distribute copies of free software (and charge for
+them if you wish), that you receive source code or can get it if you
+want it, that you can change the software or use pieces of it in new
+free programs, and that you know you can do these things.
+
+  To protect your rights, we need to prevent others from denying you
+these rights or asking you to surrender the rights.  Therefore, you have
+certain responsibilities if you distribute copies of the software, or if
+you modify it: responsibilities to respect the freedom of others.
+
+  For example, if you distribute copies of such a program, whether
+gratis or for a fee, you must pass on to the recipients the same
+freedoms that you received.  You must make sure that they, too, receive
+or can get the source code.  And you must show them these terms so they
+know their rights.
+
+  Developers that use the GNU GPL protect your rights with two steps:
+(1) assert copyright on the software, and (2) offer you this License
+giving you legal permission to copy, distribute and/or modify it.
+
+  For the developers' and authors' protection, the GPL clearly explains
+that there is no warranty for this free software.  For both users' and
+authors' sake, the GPL requires that modified versions be marked as
+changed, so that their problems will not be attributed erroneously to
+authors of previous versions.
+
+  Some devices are designed to deny users access to install or run
+modified versions of the software inside them, although the manufacturer
+can do so.  This is fundamentally incompatible with the aim of
+protecting users' freedom to change the software.  The systematic
+pattern of such abuse occurs in the area of products for individuals to
+use, which is precisely where it is most unacceptable.  Therefore, we
+have designed this version of the GPL to prohibit the practice for those
+products.  If such problems arise substantially in other domains, we
+stand ready to extend this provision to those domains in future versions
+of the GPL, as needed to protect the freedom of users.
+
+  Finally, every program is threatened constantly by software patents.
+States should not allow patents to restrict development and use of
+software on general-purpose computers, but in those that do, we wish to
+avoid the special danger that patents applied to a free program could
+make it effectively proprietary.  To prevent this, the GPL assures that
+patents cannot be used to render the program non-free.
+
+  The precise terms and conditions for copying, distribution and
+modification follow.
+
+                       TERMS AND CONDITIONS
+
+  0. Definitions.
+
+  "This License" refers to version 3 of the GNU General Public License.
+
+  "Copyright" also means copyright-like laws that apply to other kinds of
+works, such as semiconductor masks.
+
+  "The Program" refers to any copyrightable work licensed under this
+License.  Each licensee is addressed as "you".  "Licensees" and
+"recipients" may be individuals or organizations.
+
+  To "modify" a work means to copy from or adapt all or part of the work
+in a fashion requiring copyright permission, other than the making of an
+exact copy.  The resulting work is called a "modified version" of the
+earlier work or a work "based on" the earlier work.
+
+  A "covered work" means either the unmodified Program or a work based
+on the Program.
+
+  To "propagate" a work means to do anything with it that, without
+permission, would make you directly or secondarily liable for
+infringement under applicable copyright law, except executing it on a
+computer or modifying a private copy.  Propagation includes copying,
+distribution (with or without modification), making available to the
+public, and in some countries other activities as well.
+
+  To "convey" a work means any kind of propagation that enables other
+parties to make or receive copies.  Mere interaction with a user through
+a computer network, with no transfer of a copy, is not conveying.
+
+  An interactive user interface displays "Appropriate Legal Notices"
+to the extent that it includes a convenient and prominently visible
+feature that (1) displays an appropriate copyright notice, and (2)
+tells the user that there is no warranty for the work (except to the
+extent that warranties are provided), that licensees may convey the
+work under this License, and how to view a copy of this License.  If
+the interface presents a list of user commands or options, such as a
+menu, a prominent item in the list meets this criterion.
+
+  1. Source Code.
+
+  The "source code" for a work means the preferred form of the work
+for making modifications to it.  "Object code" means any non-source
+form of a work.
+
+  A "Standard Interface" means an interface that either is an official
+standard defined by a recognized standards body, or, in the case of
+interfaces specified for a particular programming language, one that
+is widely used among developers working in that language.
+
+  The "System Libraries" of an executable work include anything, other
+than the work as a whole, that (a) is included in the normal form of
+packaging a Major Component, but which is not part of that Major
+Component, and (b) serves only to enable use of the work with that
+Major Component, or to implement a Standard Interface for which an
+implementation is available to the public in source code form.  A
+"Major Component", in this context, means a major essential component
+(kernel, window system, and so on) of the specific operating system
+(if any) on which the executable work runs, or a compiler used to
+produce the work, or an object code interpreter used to run it.
+
+  The "Corresponding Source" for a work in object code form means all
+the source code needed to generate, install, and (for an executable
+work) run the object code and to modify the work, including scripts to
+control those activities.  However, it does not include the work's
+System Libraries, or general-purpose tools or generally available free
+programs which are used unmodified in performing those activities but
+which are not part of the work.  For example, Corresponding Source
+includes interface definition files associated with source files for
+the work, and the source code for shared libraries and dynamically
+linked subprograms that the work is specifically designed to require,
+such as by intimate data communication or control flow between those
+subprograms and other parts of the work.
+
+  The Corresponding Source need not include anything that users
+can regenerate automatically from other parts of the Corresponding
+Source.
+
+  The Corresponding Source for a work in source code form is that
+same work.
+
+  2. Basic Permissions.
+
+  All rights granted under this License are granted for the term of
+copyright on the Program, and are irrevocable provided the stated
+conditions are met.  This License explicitly affirms your unlimited
+permission to run the unmodified Program.  The output from running a
+covered work is covered by this License only if the output, given its
+content, constitutes a covered work.  This License acknowledges your
+rights of fair use or other equivalent, as provided by copyright law.
+
+  You may make, run and propagate covered works that you do not
+convey, without conditions so long as your license otherwise remains
+in force.  You may convey covered works to others for the sole purpose
+of having them make modifications exclusively for you, or provide you
+with facilities for running those works, provided that you comply with
+the terms of this License in conveying all material for which you do
+not control copyright.  Those thus making or running the covered works
+for you must do so exclusively on your behalf, under your direction
+and control, on terms that prohibit them from making any copies of
+your copyrighted material outside their relationship with you.
+
+  Conveying under any other circumstances is permitted solely under
+the conditions stated below.  Sublicensing is not allowed; section 10
+makes it unnecessary.
+
+  3. Protecting Users' Legal Rights From Anti-Circumvention Law.
+
+  No covered work shall be deemed part of an effective technological
+measure under any applicable law fulfilling obligations under article
+11 of the WIPO copyright treaty adopted on 20 December 1996, or
+similar laws prohibiting or restricting circumvention of such
+measures.
+
+  When you convey a covered work, you waive any legal power to forbid
+circumvention of technological measures to the extent such circumvention
+is effected by exercising rights under this License with respect to
+the covered work, and you disclaim any intention to limit operation or
+modification of the work as a means of enforcing, against the work's
+users, your or third parties' legal rights to forbid circumvention of
+technological measures.
+
+  4. Conveying Verbatim Copies.
+
+  You may convey verbatim copies of the Program's source code as you
+receive it, in any medium, provided that you conspicuously and
+appropriately publish on each copy an appropriate copyright notice;
+keep intact all notices stating that this License and any
+non-permissive terms added in accord with section 7 apply to the code;
+keep intact all notices of the absence of any warranty; and give all
+recipients a copy of this License along with the Program.
+
+  You may charge any price or no price for each copy that you convey,
+and you may offer support or warranty protection for a fee.
+
+  5. Conveying Modified Source Versions.
+
+  You may convey a work based on the Program, or the modifications to
+produce it from the Program, in the form of source code under the
+terms of section 4, provided that you also meet all of these conditions:
+
+    a) The work must carry prominent notices stating that you modified
+    it, and giving a relevant date.
+
+    b) The work must carry prominent notices stating that it is
+    released under this License and any conditions added under section
+    7.  This requirement modifies the requirement in section 4 to
+    "keep intact all notices".
+
+    c) You must license the entire work, as a whole, under this
+    License to anyone who comes into possession of a copy.  This
+    License will therefore apply, along with any applicable section 7
+    additional terms, to the whole of the work, and all its parts,
+    regardless of how they are packaged.  This License gives no
+    permission to license the work in any other way, but it does not
+    invalidate such permission if you have separately received it.
+
+    d) If the work has interactive user interfaces, each must display
+    Appropriate Legal Notices; however, if the Program has interactive
+    interfaces that do not display Appropriate Legal Notices, your
+    work need not make them do so.
+
+  A compilation of a covered work with other separate and independent
+works, which are not by their nature extensions of the covered work,
+and which are not combined with it such as to form a larger program,
+in or on a volume of a storage or distribution medium, is called an
+"aggregate" if the compilation and its resulting copyright are not
+used to limit the access or legal rights of the compilation's users
+beyond what the individual works permit.  Inclusion of a covered work
+in an aggregate does not cause this License to apply to the other
+parts of the aggregate.
+
+  6. Conveying Non-Source Forms.
+
+  You may convey a covered work in object code form under the terms
+of sections 4 and 5, provided that you also convey the
+machine-readable Corresponding Source under the terms of this License,
+in one of these ways:
+
+    a) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by the
+    Corresponding Source fixed on a durable physical medium
+    customarily used for software interchange.
+
+    b) Convey the object code in, or embodied in, a physical product
+    (including a physical distribution medium), accompanied by a
+    written offer, valid for at least three years and valid for as
+    long as you offer spare parts or customer support for that product
+    model, to give anyone who possesses the object code either (1) a
+    copy of the Corresponding Source for all the software in the
+    product that is covered by this License, on a durable physical
+    medium customarily used for software interchange, for a price no
+    more than your reasonable cost of physically performing this
+    conveying of source, or (2) access to copy the
+    Corresponding Source from a network server at no charge.
+
+    c) Convey individual copies of the object code with a copy of the
+    written offer to provide the Corresponding Source.  This
+    alternative is allowed only occasionally and noncommercially, and
+    only if you received the object code with such an offer, in accord
+    with subsection 6b.
+
+    d) Convey the object code by offering access from a designated
+    place (gratis or for a charge), and offer equivalent access to the
+    Corresponding Source in the same way through the same place at no
+    further charge.  You need not require recipients to copy the
+    Corresponding Source along with the object code.  If the place to
+    copy the object code is a network server, the Corresponding Source
+    may be on a different server (operated by you or a third party)
+    that supports equivalent copying facilities, provided you maintain
+    clear directions next to the object code saying where to find the
+    Corresponding Source.  Regardless of what server hosts the
+    Corresponding Source, you remain obligated to ensure that it is
+    available for as long as needed to satisfy these requirements.
+
+    e) Convey the object code using peer-to-peer transmission, provided
+    you inform other peers where the object code and Corresponding
+    Source of the work are being offered to the general public at no
+    charge under subsection 6d.
+
+  A separable portion of the object code, whose source code is excluded
+from the Corresponding Source as a System Library, need not be
+included in conveying the object code work.
+
+  A "User Product" is either (1) a "consumer product", which means any
+tangible personal property which is normally used for personal, family,
+or household purposes, or (2) anything designed or sold for incorporation
+into a dwelling.  In determining whether a product is a consumer product,
+doubtful cases shall be resolved in favor of coverage.  For a particular
+product received by a particular user, "normally used" refers to a
+typical or common use of that class of product, regardless of the status
+of the particular user or of the way in which the particular user
+actually uses, or expects or is expected to use, the product.  A product
+is a consumer product regardless of whether the product has substantial
+commercial, industrial or non-consumer uses, unless such uses represent
+the only significant mode of use of the product.
+
+  "Installation Information" for a User Product means any methods,
+procedures, authorization keys, or other information required to install
+and execute modified versions of a covered work in that User Product from
+a modified version of its Corresponding Source.  The information must
+suffice to ensure that the continued functioning of the modified object
+code is in no case prevented or interfered with solely because
+modification has been made.
+
+  If you convey an object code work under this section in, or with, or
+specifically for use in, a User Product, and the conveying occurs as
+part of a transaction in which the right of possession and use of the
+User Product is transferred to the recipient in perpetuity or for a
+fixed term (regardless of how the transaction is characterized), the
+Corresponding Source conveyed under this section must be accompanied
+by the Installation Information.  But this requirement does not apply
+if neither you nor any third party retains the ability to install
+modified object code on the User Product (for example, the work has
+been installed in ROM).
+
+  The requirement to provide Installation Information does not include a
+requirement to continue to provide support service, warranty, or updates
+for a work that has been modified or installed by the recipient, or for
+the User Product in which it has been modified or installed.  Access to a
+network may be denied when the modification itself materially and
+adversely affects the operation of the network or violates the rules and
+protocols for communication across the network.
+
+  Corresponding Source conveyed, and Installation Information provided,
+in accord with this section must be in a format that is publicly
+documented (and with an implementation available to the public in
+source code form), and must require no special password or key for
+unpacking, reading or copying.
+
+  7. Additional Terms.
+
+  "Additional permissions" are terms that supplement the terms of this
+License by making exceptions from one or more of its conditions.
+Additional permissions that are applicable to the entire Program shall
+be treated as though they were included in this License, to the extent
+that they are valid under applicable law.  If additional permissions
+apply only to part of the Program, that part may be used separately
+under those permissions, but the entire Program remains governed by
+this License without regard to the additional permissions.
+
+  When you convey a copy of a covered work, you may at your option
+remove any additional permissions from that copy, or from any part of
+it.  (Additional permissions may be written to require their own
+removal in certain cases when you modify the work.)  You may place
+additional permissions on material, added by you to a covered work,
+for which you have or can give appropriate copyright permission.
+
+  Notwithstanding any other provision of this License, for material you
+add to a covered work, you may (if authorized by the copyright holders of
+that material) supplement the terms of this License with terms:
+
+    a) Disclaiming warranty or limiting liability differently from the
+    terms of sections 15 and 16 of this License; or
+
+    b) Requiring preservation of specified reasonable legal notices or
+    author attributions in that material or in the Appropriate Legal
+    Notices displayed by works containing it; or
+
+    c) Prohibiting misrepresentation of the origin of that material, or
+    requiring that modified versions of such material be marked in
+    reasonable ways as different from the original version; or
+
+    d) Limiting the use for publicity purposes of names of licensors or
+    authors of the material; or
+
+    e) Declining to grant rights under trademark law for use of some
+    trade names, trademarks, or service marks; or
+
+    f) Requiring indemnification of licensors and authors of that
+    material by anyone who conveys the material (or modified versions of
+    it) with contractual assumptions of liability to the recipient, for
+    any liability that these contractual assumptions directly impose on
+    those licensors and authors.
+
+  All other non-permissive additional terms are considered "further
+restrictions" within the meaning of section 10.  If the Program as you
+received it, or any part of it, contains a notice stating that it is
+governed by this License along with a term that is a further
+restriction, you may remove that term.  If a license document contains
+a further restriction but permits relicensing or conveying under this
+License, you may add to a covered work material governed by the terms
+of that license document, provided that the further restriction does
+not survive such relicensing or conveying.
+
+  If you add terms to a covered work in accord with this section, you
+must place, in the relevant source files, a statement of the
+additional terms that apply to those files, or a notice indicating
+where to find the applicable terms.
+
+  Additional terms, permissive or non-permissive, may be stated in the
+form of a separately written license, or stated as exceptions;
+the above requirements apply either way.
+
+  8. Termination.
+
+  You may not propagate or modify a covered work except as expressly
+provided under this License.  Any attempt otherwise to propagate or
+modify it is void, and will automatically terminate your rights under
+this License (including any patent licenses granted under the third
+paragraph of section 11).
+
+  However, if you cease all violation of this License, then your
+license from a particular copyright holder is reinstated (a)
+provisionally, unless and until the copyright holder explicitly and
+finally terminates your license, and (b) permanently, if the copyright
+holder fails to notify you of the violation by some reasonable means
+prior to 60 days after the cessation.
+
+  Moreover, your license from a particular copyright holder is
+reinstated permanently if the copyright holder notifies you of the
+violation by some reasonable means, this is the first time you have
+received notice of violation of this License (for any work) from that
+copyright holder, and you cure the violation prior to 30 days after
+your receipt of the notice.
+
+  Termination of your rights under this section does not terminate the
+licenses of parties who have received copies or rights from you under
+this License.  If your rights have been terminated and not permanently
+reinstated, you do not qualify to receive new licenses for the same
+material under section 10.
+
+  9. Acceptance Not Required for Having Copies.
+
+  You are not required to accept this License in order to receive or
+run a copy of the Program.  Ancillary propagation of a covered work
+occurring solely as a consequence of using peer-to-peer transmission
+to receive a copy likewise does not require acceptance.  However,
+nothing other than this License grants you permission to propagate or
+modify any covered work.  These actions infringe copyright if you do
+not accept this License.  Therefore, by modifying or propagating a
+covered work, you indicate your acceptance of this License to do so.
+
+  10. Automatic Licensing of Downstream Recipients.
+
+  Each time you convey a covered work, the recipient automatically
+receives a license from the original licensors, to run, modify and
+propagate that work, subject to this License.  You are not responsible
+for enforcing compliance by third parties with this License.
+
+  An "entity transaction" is a transaction transferring control of an
+organization, or substantially all assets of one, or subdividing an
+organization, or merging organizations.  If propagation of a covered
+work results from an entity transaction, each party to that
+transaction who receives a copy of the work also receives whatever
+licenses to the work the party's predecessor in interest had or could
+give under the previous paragraph, plus a right to possession of the
+Corresponding Source of the work from the predecessor in interest, if
+the predecessor has it or can get it with reasonable efforts.
+
+  You may not impose any further restrictions on the exercise of the
+rights granted or affirmed under this License.  For example, you may
+not impose a license fee, royalty, or other charge for exercise of
+rights granted under this License, and you may not initiate litigation
+(including a cross-claim or counterclaim in a lawsuit) alleging that
+any patent claim is infringed by making, using, selling, offering for
+sale, or importing the Program or any portion of it.
+
+  11. Patents.
+
+  A "contributor" is a copyright holder who authorizes use under this
+License of the Program or a work on which the Program is based.  The
+work thus licensed is called the contributor's "contributor version".
+
+  A contributor's "essential patent claims" are all patent claims
+owned or controlled by the contributor, whether already acquired or
+hereafter acquired, that would be infringed by some manner, permitted
+by this License, of making, using, or selling its contributor version,
+but do not include claims that would be infringed only as a
+consequence of further modification of the contributor version.  For
+purposes of this definition, "control" includes the right to grant
+patent sublicenses in a manner consistent with the requirements of
+this License.
+
+  Each contributor grants you a non-exclusive, worldwide, royalty-free
+patent license under the contributor's essential patent claims, to
+make, use, sell, offer for sale, import and otherwise run, modify and
+propagate the contents of its contributor version.
+
+  In the following three paragraphs, a "patent license" is any express
+agreement or commitment, however denominated, not to enforce a patent
+(such as an express permission to practice a patent or covenant not to
+sue for patent infringement).  To "grant" such a patent license to a
+party means to make such an agreement or commitment not to enforce a
+patent against the party.
+
+  If you convey a covered work, knowingly relying on a patent license,
+and the Corresponding Source of the work is not available for anyone
+to copy, free of charge and under the terms of this License, through a
+publicly available network server or other readily accessible means,
+then you must either (1) cause the Corresponding Source to be so
+available, or (2) arrange to deprive yourself of the benefit of the
+patent license for this particular work, or (3) arrange, in a manner
+consistent with the requirements of this License, to extend the patent
+license to downstream recipients.  "Knowingly relying" means you have
+actual knowledge that, but for the patent license, your conveying the
+covered work in a country, or your recipient's use of the covered work
+in a country, would infringe one or more identifiable patents in that
+country that you have reason to believe are valid.
+
+  If, pursuant to or in connection with a single transaction or
+arrangement, you convey, or propagate by procuring conveyance of, a
+covered work, and grant a patent license to some of the parties
+receiving the covered work authorizing them to use, propagate, modify
+or convey a specific copy of the covered work, then the patent license
+you grant is automatically extended to all recipients of the covered
+work and works based on it.
+
+  A patent license is "discriminatory" if it does not include within
+the scope of its coverage, prohibits the exercise of, or is
+conditioned on the non-exercise of one or more of the rights that are
+specifically granted under this License.  You may not convey a covered
+work if you are a party to an arrangement with a third party that is
+in the business of distributing software, under which you make payment
+to the third party based on the extent of your activity of conveying
+the work, and under which the third party grants, to any of the
+parties who would receive the covered work from you, a discriminatory
+patent license (a) in connection with copies of the covered work
+conveyed by you (or copies made from those copies), or (b) primarily
+for and in connection with specific products or compilations that
+contain the covered work, unless you entered into that arrangement,
+or that patent license was granted, prior to 28 March 2007.
+
+  Nothing in this License shall be construed as excluding or limiting
+any implied license or other defenses to infringement that may
+otherwise be available to you under applicable patent law.
+
+  12. No Surrender of Others' Freedom.
+
+  If conditions are imposed on you (whether by court order, agreement or
+otherwise) that contradict the conditions of this License, they do not
+excuse you from the conditions of this License.  If you cannot convey a
+covered work so as to satisfy simultaneously your obligations under this
+License and any other pertinent obligations, then as a consequence you may
+not convey it at all.  For example, if you agree to terms that obligate you
+to collect a royalty for further conveying from those to whom you convey
+the Program, the only way you could satisfy both those terms and this
+License would be to refrain entirely from conveying the Program.
+
+  13. Use with the GNU Affero General Public License.
+
+  Notwithstanding any other provision of this License, you have
+permission to link or combine any covered work with a work licensed
+under version 3 of the GNU Affero General Public License into a single
+combined work, and to convey the resulting work.  The terms of this
+License will continue to apply to the part which is the covered work,
+but the special requirements of the GNU Affero General Public License,
+section 13, concerning interaction through a network will apply to the
+combination as such.
+
+  14. Revised Versions of this License.
+
+  The Free Software Foundation may publish revised and/or new versions of
+the GNU General Public License from time to time.  Such new versions will
+be similar in spirit to the present version, but may differ in detail to
+address new problems or concerns.
+
+  Each version is given a distinguishing version number.  If the
+Program specifies that a certain numbered version of the GNU General
+Public License "or any later version" applies to it, you have the
+option of following the terms and conditions either of that numbered
+version or of any later version published by the Free Software
+Foundation.  If the Program does not specify a version number of the
+GNU General Public License, you may choose any version ever published
+by the Free Software Foundation.
+
+  If the Program specifies that a proxy can decide which future
+versions of the GNU General Public License can be used, that proxy's
+public statement of acceptance of a version permanently authorizes you
+to choose that version for the Program.
+
+  Later license versions may give you additional or different
+permissions.  However, no additional obligations are imposed on any
+author or copyright holder as a result of your choosing to follow a
+later version.
+
+  15. Disclaimer of Warranty.
+
+  THERE IS NO WARRANTY FOR THE PROGRAM, TO THE EXTENT PERMITTED BY
+APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
+HOLDERS AND/OR OTHER PARTIES PROVIDE THE PROGRAM "AS IS" WITHOUT WARRANTY
+OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING, BUT NOT LIMITED TO,
+THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+PURPOSE.  THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE OF THE PROGRAM
+IS WITH YOU.  SHOULD THE PROGRAM PROVE DEFECTIVE, YOU ASSUME THE COST OF
+ALL NECESSARY SERVICING, REPAIR OR CORRECTION.
+
+  16. Limitation of Liability.
+
+  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN WRITING
+WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
+THE PROGRAM AS PERMITTED ABOVE, BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY
+GENERAL, SPECIAL, INCIDENTAL OR CONSEQUENTIAL DAMAGES ARISING OUT OF THE
+USE OR INABILITY TO USE THE PROGRAM (INCLUDING BUT NOT LIMITED TO LOSS OF
+DATA OR DATA BEING RENDERED INACCURATE OR LOSSES SUSTAINED BY YOU OR THIRD
+PARTIES OR A FAILURE OF THE PROGRAM TO OPERATE WITH ANY OTHER PROGRAMS),
+EVEN IF SUCH HOLDER OR OTHER PARTY HAS BEEN ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGES.
+
+  17. Interpretation of Sections 15 and 16.
+
+  If the disclaimer of warranty and limitation of liability provided
+above cannot be given local legal effect according to their terms,
+reviewing courts shall apply local law that most closely approximates
+an absolute waiver of all civil liability in connection with the
+Program, unless a warranty or assumption of liability accompanies a
+copy of the Program in return for a fee.
+
+                     END OF TERMS AND CONDITIONS
+
+            How to Apply These Terms to Your New Programs
+
+  If you develop a new program, and you want it to be of the greatest
+possible use to the public, the best way to achieve this is to make it
+free software which everyone can redistribute and change under these terms.
+
+  To do so, attach the following notices to the program.  It is safest
+to attach them to the start of each source file to most effectively
+state the exclusion of warranty; and each file should have at least
+the "copyright" line and a pointer to where the full notice is found.
+
+    <one line to give the program's name and a brief idea of what it does.>
+    Copyright (C) <year>  <name of author>
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+Also add information on how to contact you by electronic and paper mail.
+
+  If the program does terminal interaction, make it output a short
+notice like this when it starts in an interactive mode:
+
+    <program>  Copyright (C) <year>  <name of author>
+    This program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
+    This is free software, and you are welcome to redistribute it
+    under certain conditions; type `show c' for details.
+
+The hypothetical commands `show w' and `show c' should show the appropriate
+parts of the General Public License.  Of course, your program's commands
+might be different; for a GUI interface, you would use an "about box".
+
+  You should also get your employer (if you work as a programmer) or school,
+if any, to sign a "copyright disclaimer" for the program, if necessary.
+For more information on this, and how to apply and follow the GNU GPL, see
+<http://www.gnu.org/licenses/>.
+
+  The GNU General Public License does not permit incorporating your program
+into proprietary programs.  If your program is a subroutine library, you
+may consider it more useful to permit linking proprietary applications with
+the library.  If this is what you want to do, use the GNU Lesser General
+Public License instead of this License.  But first, please read
+<http://www.gnu.org/philosophy/why-not-lgpl.html>.
+
+*/
+// ===== END SOURCE FILE: contracts/dependencies/weth/WETH9.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/x2y2/contracts/ERC721Delegate.sol =====
+// SPDX-License-Identifier: Unlicensed
+
+pragma solidity ^0.8.0;
+pragma abicoder v2;
+
+import '../../openzeppelin/contracts/IERC721.sol';
+import '../../openzeppelin/contracts/IERC721Receiver.sol';
+import '../../openzeppelin/contracts/AccessControl.sol';
+import './MarketConsts.sol';
+import './IDelegate.sol';
+
+contract ERC721Delegate is IDelegate, AccessControl, IERC721Receiver {
+    bytes32 public constant DELEGATION_CALLER = keccak256('DELEGATION_CALLER');
+
+    struct Pair {
+        IERC721 token;
+        uint256 tokenId;
+    }
+
+    constructor() {
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+
+    function decode(bytes calldata data) internal pure returns (Pair[] memory) {
+        return abi.decode(data, (Pair[]));
+    }
+
+    function delegateType() external pure returns (uint256) {
+        // return uint256(Market.DelegationType.ERC721);
+        return 1;
+    }
+
+    function executeSell(
+        address seller,
+        address buyer,
+        bytes calldata data
+    ) external onlyRole(DELEGATION_CALLER) returns (bool) {
+        Pair[] memory pairs = decode(data);
+        for (uint256 i = 0; i < pairs.length; i++) {
+            Pair memory p = pairs[i];
+            p.token.safeTransferFrom(seller, buyer, p.tokenId);
+        }
+        return true;
+    }
+
+    function executeBuy(
+        address seller,
+        address buyer,
+        bytes calldata data
+    ) external onlyRole(DELEGATION_CALLER) returns (bool) {
+        Pair[] memory pairs = decode(data);
+        for (uint256 i = 0; i < pairs.length; i++) {
+            Pair memory p = pairs[i];
+            p.token.safeTransferFrom(seller, buyer, p.tokenId);
+        }
+        return true;
+    }
+
+    function executeBid(
+        address seller,
+        address previousBidder,
+        address, // bidder,
+        bytes calldata data
+    ) external onlyRole(DELEGATION_CALLER) returns (bool) {
+        if (previousBidder == address(0)) {
+            Pair[] memory pairs = decode(data);
+            for (uint256 i = 0; i < pairs.length; i++) {
+                Pair memory p = pairs[i];
+                p.token.safeTransferFrom(seller, address(this), p.tokenId);
+            }
+        }
+        return true;
+    }
+
+    function executeAuctionComplete(
+        address, // seller,
+        address buyer,
+        bytes calldata data
+    ) external onlyRole(DELEGATION_CALLER) returns (bool) {
+        Pair[] memory pairs = decode(data);
+        for (uint256 i = 0; i < pairs.length; i++) {
+            Pair memory p = pairs[i];
+            p.token.safeTransferFrom(address(this), buyer, p.tokenId);
+        }
+        return true;
+    }
+
+    function executeAuctionRefund(
+        address seller,
+        address, // lastBidder,
+        bytes calldata data
+    ) external onlyRole(DELEGATION_CALLER) returns (bool) {
+        Pair[] memory pairs = decode(data);
+        for (uint256 i = 0; i < pairs.length; i++) {
+            Pair memory p = pairs[i];
+            p.token.safeTransferFrom(address(this), seller, p.tokenId);
+        }
+        return true;
+    }
+
+    function transferBatch(Pair[] memory pairs, address to) public {
+        for (uint256 i = 0; i < pairs.length; i++) {
+            Pair memory p = pairs[i];
+            p.token.safeTransferFrom(msg.sender, to, p.tokenId);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/x2y2/contracts/ERC721Delegate.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/x2y2/contracts/IDelegate.sol =====
+// SPDX-License-Identifier: Unlicensed
+
+pragma solidity ^0.8.0;
+pragma abicoder v2;
+
+interface IDelegate {
+    function delegateType() external view returns (uint256);
+
+    function executeSell(
+        address seller,
+        address buyer,
+        bytes calldata data
+    ) external returns (bool);
+
+    function executeBuy(
+        address seller,
+        address buyer,
+        bytes calldata data
+    ) external returns (bool);
+
+    function executeBid(
+        address seller,
+        address previousBidder,
+        address bidder,
+        bytes calldata data
+    ) external returns (bool);
+
+    function executeAuctionComplete(
+        address seller,
+        address buyer,
+        bytes calldata data
+    ) external returns (bool);
+
+    function executeAuctionRefund(
+        address seller,
+        address lastBidder,
+        bytes calldata data
+    ) external returns (bool);
+}
+// ===== END SOURCE FILE: contracts/dependencies/x2y2/contracts/IDelegate.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/x2y2/contracts/IWETHUpgradable.sol =====
+// SPDX-License-Identifier: Unlicensed
+
+pragma solidity ^0.8.0;
+pragma abicoder v2;
+
+import '../../openzeppelin/upgradeability/IERC20Upgradeable.sol';
+
+interface IWETHUpgradable is IERC20Upgradeable {
+    function deposit() external payable;
+
+    function withdraw(uint256 wad) external;
+}
+// ===== END SOURCE FILE: contracts/dependencies/x2y2/contracts/IWETHUpgradable.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/x2y2/contracts/MarketConsts.sol =====
+// SPDX-License-Identifier: Unlicensed
+
+pragma solidity ^0.8.0;
+pragma abicoder v2;
+
+import './IDelegate.sol';
+import './IWETHUpgradable.sol';
+
+library Market {
+    uint256 constant INTENT_SELL = 1;
+    uint256 constant INTENT_AUCTION = 2;
+    uint256 constant INTENT_BUY = 3;
+
+    uint8 constant SIGN_V1 = 1;
+    uint8 constant SIGN_V3 = 3;
+
+    struct OrderItem {
+        uint256 price;
+        bytes data;
+    }
+
+    struct Order {
+        uint256 salt;
+        address user;
+        uint256 network;
+        uint256 intent;
+        uint256 delegateType;
+        uint256 deadline;
+        IERC20Upgradeable currency;
+        bytes dataMask;
+        OrderItem[] items;
+        // signature
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        uint8 signVersion;
+    }
+
+    struct Fee {
+        uint256 percentage;
+        address to;
+    }
+
+    struct SettleDetail {
+        Market.Op op;
+        uint256 orderIdx;
+        uint256 itemIdx;
+        uint256 price;
+        bytes32 itemHash;
+        IDelegate executionDelegate;
+        bytes dataReplacement;
+        uint256 bidIncentivePct;
+        uint256 aucMinIncrementPct;
+        uint256 aucIncDurationSecs;
+        Fee[] fees;
+    }
+
+    struct SettleShared {
+        uint256 salt;
+        uint256 deadline;
+        uint256 amountToEth;
+        uint256 amountToWeth;
+        address user;
+        bool canFail;
+    }
+
+    struct RunInput {
+        Order[] orders;
+        SettleDetail[] details;
+        SettleShared shared;
+        // signature
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+    }
+
+    struct OngoingAuction {
+        uint256 price;
+        uint256 netPrice;
+        uint256 endAt;
+        address bidder;
+    }
+
+    enum InvStatus {
+        NEW,
+        AUCTION,
+        COMPLETE,
+        CANCELLED,
+        REFUNDED
+    }
+
+    enum Op {
+        INVALID,
+        // off-chain
+        COMPLETE_SELL_OFFER,
+        COMPLETE_BUY_OFFER,
+        CANCEL_OFFER,
+        // auction
+        BID,
+        COMPLETE_AUCTION,
+        REFUND_AUCTION,
+        REFUND_AUCTION_STUCK_ITEM
+    }
+
+    enum DelegationType {
+        INVALID,
+        ERC721,
+        ERC1155
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/x2y2/contracts/MarketConsts.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/x2y2/contracts/X2Y2_r1.sol =====
+// SPDX-License-Identifier: Unlicensed
+
+pragma solidity ^0.8.0;
+pragma abicoder v2;
+
+import './IDelegate.sol';
+import './IWETHUpgradable.sol';
+import './MarketConsts.sol';
+import '../../openzeppelin/upgradeability/OwnableUpgradeable.sol';
+import '../../openzeppelin/upgradeability/Initializable.sol';
+import '../../openzeppelin/upgradeability/PausableUpgradeable.sol';
+import '../../openzeppelin/upgradeability/ReentrancyGuardUpgradeable.sol';
+import '../../openzeppelin/upgradeability/SafeERC20Upgradeable.sol';
+import '../../openzeppelin/contracts/ECDSA.sol';
+
+interface IX2Y2Run {
+    function run1(
+        Market.Order memory order,
+        Market.SettleShared memory shared,
+        Market.SettleDetail memory detail
+    ) external returns (uint256);
+}
+
+contract X2Y2R1 is
+    Initializable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable,
+    PausableUpgradeable,
+    IX2Y2Run
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    event EvProfit(bytes32 itemHash, address currency, address to, uint256 amount);
+    event EvAuctionRefund(
+        bytes32 indexed itemHash,
+        address currency,
+        address to,
+        uint256 amount,
+        uint256 incentive
+    );
+    event EvInventory(
+        bytes32 indexed itemHash,
+        address maker,
+        address taker,
+        uint256 orderSalt,
+        uint256 settleSalt,
+        uint256 intent,
+        uint256 delegateType,
+        uint256 deadline,
+        IERC20Upgradeable currency,
+        bytes dataMask,
+        Market.OrderItem item,
+        Market.SettleDetail detail
+    );
+    event EvSigner(address signer, bool isRemoval);
+    event EvDelegate(address delegate, bool isRemoval);
+    event EvFeeCapUpdate(uint256 newValue);
+    event EvCancel(bytes32 indexed itemHash);
+    event EvFailure(uint256 index, bytes error);
+
+    mapping(address => bool) public delegates;
+    mapping(address => bool) public signers;
+
+    mapping(bytes32 => Market.InvStatus) public inventoryStatus;
+    mapping(bytes32 => Market.OngoingAuction) public ongoingAuctions;
+
+    uint256 public constant RATE_BASE = 1e6;
+    uint256 public feeCapPct;
+    IWETHUpgradable public weth;
+
+    receive() external payable {}
+
+    function pause() public onlyOwner {
+        _pause();
+    }
+
+    function unpause() public onlyOwner {
+        _unpause();
+    }
+
+    function initialize(uint256 feeCapPct_, address weth_) public initializer {
+        feeCapPct = feeCapPct_;
+        weth = IWETHUpgradable(weth_);
+
+        __ReentrancyGuard_init_unchained();
+        __Pausable_init_unchained();
+        __Ownable_init_unchained();
+    }
+
+    function updateFeeCap(uint256 val) public virtual onlyOwner {
+        feeCapPct = val;
+        emit EvFeeCapUpdate(val);
+    }
+
+    function updateSigners(address[] memory toAdd, address[] memory toRemove)
+        public
+        virtual
+        onlyOwner
+    {
+        for (uint256 i = 0; i < toAdd.length; i++) {
+            signers[toAdd[i]] = true;
+            emit EvSigner(toAdd[i], false);
+        }
+        for (uint256 i = 0; i < toRemove.length; i++) {
+            delete signers[toRemove[i]];
+            emit EvSigner(toRemove[i], true);
+        }
+    }
+
+    function updateDelegates(address[] memory toAdd, address[] memory toRemove)
+        public
+        virtual
+        onlyOwner
+    {
+        for (uint256 i = 0; i < toAdd.length; i++) {
+            delegates[toAdd[i]] = true;
+            emit EvDelegate(toAdd[i], false);
+        }
+        for (uint256 i = 0; i < toRemove.length; i++) {
+            delete delegates[toRemove[i]];
+            emit EvDelegate(toRemove[i], true);
+        }
+    }
+
+    function cancel(
+        bytes32[] memory itemHashes,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) public virtual nonReentrant whenNotPaused {
+        require(deadline > block.timestamp, 'deadline reached');
+        bytes32 hash = keccak256(abi.encode(itemHashes.length, itemHashes, deadline));
+        address signer = ECDSA.recover(hash, v, r, s);
+        require(signers[signer], 'Input signature error');
+
+        for (uint256 i = 0; i < itemHashes.length; i++) {
+            bytes32 h = itemHashes[i];
+            if (inventoryStatus[h] == Market.InvStatus.NEW) {
+                inventoryStatus[h] = Market.InvStatus.CANCELLED;
+                emit EvCancel(h);
+            }
+        }
+    }
+
+    function run(Market.RunInput memory input) public payable virtual nonReentrant whenNotPaused {
+        require(input.shared.deadline > block.timestamp, 'input deadline reached');
+        require(msg.sender == input.shared.user, 'sender does not match');
+        _verifyInputSignature(input);
+
+        uint256 amountEth = msg.value;
+        if (input.shared.amountToWeth > 0) {
+            uint256 amt = input.shared.amountToWeth;
+            weth.deposit{value: amt}();
+            SafeERC20Upgradeable.safeTransfer(weth, msg.sender, amt);
+            amountEth -= amt;
+        }
+        if (input.shared.amountToEth > 0) {
+            uint256 amt = input.shared.amountToEth;
+            SafeERC20Upgradeable.safeTransferFrom(weth, msg.sender, address(this), amt);
+            weth.withdraw(amt);
+            amountEth += amt;
+        }
+
+        for (uint256 i = 0; i < input.orders.length; i++) {
+            _verifyOrderSignature(input.orders[i]);
+        }
+
+        for (uint256 i = 0; i < input.details.length; i++) {
+            Market.SettleDetail memory detail = input.details[i];
+            Market.Order memory order = input.orders[detail.orderIdx];
+            if (input.shared.canFail) {
+                try IX2Y2Run(address(this)).run1(order, input.shared, detail) returns (
+                    uint256 ethPayment
+                ) {
+                    amountEth -= ethPayment;
+                } catch Error(string memory _err) {
+                    emit EvFailure(i, bytes(_err));
+                } catch (bytes memory _err) {
+                    emit EvFailure(i, _err);
+                }
+            } else {
+                amountEth -= _run(order, input.shared, detail);
+            }
+        }
+        if (amountEth > 0) {
+            payable(msg.sender).transfer(amountEth);
+        }
+    }
+
+    function run1(
+        Market.Order memory order,
+        Market.SettleShared memory shared,
+        Market.SettleDetail memory detail
+    ) external virtual returns (uint256) {
+        require(msg.sender == address(this), 'unsafe call');
+
+        return _run(order, shared, detail);
+    }
+
+    function _hashItem(Market.Order memory order, Market.OrderItem memory item)
+        internal
+        view
+        virtual
+        returns (bytes32)
+    {
+        return
+            keccak256(
+                abi.encode(
+                    order.salt,
+                    order.user,
+                    order.network,
+                    order.intent,
+                    order.delegateType,
+                    order.deadline,
+                    order.currency,
+                    order.dataMask,
+                    item
+                )
+            );
+    }
+
+    function _emitInventory(
+        bytes32 itemHash,
+        Market.Order memory order,
+        Market.OrderItem memory item,
+        Market.SettleShared memory shared,
+        Market.SettleDetail memory detail
+    ) internal virtual {
+        emit EvInventory(
+            itemHash,
+            order.user,
+            shared.user,
+            order.salt,
+            shared.salt,
+            order.intent,
+            order.delegateType,
+            order.deadline,
+            order.currency,
+            order.dataMask,
+            item,
+            detail
+        );
+    }
+
+    function _run(
+        Market.Order memory order,
+        Market.SettleShared memory shared,
+        Market.SettleDetail memory detail
+    ) internal virtual returns (uint256) {
+        uint256 nativeAmount = 0;
+
+        Market.OrderItem memory item = order.items[detail.itemIdx];
+        bytes32 itemHash = _hashItem(order, item);
+
+        {
+            require(itemHash == detail.itemHash, 'item hash does not match');
+            require(order.network == block.chainid, 'wrong network');
+            require(
+                address(detail.executionDelegate) != address(0) &&
+                    delegates[address(detail.executionDelegate)],
+                'unknown delegate'
+            );
+        }
+
+        bytes memory data = item.data;
+        {
+            if (order.dataMask.length > 0 && detail.dataReplacement.length > 0) {
+                _arrayReplace(data, detail.dataReplacement, order.dataMask);
+            }
+        }
+
+        if (detail.op == Market.Op.COMPLETE_SELL_OFFER) {
+            require(inventoryStatus[itemHash] == Market.InvStatus.NEW, 'order already exists');
+            require(order.intent == Market.INTENT_SELL, 'intent != sell');
+            _assertDelegation(order, detail);
+            require(order.deadline > block.timestamp, 'deadline reached');
+            require(detail.price >= item.price, 'underpaid');
+
+            nativeAmount = _takePayment(itemHash, order.currency, shared.user, detail.price);
+            require(
+                detail.executionDelegate.executeSell(order.user, shared.user, data),
+                'delegation error'
+            );
+
+            _distributeFeeAndProfit(
+                itemHash,
+                order.user,
+                order.currency,
+                detail,
+                detail.price,
+                detail.price
+            );
+            inventoryStatus[itemHash] = Market.InvStatus.COMPLETE;
+        } else if (detail.op == Market.Op.COMPLETE_BUY_OFFER) {
+            require(inventoryStatus[itemHash] == Market.InvStatus.NEW, 'order already exists');
+            require(order.intent == Market.INTENT_BUY, 'intent != buy');
+            _assertDelegation(order, detail);
+            require(order.deadline > block.timestamp, 'deadline reached');
+            require(item.price == detail.price, 'price not match');
+
+            require(!_isNative(order.currency), 'native token not supported');
+
+            nativeAmount = _takePayment(itemHash, order.currency, order.user, detail.price);
+            require(
+                detail.executionDelegate.executeBuy(shared.user, order.user, data),
+                'delegation error'
+            );
+
+            _distributeFeeAndProfit(
+                itemHash,
+                shared.user,
+                order.currency,
+                detail,
+                detail.price,
+                detail.price
+            );
+            inventoryStatus[itemHash] = Market.InvStatus.COMPLETE;
+        } else if (detail.op == Market.Op.CANCEL_OFFER) {
+            require(inventoryStatus[itemHash] == Market.InvStatus.NEW, 'unable to cancel');
+            require(order.deadline > block.timestamp, 'deadline reached');
+            inventoryStatus[itemHash] = Market.InvStatus.CANCELLED;
+            emit EvCancel(itemHash);
+        } else if (detail.op == Market.Op.BID) {
+            require(order.intent == Market.INTENT_AUCTION, 'intent != auction');
+            _assertDelegation(order, detail);
+            bool firstBid = false;
+            if (ongoingAuctions[itemHash].bidder == address(0)) {
+                require(inventoryStatus[itemHash] == Market.InvStatus.NEW, 'order already exists');
+                require(order.deadline > block.timestamp, 'auction ended');
+                require(detail.price >= item.price, 'underpaid');
+
+                firstBid = true;
+                ongoingAuctions[itemHash] = Market.OngoingAuction({
+                    price: detail.price,
+                    netPrice: detail.price,
+                    bidder: shared.user,
+                    endAt: order.deadline
+                });
+                inventoryStatus[itemHash] = Market.InvStatus.AUCTION;
+
+                require(
+                    detail.executionDelegate.executeBid(order.user, address(0), shared.user, data),
+                    'delegation error'
+                );
+            }
+
+            Market.OngoingAuction storage auc = ongoingAuctions[itemHash];
+            require(auc.endAt > block.timestamp, 'auction ended');
+
+            nativeAmount = _takePayment(itemHash, order.currency, shared.user, detail.price);
+
+            if (!firstBid) {
+                require(
+                    inventoryStatus[itemHash] == Market.InvStatus.AUCTION,
+                    'order is not auction'
+                );
+                require(
+                    detail.price - auc.price >= (auc.price * detail.aucMinIncrementPct) / RATE_BASE,
+                    'underbid'
+                );
+
+                uint256 bidRefund = auc.netPrice;
+                uint256 incentive = (detail.price * detail.bidIncentivePct) / RATE_BASE;
+                if (bidRefund + incentive > 0) {
+                    _transferTo(order.currency, auc.bidder, bidRefund + incentive);
+                    emit EvAuctionRefund(
+                        itemHash,
+                        address(order.currency),
+                        auc.bidder,
+                        bidRefund,
+                        incentive
+                    );
+                }
+
+                require(
+                    detail.executionDelegate.executeBid(order.user, auc.bidder, shared.user, data),
+                    'delegation error'
+                );
+
+                auc.price = detail.price;
+                auc.netPrice = detail.price - incentive;
+                auc.bidder = shared.user;
+            }
+
+            if (block.timestamp + detail.aucIncDurationSecs > auc.endAt) {
+                auc.endAt += detail.aucIncDurationSecs;
+            }
+        } else if (
+            detail.op == Market.Op.REFUND_AUCTION ||
+            detail.op == Market.Op.REFUND_AUCTION_STUCK_ITEM
+        ) {
+            require(
+                inventoryStatus[itemHash] == Market.InvStatus.AUCTION,
+                'cannot cancel non-auction order'
+            );
+            Market.OngoingAuction storage auc = ongoingAuctions[itemHash];
+
+            if (auc.netPrice > 0) {
+                _transferTo(order.currency, auc.bidder, auc.netPrice);
+                emit EvAuctionRefund(
+                    itemHash,
+                    address(order.currency),
+                    auc.bidder,
+                    auc.netPrice,
+                    0
+                );
+            }
+            _assertDelegation(order, detail);
+
+            if (detail.op == Market.Op.REFUND_AUCTION) {
+                require(
+                    detail.executionDelegate.executeAuctionRefund(order.user, auc.bidder, data),
+                    'delegation error'
+                );
+            }
+            delete ongoingAuctions[itemHash];
+            inventoryStatus[itemHash] = Market.InvStatus.REFUNDED;
+        } else if (detail.op == Market.Op.COMPLETE_AUCTION) {
+            require(
+                inventoryStatus[itemHash] == Market.InvStatus.AUCTION,
+                'cannot complete non-auction order'
+            );
+            _assertDelegation(order, detail);
+            Market.OngoingAuction storage auc = ongoingAuctions[itemHash];
+            require(block.timestamp >= auc.endAt, 'auction not finished yet');
+
+            require(
+                detail.executionDelegate.executeAuctionComplete(order.user, auc.bidder, data),
+                'delegation error'
+            );
+            _distributeFeeAndProfit(
+                itemHash,
+                order.user,
+                order.currency,
+                detail,
+                auc.price,
+                auc.netPrice
+            );
+
+            inventoryStatus[itemHash] = Market.InvStatus.COMPLETE;
+            delete ongoingAuctions[itemHash];
+        } else {
+            revert('unknown op');
+        }
+
+        _emitInventory(itemHash, order, item, shared, detail);
+        return nativeAmount;
+    }
+
+    function _assertDelegation(Market.Order memory order, Market.SettleDetail memory detail)
+        internal
+        view
+        virtual
+    {
+        require(
+            detail.executionDelegate.delegateType() == order.delegateType,
+            'delegation type error'
+        );
+    }
+
+    // modifies `src`
+    function _arrayReplace(
+        bytes memory src,
+        bytes memory replacement,
+        bytes memory mask
+    ) internal view virtual {
+        require(src.length == replacement.length);
+        require(src.length == mask.length);
+
+        for (uint256 i = 0; i < src.length; i++) {
+            if (mask[i] != 0) {
+                src[i] = replacement[i];
+            }
+        }
+    }
+
+    function _verifyInputSignature(Market.RunInput memory input) internal view virtual {
+        bytes32 hash = keccak256(abi.encode(input.shared, input.details.length, input.details));
+        address signer = ECDSA.recover(hash, input.v, input.r, input.s);
+        require(signers[signer], 'Input signature error');
+    }
+
+    function _verifyOrderSignature(Market.Order memory order) internal view virtual {
+        address orderSigner;
+
+        if (order.signVersion == Market.SIGN_V1) {
+            bytes32 orderHash = keccak256(
+                abi.encode(
+                    order.salt,
+                    order.user,
+                    order.network,
+                    order.intent,
+                    order.delegateType,
+                    order.deadline,
+                    order.currency,
+                    order.dataMask,
+                    order.items.length,
+                    order.items
+                )
+            );
+            orderSigner = ECDSA.recover(
+                ECDSA.toEthSignedMessageHash(orderHash),
+                order.v,
+                order.r,
+                order.s
+            );
+        } else {
+            revert('unknown signature version');
+        }
+
+        require(orderSigner == order.user, 'Order signature does not match');
+    }
+
+    function _isNative(IERC20Upgradeable currency) internal view virtual returns (bool) {
+        return address(currency) == address(0);
+    }
+
+    function _takePayment(
+        bytes32 /*itemHash*/,
+        IERC20Upgradeable currency,
+        address from,
+        uint256 amount
+    ) internal virtual returns (uint256) {
+        if (amount > 0) {
+            if (_isNative(currency)) {
+                return amount;
+            } else {
+                currency.safeTransferFrom(from, address(this), amount);
+            }
+        }
+        return 0;
+    }
+
+    function _transferTo(
+        IERC20Upgradeable currency,
+        address to,
+        uint256 amount
+    ) internal virtual {
+        if (amount > 0) {
+            if (_isNative(currency)) {
+                AddressUpgradeable.sendValue(payable(to), amount);
+            } else {
+                currency.safeTransfer(to, amount);
+            }
+        }
+    }
+
+    function _distributeFeeAndProfit(
+        bytes32 itemHash,
+        address seller,
+        IERC20Upgradeable currency,
+        Market.SettleDetail memory sd,
+        uint256 price,
+        uint256 netPrice
+    ) internal virtual {
+        require(price >= netPrice, 'price error');
+
+        uint256 payment = netPrice;
+        uint256 totalFeePct;
+
+        for (uint256 i = 0; i < sd.fees.length; i++) {
+            Market.Fee memory fee = sd.fees[i];
+            totalFeePct += fee.percentage;
+            uint256 amount = (price * fee.percentage) / RATE_BASE;
+            payment -= amount;
+            _transferTo(currency, fee.to, amount);
+        }
+
+        require(feeCapPct >= totalFeePct, 'total fee cap exceeded');
+
+        _transferTo(currency, seller, payment);
+        emit EvProfit(itemHash, address(currency), seller, payment);
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/x2y2/contracts/X2Y2_r1.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/yoga-labs/ApeCoinStaking.sol =====
+//SPDX-License-Identifier: MIT
+
+pragma solidity 0.8.10;
+
+import "../openzeppelin/contracts/IERC20.sol";
+import "../openzeppelin/contracts/SafeERC20.sol";
+import "../openzeppelin/contracts/SafeCast.sol";
+import "../openzeppelin/contracts/Ownable.sol";
+import "../openzeppelin/contracts/ERC721Enumerable.sol";
+
+/**
+ * @title ApeCoin Staking Contract
+ * @notice Stake ApeCoin across four different pools that release hourly rewards
+ * @author HorizenLabs
+ */
+contract ApeCoinStaking is Ownable {
+
+    using SafeERC20 for IERC20;
+    using SafeCast for uint256;
+    using SafeCast for int256;
+
+    /// @notice State for ApeCoin, BAYC, MAYC, and Pair Pools
+    struct Pool {
+        uint256 lastRewardedTimestampHour;
+        uint256 lastRewardsRangeIndex;
+        uint256 stakedAmount;
+        uint256 accumulatedRewardsPerShare;
+        TimeRange[] timeRanges;
+    }
+
+    /// @notice Pool rules valid for a given duration of time.
+    /// @dev All TimeRange timestamp values must represent whole hours
+    struct TimeRange {
+        uint256 startTimestampHour;
+        uint256 endTimestampHour;
+        uint256 rewardsPerHour;
+        uint256 capPerPosition;
+    }
+
+    /// @dev Convenience struct for front-end applications
+    struct PoolUI {
+        uint256 poolId;
+        uint256 stakedAmount;
+        TimeRange currentTimeRange;
+    }
+
+    /// @dev Per address amount and reward tracking
+    struct Position {
+        uint256 stakedAmount;
+        int256 rewardsDebt;
+    }
+    mapping (address => Position) public addressPosition;
+
+    /// @dev Struct for depositing and withdrawing from the BAYC and MAYC NFT pools
+    struct SingleNft {
+        uint256 tokenId;
+        uint256 amount;
+    }
+    /// @dev Struct for depositing and withdrawing from the BAKC (Pair) pool
+    struct PairNftWithAmount {
+        uint256 mainTokenId;
+        uint256 bakcTokenId;
+        uint256 amount;
+    }
+    /// @dev Struct for claiming from an NFT pool
+    struct PairNft {
+        uint256 mainTokenId;
+        uint256 bakcTokenId;
+    }
+    /// @dev NFT paired status.  Can be used bi-directionally (BAYC/MAYC -> BAKC) or (BAKC -> BAYC/MAYC)
+    struct PairingStatus {
+        uint256 tokenId;
+        bool isPaired;
+    }
+
+    // @dev UI focused payload
+    struct DashboardStake {
+        uint256 poolId;
+        uint256 tokenId;
+        uint256 deposited;
+        uint256 unclaimed;
+        uint256 rewards24hr;
+        DashboardPair pair;
+    }
+    /// @dev Sub struct for DashboardStake
+    struct DashboardPair {
+        uint256 mainTokenId;
+        uint256 mainTypePoolId;
+    }
+    /// @dev Placeholder for pair status, used by ApeCoin Pool
+    DashboardPair private NULL_PAIR = DashboardPair(0, 0);
+
+    /// @notice Internal ApeCoin amount for distributing staking reward claims
+    IERC20 public immutable apeCoin;
+    uint256 private constant APE_COIN_PRECISION = 1e18;
+    uint256 private constant MIN_DEPOSIT = 1 * APE_COIN_PRECISION;
+    uint256 private constant SECONDS_PER_HOUR = 3600;
+    uint256 private constant SECONDS_PER_MINUTE = 60;
+
+    uint256 constant APECOIN_POOL_ID = 0;
+    uint256 constant BAYC_POOL_ID = 1;
+    uint256 constant MAYC_POOL_ID = 2;
+    uint256 constant BAKC_POOL_ID = 3;
+    Pool[4] public pools;
+
+    /// @dev NFT contract mapping per pool
+    mapping(uint256 => ERC721Enumerable) public nftContracts;
+    /// @dev poolId => tokenId => nft position
+    mapping(uint256 => mapping(uint256 => Position)) public nftPosition;
+    /// @dev main type pool ID: 1: BAYC 2: MAYC => main token ID => bakc token ID
+    mapping(uint256 => mapping(uint256 => PairingStatus)) public mainToBakc;
+    /// @dev bakc Token ID => main type pool ID: 1: BAYC 2: MAYC => main token ID
+    mapping(uint256 => mapping(uint256 => PairingStatus)) public bakcToMain;
+
+    /** Custom Events */
+    event UpdatePool(
+        uint256 indexed poolId,
+        uint256 lastRewardedBlock,
+        uint256 stakedAmount,
+        uint256 accumulatedRewardsPerShare
+    );
+    event Deposit(
+        address indexed user,
+        uint256 amount,
+        address recipient
+    );
+    event DepositNft(
+        address indexed user,
+        uint256 indexed poolId,
+        uint256 amount,
+        uint256 tokenId
+    );
+    event DepositPairNft(
+        address indexed user,
+        uint256 amount,
+        uint256 mainTypePoolId,
+        uint256 mainTokenId,
+        uint256 bakcTokenId
+    );
+    event Withdraw(
+        address indexed user,
+        uint256 amount,
+        address recipient
+    );
+    event WithdrawNft(
+        address indexed user,
+        uint256 indexed poolId,
+        uint256 amount,
+        address recipient,
+        uint256 tokenId
+    );
+    event WithdrawPairNft(
+        address indexed user,
+        uint256 amount,
+        uint256 mainTypePoolId,
+        uint256 mainTokenId,
+        uint256 bakcTokenId
+    );
+    event ClaimRewards(
+        address indexed user,
+        uint256 amount,
+        address recipient
+    );
+    event ClaimRewardsNft(
+        address indexed user,
+        uint256 indexed poolId,
+        uint256 amount,
+        uint256 tokenId
+    );
+    event ClaimRewardsPairNft(
+        address indexed user,
+        uint256 amount,
+        uint256 mainTypePoolId,
+        uint256 mainTokenId,
+        uint256 bakcTokenId
+    );
+
+    /**
+     * @notice Construct a new ApeCoinStaking instance
+     * @param _apeCoinContractAddress The ApeCoin ERC20 contract address
+     * @param _baycContractAddress The BAYC NFT contract address
+     * @param _maycContractAddress The MAYC NFT contract address
+     * @param _bakcContractAddress The BAKC NFT contract address
+     */
+    constructor(
+        address _apeCoinContractAddress,
+        address _baycContractAddress,
+        address _maycContractAddress,
+        address _bakcContractAddress
+    ) {
+        apeCoin = IERC20(_apeCoinContractAddress);
+        nftContracts[BAYC_POOL_ID] = ERC721Enumerable(_baycContractAddress);
+        nftContracts[MAYC_POOL_ID] = ERC721Enumerable(_maycContractAddress);
+        nftContracts[BAKC_POOL_ID] = ERC721Enumerable(_bakcContractAddress);
+    }
+
+    // Deposit/Commit Methods
+
+    /**
+     * @notice Deposit ApeCoin to the ApeCoin Pool
+     * @param _amount Amount in ApeCoin
+     * @param _recipient Address the deposit it stored to
+     * @dev ApeCoin deposit must be >= 1 ApeCoin
+     */
+    function depositApeCoin(uint256 _amount, address _recipient) public {
+        require(_amount >= MIN_DEPOSIT, "Can't deposit less than 1 $APE");
+        updatePool(APECOIN_POOL_ID);
+
+        Position storage position = addressPosition[_recipient];
+        _deposit(APECOIN_POOL_ID, position, _amount);
+
+        emit Deposit(msg.sender, _amount, _recipient);
+    }
+
+    /**
+     * @notice Deposit ApeCoin to the ApeCoin Pool
+     * @param _amount Amount in ApeCoin
+     * @dev Deposit on behalf of msg.sender. ApeCoin deposit must be >= 1 ApeCoin
+     */
+    function depositSelfApeCoin(uint256 _amount) external {
+        depositApeCoin(_amount, msg.sender);
+    }
+
+    /**
+     * @notice Deposit ApeCoin to the BAYC Pool
+     * @param _nfts Array of SingleNft structs
+     * @dev Commits 1 or more BAYC NFTs, each with an ApeCoin amount to the BAYC pool.\
+     * Each BAYC committed must attach an ApeCoin amount >= 1 ApeCoin and <= the BAYC pool cap amount.
+     */
+    function depositBAYC(SingleNft[] calldata _nfts) external {
+        _depositNft(BAYC_POOL_ID, _nfts);
+    }
+
+    /**
+     * @notice Deposit ApeCoin to the MAYC Pool
+     * @param _nfts Array of SingleNft structs
+     * @dev Commits 1 or more MAYC NFTs, each with an ApeCoin amount to the MAYC pool.\
+     * Each MAYC committed must attach an ApeCoin amount >= 1 ApeCoin and <= the MAYC pool cap amount.
+     */
+    function depositMAYC(SingleNft[] calldata _nfts) external {
+        _depositNft(MAYC_POOL_ID, _nfts);
+    }
+
+    /**
+     * @notice Deposit ApeCoin to the Pair Pool, where Pair = (BAYC + BAKC) or (MAYC + BAKC)
+     * @param _baycPairs Array of PairNftWithAmount structs
+     * @param _maycPairs Array of PairNftWithAmount structs
+     * @dev Commits 1 or more Pairs, each with an ApeCoin amount to the Pair pool.\
+     * Each BAKC committed must attach an ApeCoin amount >= 1 ApeCoin and <= the Pair pool cap amount.\
+     * Example 1: BAYC + BAKC + 1 ApeCoin:  [[0, 0, "1000000000000000000"],[]]\
+     * Example 2: MAYC + BAKC + 1 ApeCoin:  [[], [0, 0, "1000000000000000000"]]\
+     * Example 3: (BAYC + BAKC + 1 ApeCoin) and (MAYC + BAKC + 1 ApeCoin): [[0, 0, "1000000000000000000"], [0, 1, "1000000000000000000"]]
+     */
+    function depositBAKC(PairNftWithAmount[] calldata _baycPairs, PairNftWithAmount[] calldata _maycPairs) external {
+        updatePool(BAKC_POOL_ID);
+        _depositPairNft(BAYC_POOL_ID, _baycPairs);
+        _depositPairNft(MAYC_POOL_ID, _maycPairs);
+    }
+
+    // Claim Rewards Methods
+
+    /**
+     * @notice Claim rewards for msg.sender and send to recipient
+     * @param _recipient Address to send claim reward to
+     */
+    function claimApeCoin(address _recipient) public {
+        updatePool(APECOIN_POOL_ID);
+
+        Position storage position = addressPosition[msg.sender];
+        uint256 rewardsToBeClaimed = _claim(APECOIN_POOL_ID, position, _recipient);
+
+        emit ClaimRewards(msg.sender, rewardsToBeClaimed, _recipient);
+    }
+
+    /// @notice Claim and send rewards
+    function claimSelfApeCoin() external {
+        claimApeCoin(msg.sender);
+    }
+
+    /**
+     * @notice Claim rewards for array of BAYC NFTs and send to recipient
+     * @param _nfts Array of NFTs owned and committed by the msg.sender
+     * @param _recipient Address to send claim reward to
+     */
+    function claimBAYC(uint256[] calldata _nfts, address _recipient) external {
+        _claimNft(BAYC_POOL_ID, _nfts, _recipient);
+    }
+
+    /**
+     * @notice Claim rewards for array of BAYC NFTs
+     * @param _nfts Array of NFTs owned and committed by the msg.sender
+     */
+    function claimSelfBAYC(uint256[] calldata _nfts) external {
+        _claimNft(BAYC_POOL_ID, _nfts, msg.sender);
+    }
+
+    /**
+     * @notice Claim rewards for array of MAYC NFTs and send to recipient
+     * @param _nfts Array of NFTs owned and committed by the msg.sender
+     * @param _recipient Address to send claim reward to
+     */
+    function claimMAYC(uint256[] calldata _nfts, address _recipient) external {
+        _claimNft(MAYC_POOL_ID, _nfts, _recipient);
+    }
+
+    /**
+     * @notice Claim rewards for array of MAYC NFTs
+     * @param _nfts Array of NFTs owned and committed by the msg.sender
+     */
+    function claimSelfMAYC(uint256[] calldata _nfts) external {
+        _claimNft(MAYC_POOL_ID, _nfts, msg.sender);
+    }
+
+    /**
+     * @notice Claim rewards for array of Paired NFTs and send to recipient
+     * @param _baycPairs Array of Paired BAYC NFTs owned and committed by the msg.sender
+     * @param _maycPairs Array of Paired MAYC NFTs owned and committed by the msg.sender
+     * @param _recipient Address to send claim reward to
+     */
+    function claimBAKC(PairNft[] calldata _baycPairs, PairNft[] calldata _maycPairs, address _recipient) public {
+        updatePool(BAKC_POOL_ID);
+        _claimPairNft(BAYC_POOL_ID, _baycPairs, _recipient);
+        _claimPairNft(MAYC_POOL_ID, _maycPairs, _recipient);
+    }
+
+    /**
+     * @notice Claim rewards for array of Paired NFTs
+     * @param _baycPairs Array of Paired BAYC NFTs owned and committed by the msg.sender
+     * @param _maycPairs Array of Paired MAYC NFTs owned and committed by the msg.sender
+     */
+    function claimSelfBAKC(PairNft[] calldata _baycPairs, PairNft[] calldata _maycPairs) external {
+        claimBAKC(_baycPairs, _maycPairs, msg.sender);
+    }
+
+    // Uncommit/Withdraw Methods
+
+    /**
+     * @notice Withdraw staked ApeCoin from the ApeCoin pool.  Performs an automatic claim as part of the withdraw process.
+     * @param _amount Amount of ApeCoin
+     * @param _recipient Address to send withdraw amount and claim to
+     */
+    function withdrawApeCoin(uint256 _amount, address _recipient) public {
+        updatePool(APECOIN_POOL_ID);
+
+        Position storage position = addressPosition[msg.sender];
+        if (_amount == position.stakedAmount) {
+            uint256 rewardsToBeClaimed = _claim(APECOIN_POOL_ID, position, _recipient);
+            emit ClaimRewards(msg.sender, rewardsToBeClaimed, _recipient);
+        }
+        _withdraw(APECOIN_POOL_ID, position, _amount, _recipient);
+        emit Withdraw(msg.sender, _amount, _recipient);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the ApeCoin pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _amount Amount of ApeCoin
+     */
+    function withdrawSelfApeCoin(uint256 _amount) external {
+        withdrawApeCoin(_amount, msg.sender);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the BAYC pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _nfts Array of BAYC NFT's with staked amounts
+     * @param _recipient Address to send withdraw amount and claim to
+     */
+    function withdrawBAYC(SingleNft[] calldata _nfts, address _recipient) external {
+        _withdrawNft(BAYC_POOL_ID, _nfts, _recipient);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the BAYC pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _nfts Array of BAYC NFT's with staked amounts
+     */
+    function withdrawSelfBAYC(SingleNft[] calldata _nfts) external {
+        _withdrawNft(BAYC_POOL_ID, _nfts, msg.sender);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the MAYC pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _nfts Array of MAYC NFT's with staked amounts
+     * @param _recipient Address to send withdraw amount and claim to
+     */
+    function withdrawMAYC(SingleNft[] calldata _nfts, address _recipient) external {
+        _withdrawNft(MAYC_POOL_ID, _nfts, _recipient);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the MAYC pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _nfts Array of MAYC NFT's with staked amounts
+     */
+    function withdrawSelfMAYC(SingleNft[] calldata _nfts) external {
+        _withdrawNft(MAYC_POOL_ID, _nfts, msg.sender);
+    }
+
+    /**
+     * @notice Withdraw staked ApeCoin from the Pair pool.  If withdraw is total staked amount, performs an automatic claim.
+     * @param _baycPairs Array of Paired BAYC NFT's with staked amounts
+     * @param _maycPairs Array of Paired MAYC NFT's with staked amounts
+     * @dev if pairs have split ownership and BAKC is attempting a withdraw, the withdraw must be for the total staked amount
+     */
+    function withdrawBAKC(PairNftWithAmount[] calldata _baycPairs, PairNftWithAmount[] calldata _maycPairs) external {
+        updatePool(BAKC_POOL_ID);
+        _withdrawPairNft(BAYC_POOL_ID, _baycPairs);
+        _withdrawPairNft(MAYC_POOL_ID, _maycPairs);
+    }
+
+    // Time Range Methods
+
+    /**
+     * @notice Add single time range with a given rewards per hour for a given pool
+     * @dev In practice one Time Range will represent one quarter (defined by `_startTimestamp`and `_endTimeStamp` as whole hours)
+     * where the rewards per hour is constant for a given pool.
+     * @param _poolId Available pool values 0-3
+     * @param _amount Total amount of ApeCoin to be distributed over the range
+     * @param _startTimestamp Whole hour timestamp representation
+     * @param _endTimeStamp Whole hour timestamp representation
+     * @param _capPerPosition Per position cap amount determined by poolId
+     */
+    function addTimeRange(
+        uint256 _poolId,
+        uint256 _amount,
+        uint256 _startTimestamp,
+        uint256 _endTimeStamp,
+        uint256 _capPerPosition) external onlyOwner
+    {
+        require (_poolId < 4, "Invalid poolId");
+        require (_startTimestamp < _endTimeStamp, "_startTimestamp should be less than _endTimeStamp");
+        require(getMinute(_startTimestamp) == 0 && getSecond(_startTimestamp) == 0, "_startTimestamp is not a whole hour");
+        require(getMinute(_endTimeStamp) == 0 && getSecond(_endTimeStamp) == 0, "_endTimeStamp is not a whole hour");
+
+        Pool storage pool = pools[_poolId];
+        require(pool.timeRanges.length == 0 || _startTimestamp == pool.timeRanges[pool.timeRanges.length-1].endTimestampHour
+            ,"_startTimestamp should be equal to the last endTimestampHour");
+
+        uint256 hoursInSeconds = _endTimeStamp - _startTimestamp;
+        uint256 rewardsPerHour = _amount * SECONDS_PER_HOUR / hoursInSeconds;
+
+        TimeRange memory next = TimeRange(_startTimestamp, _endTimeStamp, rewardsPerHour, _capPerPosition);
+        pool.timeRanges.push(next);
+    }
+
+    /**
+     * @notice Removes the last Time Range for a given pool.
+     * @param _poolId Available pool values 0-3
+     */
+    function removeLastTimeRange(uint256 _poolId) external onlyOwner {
+        Pool storage pool = pools[_poolId];
+        pool.timeRanges.pop();
+    }
+
+    /**
+     * @return A Pool's timeRanges TimeRange struct by index.
+     * @param _poolId Available pool values 0-3
+     * @param _index Target index in a Pool's timeRanges array
+     */
+    function getTimeRangeBy(uint256 _poolId, uint256 _index) public view returns (TimeRange memory) {
+        Pool memory pool = pools[_poolId];
+        return pool.timeRanges[_index];
+    }
+
+    // Pool Methods
+
+    /**
+     * @return The amount of ApeCoin rewards to be distributed by pool for a given time range
+     * @param _poolId Available pool values 0-3
+     * @param _from Whole hour timestamp representation
+     * @param _to Whole hour timestamp representation
+     */
+    function rewardsBy(uint256 _poolId, uint256 _from, uint256 _to) public view returns (uint256, uint256) {
+        Pool memory pool = pools[_poolId];
+        if(_to < pool.timeRanges[0].startTimestampHour) return (0, pool.lastRewardsRangeIndex);
+
+        uint256 currentIndex = pool.lastRewardsRangeIndex;
+        while(_from > pool.timeRanges[currentIndex].endTimestampHour && _to > pool.timeRanges[currentIndex].endTimestampHour) {
+            ++currentIndex;
+        }
+
+        uint256 rewards;
+        for(uint256 i = currentIndex; i < pool.timeRanges.length; ++i) {
+            TimeRange memory current = pool.timeRanges[i];
+
+            uint256 startTimestampHour = _from <= current.startTimestampHour ? current.startTimestampHour : _from;
+            uint256 endTimestampHour = _to <= current.endTimestampHour ? _to : current.endTimestampHour;
+            rewards = rewards + (endTimestampHour - startTimestampHour) * current.rewardsPerHour / SECONDS_PER_HOUR;
+
+            if(_to <= endTimestampHour) {
+                return (rewards, i);
+            }
+        }
+
+        return (rewards, pool.timeRanges.length - 1);
+    }
+
+    /**
+     * @dev Updates reward variables `lastRewardedTimestampHour`, `accumulatedRewardsPerShare` and `lastRewardsRangeIndex`
+     * for a given pool.
+     * @param _poolId Available pool values 0-3
+     */
+    function updatePool(uint256 _poolId) public {
+        Pool storage pool = pools[_poolId];
+
+        if (block.timestamp < pool.timeRanges[0].startTimestampHour) return;
+        if (block.timestamp <= pool.lastRewardedTimestampHour + SECONDS_PER_HOUR) return;
+
+        uint256 lastTimestampHour = pool.timeRanges[pool.timeRanges.length-1].endTimestampHour;
+        uint256 previousTimestampHour = getPreviousTimestampHour(block.timestamp);
+
+        if (pool.stakedAmount == 0) {
+            pool.lastRewardedTimestampHour = previousTimestampHour > lastTimestampHour ? lastTimestampHour : previousTimestampHour;
+            return;
+        }
+
+        (uint256 rewards, uint256 index) = rewardsBy(_poolId, pool.lastRewardedTimestampHour, previousTimestampHour);
+        if (pool.lastRewardsRangeIndex != index) {
+            pool.lastRewardsRangeIndex = index;
+        }
+        pool.accumulatedRewardsPerShare = pool.accumulatedRewardsPerShare + (rewards * APE_COIN_PRECISION) / pool.stakedAmount;
+        pool.lastRewardedTimestampHour = previousTimestampHour > lastTimestampHour ? lastTimestampHour : previousTimestampHour;
+
+        emit UpdatePool(_poolId, pool.lastRewardedTimestampHour, pool.stakedAmount, pool.accumulatedRewardsPerShare);
+    }
+
+    // Read Methods
+
+    /**
+     * @return The current timeRange index for a pool.
+     * @param pool A Pool struct
+     */
+    function getCurrentTimeRangeIndex(Pool memory pool) private view returns (uint256) {
+        uint256 current = pool.lastRewardsRangeIndex;
+
+        if (block.timestamp < pool.timeRanges[current].startTimestampHour) return current;
+        for(current = pool.lastRewardsRangeIndex; current < pool.timeRanges.length; ++current) {
+            TimeRange memory currentTimeRange = pool.timeRanges[current];
+            if (currentTimeRange.startTimestampHour <= block.timestamp && block.timestamp <= currentTimeRange.endTimestampHour) return current;
+        }
+        revert("distribution ended");
+    }
+
+    /**
+     * @return Relevant values for all the Pools for UI purposes.
+     */
+    function getPoolsUI() public view returns (PoolUI memory, PoolUI memory, PoolUI memory, PoolUI memory) {
+        Pool memory apeCoinPool = pools[0];
+        Pool memory baycPool = pools[1];
+        Pool memory maycPool = pools[2];
+        Pool memory bakcPool = pools[3];
+        uint256 current = getCurrentTimeRangeIndex(apeCoinPool);
+        return (PoolUI(0,apeCoinPool.stakedAmount, apeCoinPool.timeRanges[current]),
+                PoolUI(1,baycPool.stakedAmount, baycPool.timeRanges[current]),
+                PoolUI(2,maycPool.stakedAmount, maycPool.timeRanges[current]),
+                PoolUI(3,bakcPool.stakedAmount, bakcPool.timeRanges[current]));
+    }
+
+    /**
+     * @return staked amount for addressPosition [APECOIN] and nftPositions [BAYC, MAYC, and Pair(BAKC)] for voting.
+     */
+    function stakedTotal(address _addr) external view returns (uint256) {
+        uint256 total = addressPosition[_addr].stakedAmount;
+
+        total += _stakedTotal(BAYC_POOL_ID, _addr);
+        total += _stakedTotal(MAYC_POOL_ID, _addr);
+        total += _stakedTotalPair(_addr);
+
+        return total;
+    }
+
+    function _stakedTotal(uint256 _poolId, address _addr) private view returns (uint256) {
+        uint256 total = 0;
+        uint256 nftCount = nftContracts[_poolId].balanceOf(_addr);
+        for(uint256 i = 0; i < nftCount; ++i) {
+            uint256 tokenId = nftContracts[_poolId].tokenOfOwnerByIndex(_addr, i);
+            total += nftPosition[_poolId][tokenId].stakedAmount;
+        }
+
+        return total;
+    }
+
+    function _stakedTotalPair(address _addr) private view returns (uint256) {
+        uint256 total = 0;
+
+        uint256 nftCount = nftContracts[BAYC_POOL_ID].balanceOf(_addr);
+        for(uint256 i = 0; i < nftCount; ++i) {
+            uint256 baycTokenId = nftContracts[BAYC_POOL_ID].tokenOfOwnerByIndex(_addr, i);
+            if (mainToBakc[BAYC_POOL_ID][baycTokenId].isPaired) {
+                uint256 bakcTokenId = mainToBakc[BAYC_POOL_ID][baycTokenId].tokenId;
+                total += nftPosition[BAKC_POOL_ID][bakcTokenId].stakedAmount;
+            }
+        }
+
+        nftCount = nftContracts[MAYC_POOL_ID].balanceOf(_addr);
+        for(uint256 i = 0; i < nftCount; ++i) {
+            uint256 maycTokenId = nftContracts[MAYC_POOL_ID].tokenOfOwnerByIndex(_addr, i);
+            if (mainToBakc[MAYC_POOL_ID][maycTokenId].isPaired) {
+                uint256 bakcTokenId = mainToBakc[MAYC_POOL_ID][maycTokenId].tokenId;
+                total += nftPosition[BAKC_POOL_ID][bakcTokenId].stakedAmount;
+            }
+        }
+
+        return total;
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition [APECOIN, BAYC, MAYC, BAKC].
+     */
+    function getAllStakes(address _address) public view returns (DashboardStake[] memory) {
+
+        DashboardStake memory apeCoinStake = getApeCoinStake(_address);
+        DashboardStake[] memory baycStakes = getBaycStakes(_address);
+        DashboardStake[] memory maycStakes = getMaycStakes(_address);
+        DashboardStake[] memory bakcStakes = getBakcStakes(_address);
+        DashboardStake[] memory splitStakes = getSplitStakes(_address);
+
+        uint256 count = (baycStakes.length + maycStakes.length + bakcStakes.length + splitStakes.length + 1);
+        DashboardStake[] memory allStakes = new DashboardStake[](count);
+
+        uint256 offset = 0;
+        allStakes[offset] = apeCoinStake;
+        ++offset;
+
+        for(uint256 i = 0; i < baycStakes.length; ++i) {
+            allStakes[offset] = baycStakes[i];
+            ++offset;
+        }
+
+        for(uint256 i = 0; i < maycStakes.length; ++i) {
+            allStakes[offset] = maycStakes[i];
+            ++offset;
+        }
+
+        for(uint256 i = 0; i < bakcStakes.length; ++i) {
+            allStakes[offset] = bakcStakes[i];
+            ++offset;
+        }
+
+        for(uint256 i = 0; i < splitStakes.length; ++i) {
+            allStakes[offset] = splitStakes[i];
+            ++offset;
+        }
+
+        return allStakes;
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition [APECOIN].
+     */
+    function getApeCoinStake(address _address) public view returns (DashboardStake memory) {
+        uint256 tokenId = 0;
+        uint256 deposited = addressPosition[_address].stakedAmount;
+        uint256 unclaimed = deposited > 0 ? this.pendingRewards(0, _address, tokenId) : 0;
+        uint256 rewards24Hrs = deposited > 0 ? _estimate24HourRewards(0, _address, 0) : 0;
+
+        return DashboardStake(APECOIN_POOL_ID, tokenId, deposited, unclaimed, rewards24Hrs, NULL_PAIR);
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition [BAYC].
+     */
+    function getBaycStakes(address _address) public view returns (DashboardStake[] memory) {
+        return _getStakes(_address, BAYC_POOL_ID);
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition [MAYC].
+     */
+    function getMaycStakes(address _address) public view returns (DashboardStake[] memory) {
+        return _getStakes(_address, MAYC_POOL_ID);
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition [BAKC].
+     */
+    function getBakcStakes(address _address) public view returns (DashboardStake[] memory) {
+        return _getStakes(_address, BAKC_POOL_ID);
+    }
+
+    /**
+     * @return staked amount, pending rewards, and estimated rewards over the last 24 hours
+     *      for addressPosition when BAKC Pool Pair is split.
+     *      ie (BAYC/MAYC) and BAKC in pair pool have different owners.
+     */
+    function getSplitStakes(address _address) public view returns (DashboardStake[] memory) {
+        uint256 baycSplits = _getSplitStakeCount(nftContracts[BAYC_POOL_ID].balanceOf(_address), _address, BAYC_POOL_ID);
+        uint256 maycSplits = _getSplitStakeCount(nftContracts[MAYC_POOL_ID].balanceOf(_address), _address, MAYC_POOL_ID);
+        uint256 totalSplits = baycSplits + maycSplits;
+
+        if(totalSplits == 0) {
+            return new DashboardStake[](0);
+        }
+
+        DashboardStake[] memory baycSplitStakes = _getSplitStakes(baycSplits, _address, BAYC_POOL_ID);
+        DashboardStake[] memory maycSplitStakes = _getSplitStakes(maycSplits, _address, MAYC_POOL_ID);
+
+        DashboardStake[] memory splitStakes = new DashboardStake[](totalSplits);
+        uint256 offset = 0;
+        for(uint256 i = 0; i < baycSplitStakes.length; ++i) {
+            splitStakes[offset] = baycSplitStakes[i];
+            ++offset;
+        }
+
+        for(uint256 i = 0; i < maycSplitStakes.length; ++i) {
+            splitStakes[offset] = maycSplitStakes[i];
+            ++offset;
+        }
+
+        return splitStakes;
+    }
+
+    function _getSplitStakes(uint256 splits, address _address, uint256 _mainPoolId) private view returns (DashboardStake[] memory) {
+
+        DashboardStake[] memory dashboardStakes = new DashboardStake[](splits);
+        uint256 counter;
+
+        for(uint256 i = 0; i < nftContracts[_mainPoolId].balanceOf(_address); ++i) {
+            uint256 mainTokenId = nftContracts[_mainPoolId].tokenOfOwnerByIndex(_address, i);
+            if(mainToBakc[_mainPoolId][mainTokenId].isPaired) {
+                uint256 bakcTokenId = mainToBakc[_mainPoolId][mainTokenId].tokenId;
+                address currentOwner = nftContracts[BAKC_POOL_ID].ownerOf(bakcTokenId);
+
+                /* Split Pair Check*/
+                if (currentOwner != _address) {
+                    uint256 deposited = nftPosition[BAKC_POOL_ID][bakcTokenId].stakedAmount;
+                    uint256 unclaimed = deposited > 0 ? this.pendingRewards(BAKC_POOL_ID, currentOwner, bakcTokenId) : 0;
+                    uint256 rewards24Hrs = deposited > 0 ? _estimate24HourRewards(BAKC_POOL_ID, currentOwner, bakcTokenId): 0;
+
+                    DashboardPair memory pair = NULL_PAIR;
+                    if(bakcToMain[bakcTokenId][_mainPoolId].isPaired) {
+                        pair = DashboardPair(bakcToMain[bakcTokenId][_mainPoolId].tokenId, _mainPoolId);
+                    }
+
+                    DashboardStake memory dashboardStake = DashboardStake(BAKC_POOL_ID, bakcTokenId, deposited, unclaimed, rewards24Hrs, pair);
+                    dashboardStakes[counter] = dashboardStake;
+                    ++counter;
+                }
+            }
+        }
+
+        return dashboardStakes;
+    }
+
+    function _getSplitStakeCount(uint256 nftCount, address _address, uint256 _mainPoolId) private view returns (uint256) {
+        uint256 splitCount;
+        for(uint256 i = 0; i < nftCount; ++i) {
+            uint256 mainTokenId = nftContracts[_mainPoolId].tokenOfOwnerByIndex(_address, i);
+            if(mainToBakc[_mainPoolId][mainTokenId].isPaired) {
+                uint256 bakcTokenId = mainToBakc[_mainPoolId][mainTokenId].tokenId;
+                address currentOwner = nftContracts[BAKC_POOL_ID].ownerOf(bakcTokenId);
+                if (currentOwner != _address) {
+                    ++splitCount;
+                }
+            }
+        }
+
+        return splitCount;
+    }
+
+    function _getStakes(address _address, uint256 _poolId) private view returns (DashboardStake[] memory) {
+        uint256 nftCount = nftContracts[_poolId].balanceOf(_address);
+        DashboardStake[] memory dashboardStakes = nftCount > 0 ? new DashboardStake[](nftCount) : new DashboardStake[](0);
+
+        if(nftCount == 0) {
+            return dashboardStakes;
+        }
+
+        for(uint256 i = 0; i < nftCount; ++i) {
+            uint256 tokenId = nftContracts[_poolId].tokenOfOwnerByIndex(_address, i);
+            uint256 deposited = nftPosition[_poolId][tokenId].stakedAmount;
+            uint256 unclaimed = deposited > 0 ? this.pendingRewards(_poolId, _address, tokenId) : 0;
+            uint256 rewards24Hrs = deposited > 0 ? _estimate24HourRewards(_poolId, _address, tokenId): 0;
+
+            DashboardPair memory pair = NULL_PAIR;
+            if(_poolId == BAKC_POOL_ID) {
+                if(bakcToMain[tokenId][BAYC_POOL_ID].isPaired) {
+                    pair = DashboardPair(bakcToMain[tokenId][BAYC_POOL_ID].tokenId, BAYC_POOL_ID);
+                } else if(bakcToMain[tokenId][MAYC_POOL_ID].isPaired) {
+                    pair = DashboardPair(bakcToMain[tokenId][MAYC_POOL_ID].tokenId, MAYC_POOL_ID);
+                }
+            }
+
+            DashboardStake memory dashboardStake = DashboardStake(_poolId, tokenId, deposited, unclaimed, rewards24Hrs, pair);
+            dashboardStakes[i] = dashboardStake;
+        }
+
+        return dashboardStakes;
+    }
+
+    function _estimate24HourRewards(uint256 _poolId, address _address, uint256 _tokenId) private view returns (uint256) {
+        Pool memory pool = pools[_poolId];
+        Position memory position = _poolId == 0 ? addressPosition[_address]: nftPosition[_poolId][_tokenId];
+
+        TimeRange memory rewards = getTimeRangeBy(_poolId, pool.lastRewardsRangeIndex);
+        return (position.stakedAmount * rewards.rewardsPerHour * 24) / pool.stakedAmount;
+    }
+
+    /**
+     * @return current amount of claimable $APE rewards for a given position from a given pool.
+     * @param _poolId Available pool values 0-3
+     * @param _address Address to lookup Position for
+     * @param _tokenId An NFT id
+     */
+    function pendingRewards(uint256 _poolId, address _address, uint256 _tokenId) external view returns (uint256) {
+        Pool memory pool = pools[_poolId];
+        Position memory position = _poolId == 0 ? addressPosition[_address]: nftPosition[_poolId][_tokenId];
+
+        (uint256 rewardsSinceLastCalculated,) = rewardsBy(_poolId, pool.lastRewardedTimestampHour, getPreviousTimestampHour(block.timestamp));
+        uint256 accumulatedRewardsPerShare = pool.accumulatedRewardsPerShare;
+
+        if (block.timestamp > pool.lastRewardedTimestampHour + SECONDS_PER_HOUR && pool.stakedAmount != 0) {
+            accumulatedRewardsPerShare = accumulatedRewardsPerShare + rewardsSinceLastCalculated * APE_COIN_PRECISION / pool.stakedAmount;
+        }
+        return ((position.stakedAmount * accumulatedRewardsPerShare).toInt256() - position.rewardsDebt).toUint256() / APE_COIN_PRECISION;
+    }
+
+    // Convenience methods for timestamp calculation
+
+    /// @dev the minutes (0 to 59) of a timestamp
+    function getMinute(uint256 timestamp) internal pure returns (uint256 minute) {
+        uint256 secs = timestamp % SECONDS_PER_HOUR;
+        minute = secs / SECONDS_PER_MINUTE;
+    }
+
+    /// @dev the seconds (0 to 59) of a timestamp
+    function getSecond(uint256 timestamp) internal pure returns (uint256 second) {
+        second = timestamp % SECONDS_PER_MINUTE;
+    }
+
+    /// @dev the previous whole hour of a timestamp
+    function getPreviousTimestampHour(uint256 timestamp) internal pure returns (uint256) {
+        return timestamp - (getMinute(timestamp) * 60 + getSecond(timestamp));
+    }
+
+    // Private Methods - shared logic
+    function _deposit(uint256 _poolId, Position storage _position, uint256 _amount) private {
+        Pool storage pool = pools[_poolId];
+
+        _position.stakedAmount += _amount;
+        pool.stakedAmount += _amount;
+        _position.rewardsDebt += (_amount * pool.accumulatedRewardsPerShare).toInt256();
+
+        apeCoin.safeTransferFrom(msg.sender, address(this), _amount);
+    }
+
+    function _depositNft(uint256 _poolId, SingleNft[] calldata _nfts) private {
+        updatePool(_poolId);
+        for(uint256 i; i < _nfts.length; ++i) {
+            uint256 tokenId = _nfts[i].tokenId;
+            uint256 amount = _nfts[i].amount;
+            Position storage position = nftPosition[_poolId][tokenId];
+            require(position.stakedAmount > 0 || nftContracts[_poolId].ownerOf(tokenId) == msg.sender, "Token not owned by caller");
+            _depositNftGuard(_poolId, position, amount);
+            emit DepositNft(msg.sender, _poolId, amount, tokenId);
+        }
+    }
+
+    function _depositPairNft(uint256 mainTypePoolId, PairNftWithAmount[] calldata _nfts) private {
+        for(uint256 i; i < _nfts.length; ++i) {
+            uint256 mainTokenId = _nfts[i].mainTokenId;
+            uint256 bakcTokenId = _nfts[i].bakcTokenId;
+            uint256 amount = _nfts[i].amount;
+            Position storage position = nftPosition[BAKC_POOL_ID][bakcTokenId];
+
+            if(position.stakedAmount == 0) {
+                require(nftContracts[mainTypePoolId].ownerOf(mainTokenId) == msg.sender && !mainToBakc[mainTypePoolId][mainTokenId].isPaired
+                , "Main Token not owned by caller or already paired");
+                require(nftContracts[BAKC_POOL_ID].ownerOf(bakcTokenId) == msg.sender && !bakcToMain[bakcTokenId][mainTypePoolId].isPaired
+                ,"BAKC Token not owned by caller or already paired");
+                mainToBakc[mainTypePoolId][mainTokenId] = PairingStatus(bakcTokenId, true);
+                bakcToMain[bakcTokenId][mainTypePoolId] = PairingStatus(mainTokenId, true);
+            } else {
+                require(mainTokenId == bakcToMain[bakcTokenId][mainTypePoolId].tokenId
+                    && bakcTokenId == mainToBakc[mainTypePoolId][mainTokenId].tokenId, "BAKC Token already paired");
+            }
+
+            _depositNftGuard(BAKC_POOL_ID, position, amount);
+            emit DepositPairNft(msg.sender, amount, mainTypePoolId, mainTokenId, bakcTokenId);
+        }
+    }
+
+    function _depositNftGuard(uint256 _poolId, Position storage _position, uint256 _amount) private {
+        require(_amount >= MIN_DEPOSIT, "Can't deposit less than 1 $APE");
+        require(_amount + _position.stakedAmount
+            <= pools[_poolId].timeRanges[pools[_poolId].lastRewardsRangeIndex].capPerPosition, "Can't stake more than cap amount");
+
+        _deposit(_poolId, _position, _amount);
+    }
+
+    function _claim(uint256 _poolId, Position storage _position, address _recipient) private returns (uint256) {
+        Pool storage pool = pools[_poolId];
+
+        int256 accumulatedApeCoins = (_position.stakedAmount * pool.accumulatedRewardsPerShare).toInt256();
+        uint256 rewardsToBeClaimed = (accumulatedApeCoins - _position.rewardsDebt).toUint256() / APE_COIN_PRECISION;
+
+        _position.rewardsDebt = accumulatedApeCoins;
+
+        if (rewardsToBeClaimed != 0) {
+            apeCoin.safeTransfer(_recipient, rewardsToBeClaimed);
+        }
+        return rewardsToBeClaimed;
+    }
+
+    function _claimNft(uint256 _poolId, uint256[] calldata _nfts, address _recipient) private {
+        updatePool(_poolId);
+        for(uint256 i; i < _nfts.length; ++i) {
+            uint256 tokenId = _nfts[i];
+            Position storage position = nftPosition[_poolId][tokenId];
+            require(nftContracts[_poolId].ownerOf(tokenId) == msg.sender, "Token not owned by caller");
+            uint256 rewardsToBeClaimed = _claim(_poolId, position, _recipient);
+            emit ClaimRewardsNft(msg.sender, _poolId, rewardsToBeClaimed, tokenId);
+        }
+    }
+
+    function _claimPairNft(uint256 mainTypePoolId, PairNft[] calldata _pairs, address _recipient) private {
+        for(uint256 i; i < _pairs.length; ++i) {
+            uint256 mainTokenId = _pairs[i].mainTokenId;
+            uint256 bakcTokenId = _pairs[i].bakcTokenId;
+
+            Position storage position = nftPosition[BAKC_POOL_ID][bakcTokenId];
+            PairingStatus memory mainToSecond = mainToBakc[mainTypePoolId][mainTokenId];
+            PairingStatus memory secondToMain = bakcToMain[bakcTokenId][mainTypePoolId];
+
+            require(nftContracts[mainTypePoolId].ownerOf(mainTokenId) == msg.sender, "Main Token not owned by caller");
+            require(nftContracts[BAKC_POOL_ID].ownerOf(bakcTokenId) == msg.sender, "BAKC Token not owned by caller");
+            require(mainToSecond.tokenId == bakcTokenId && mainToSecond.isPaired
+                && secondToMain.tokenId == mainTokenId && secondToMain.isPaired, "The provided Token IDs are not paired");
+
+            uint256 rewardsToBeClaimed = _claim(BAKC_POOL_ID, position, _recipient);
+            emit ClaimRewardsPairNft(msg.sender, rewardsToBeClaimed, mainTypePoolId, mainTokenId, bakcTokenId);
+        }
+    }
+
+    function _withdraw(uint256 _poolId, Position storage _position, uint256 _amount, address _recipient) private {
+        require(_amount <= _position.stakedAmount, "Can't withdraw more than staked amount");
+
+        Pool storage pool = pools[_poolId];
+
+        _position.stakedAmount -= _amount;
+        pool.stakedAmount -= _amount;
+        _position.rewardsDebt -= (_amount * pool.accumulatedRewardsPerShare).toInt256();
+
+        apeCoin.safeTransfer(_recipient, _amount);
+    }
+
+    function _withdrawNft(uint256 _poolId, SingleNft[] calldata _nfts, address _recipient) private {
+        updatePool(_poolId);
+        for(uint256 i; i < _nfts.length; ++i) {
+            uint256 tokenId = _nfts[i].tokenId;
+            uint256 amount = _nfts[i].amount;
+            require(nftContracts[_poolId].ownerOf(tokenId) == msg.sender, "Token not owned by caller");
+
+            Position storage position = nftPosition[_poolId][tokenId];
+            if (amount == position.stakedAmount) {
+                uint256 rewardsToBeClaimed = _claim(_poolId, position, _recipient);
+                emit ClaimRewardsNft(msg.sender, _poolId, rewardsToBeClaimed, tokenId);
+            }
+            _withdraw(_poolId, position, amount, _recipient);
+            emit WithdrawNft(msg.sender, _poolId, amount, _recipient, tokenId);
+        }
+    }
+
+    function _withdrawPairNft(uint256 mainTypePoolId, PairNftWithAmount[] calldata _nfts) private {
+        for(uint256 i; i < _nfts.length; ++i) {
+            uint256 mainTokenId = _nfts[i].mainTokenId;
+            uint256 bakcTokenId = _nfts[i].bakcTokenId;
+            uint256 amount = _nfts[i].amount;
+            address mainTokenOwner = nftContracts[mainTypePoolId].ownerOf(mainTokenId);
+            address bakcOwner = nftContracts[BAKC_POOL_ID].ownerOf(bakcTokenId);
+            PairingStatus memory mainToSecond = mainToBakc[mainTypePoolId][mainTokenId];
+            PairingStatus memory secondToMain = bakcToMain[bakcTokenId][mainTypePoolId];
+
+            require(mainTokenOwner == msg.sender || bakcOwner == msg.sender, "At least one token in pair must be owned by caller");
+            require(mainToSecond.tokenId == bakcTokenId && mainToSecond.isPaired
+                && secondToMain.tokenId == mainTokenId && secondToMain.isPaired, "The provided Token IDs are not paired");
+
+            Position storage position = nftPosition[BAKC_POOL_ID][bakcTokenId];
+            require(mainTokenOwner == bakcOwner || amount == position.stakedAmount, "Split pair can't partially withdraw");
+
+            if (amount == position.stakedAmount) {
+                uint256 rewardsToBeClaimed = _claim(BAKC_POOL_ID, position, bakcOwner);
+                mainToBakc[mainTypePoolId][mainTokenId] = PairingStatus(0, false);
+                bakcToMain[bakcTokenId][mainTypePoolId] = PairingStatus(0, false);
+                emit ClaimRewardsPairNft(msg.sender, rewardsToBeClaimed, mainTypePoolId, mainTokenId, bakcTokenId);
+            }
+            _withdraw(BAKC_POOL_ID, position, amount, mainTokenOwner);
+            emit WithdrawPairNft(msg.sender, amount, mainTypePoolId, mainTokenId, bakcTokenId);
+        }
+    }
+
+}
+// ===== END SOURCE FILE: contracts/dependencies/yoga-labs/ApeCoinStaking.sol =====
+// ===== BEGIN SOURCE FILE: contracts/deployments/ReservesSetupHelper.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {PoolConfigurator} from "../protocol/pool/PoolConfigurator.sol";
+import {Ownable} from "../dependencies/openzeppelin/contracts/Ownable.sol";
+
+/**
+ * @title ReservesSetupHelper
+ *
+ * @notice Deployment helper to setup the assets risk parameters at PoolConfigurator in batch.
+ * @dev The ReservesSetupHelper is an Ownable contract, so only the deployer or future owners can call this contract.
+ */
+contract ReservesSetupHelper is Ownable {
+    struct ConfigureReserveInput {
+        address asset;
+        uint256 baseLTV;
+        uint256 liquidationProtocolFeePercentage;
+        uint256 liquidationThreshold;
+        uint256 liquidationBonus;
+        uint256 reserveFactor;
+        uint256 borrowCap;
+        uint256 supplyCap;
+        bool borrowingEnabled;
+    }
+
+    /**
+     * @notice External function called by the owner account to setup the assets risk parameters in batch.
+     * @dev The Pool or Risk admin must transfer the ownership to ReservesSetupHelper before calling this function
+     * @param configurator The address of PoolConfigurator contract
+     * @param inputParams An array of ConfigureReserveInput struct that contains the assets and their risk parameters
+     */
+    function configureReserves(
+        PoolConfigurator configurator,
+        ConfigureReserveInput[] calldata inputParams
+    ) external onlyOwner {
+        for (uint256 i = 0; i < inputParams.length; i++) {
+            configurator.configureReserveAsCollateral(
+                inputParams[i].asset,
+                inputParams[i].baseLTV,
+                inputParams[i].liquidationThreshold,
+                inputParams[i].liquidationBonus
+            );
+            if (inputParams[i].liquidationProtocolFeePercentage != 0) {
+                configurator.setLiquidationProtocolFee(
+inputParams[i].asset,
+                    inputParams[i].liquidationProtocolFeePercentage);
+            }
+            if (inputParams[i].borrowingEnabled) {
+                configurator.setReserveBorrowing(inputParams[i].asset, true);
+
+                configurator.setBorrowCap(
+                    inputParams[i].asset,
+                    inputParams[i].borrowCap
+                );
+            }
+            configurator.setSupplyCap(
+                inputParams[i].asset,
+                inputParams[i].supplyCap
+            );
+            configurator.setReserveFactor(
+                inputParams[i].asset,
+                inputParams[i].reserveFactor
+            );
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/deployments/ReservesSetupHelper.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IACLManager.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+
+/**
+ * @title IACLManager
+ *
+ * @notice Defines the basic interface for the ACL Manager
+ **/
+interface IACLManager {
+    /**
+     * @notice Returns the contract address of the PoolAddressesProvider
+     * @return The address of the PoolAddressesProvider
+     */
+    function ADDRESSES_PROVIDER()
+        external
+        view
+        returns (IPoolAddressesProvider);
+
+    /**
+     * @notice Returns the identifier of the PoolAdmin role
+     * @return The id of the PoolAdmin role
+     */
+    function POOL_ADMIN_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Returns the identifier of the EmergencyAdmin role
+     * @return The id of the EmergencyAdmin role
+     */
+    function EMERGENCY_ADMIN_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Returns the identifier of the RiskAdmin role
+     * @return The id of the RiskAdmin role
+     */
+    function RISK_ADMIN_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Returns the identifier of the FlashBorrower role
+     * @return The id of the FlashBorrower role
+     */
+    function FLASH_BORROWER_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Returns the identifier of the Bridge role
+     * @return The id of the Bridge role
+     */
+    function BRIDGE_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Returns the identifier of the AssetListingAdmin role
+     * @return The id of the AssetListingAdmin role
+     */
+    function ASSET_LISTING_ADMIN_ROLE() external view returns (bytes32);
+
+    /**
+     * @notice Set the role as admin of a specific role.
+     * @dev By default the admin role for all roles is `DEFAULT_ADMIN_ROLE`.
+     * @param role The role to be managed by the admin role
+     * @param adminRole The admin role
+     */
+    function setRoleAdmin(bytes32 role, bytes32 adminRole) external;
+
+    /**
+     * @notice Adds a new admin as PoolAdmin
+     * @param admin The address of the new admin
+     */
+    function addPoolAdmin(address admin) external;
+
+    /**
+     * @notice Removes an admin as PoolAdmin
+     * @param admin The address of the admin to remove
+     */
+    function removePoolAdmin(address admin) external;
+
+    /**
+     * @notice Returns true if the address is PoolAdmin, false otherwise
+     * @param admin The address to check
+     * @return True if the given address is PoolAdmin, false otherwise
+     */
+    function isPoolAdmin(address admin) external view returns (bool);
+
+    /**
+     * @notice Adds a new admin as EmergencyAdmin
+     * @param admin The address of the new admin
+     */
+    function addEmergencyAdmin(address admin) external;
+
+    /**
+     * @notice Removes an admin as EmergencyAdmin
+     * @param admin The address of the admin to remove
+     */
+    function removeEmergencyAdmin(address admin) external;
+
+    /**
+     * @notice Returns true if the address is EmergencyAdmin, false otherwise
+     * @param admin The address to check
+     * @return True if the given address is EmergencyAdmin, false otherwise
+     */
+    function isEmergencyAdmin(address admin) external view returns (bool);
+
+    /**
+     * @notice Adds a new admin as RiskAdmin
+     * @param admin The address of the new admin
+     */
+    function addRiskAdmin(address admin) external;
+
+    /**
+     * @notice Removes an admin as RiskAdmin
+     * @param admin The address of the admin to remove
+     */
+    function removeRiskAdmin(address admin) external;
+
+    /**
+     * @notice Returns true if the address is RiskAdmin, false otherwise
+     * @param admin The address to check
+     * @return True if the given address is RiskAdmin, false otherwise
+     */
+    function isRiskAdmin(address admin) external view returns (bool);
+
+    /**
+     * @notice Adds a new address as FlashBorrower
+     * @param borrower The address of the new FlashBorrower
+     */
+    function addFlashBorrower(address borrower) external;
+
+    /**
+     * @notice Removes an admin as FlashBorrower
+     * @param borrower The address of the FlashBorrower to remove
+     */
+    function removeFlashBorrower(address borrower) external;
+
+    /**
+     * @notice Returns true if the address is FlashBorrower, false otherwise
+     * @param borrower The address to check
+     * @return True if the given address is FlashBorrower, false otherwise
+     */
+    function isFlashBorrower(address borrower) external view returns (bool);
+
+    /**
+     * @notice Adds a new address as Bridge
+     * @param bridge The address of the new Bridge
+     */
+    function addBridge(address bridge) external;
+
+    /**
+     * @notice Removes an address as Bridge
+     * @param bridge The address of the bridge to remove
+     */
+    function removeBridge(address bridge) external;
+
+    /**
+     * @notice Returns true if the address is Bridge, false otherwise
+     * @param bridge The address to check
+     * @return True if the given address is Bridge, false otherwise
+     */
+    function isBridge(address bridge) external view returns (bool);
+
+    /**
+     * @notice Adds a new admin as AssetListingAdmin
+     * @param admin The address of the new admin
+     */
+    function addAssetListingAdmin(address admin) external;
+
+    /**
+     * @notice Removes an admin as AssetListingAdmin
+     * @param admin The address of the admin to remove
+     */
+    function removeAssetListingAdmin(address admin) external;
+
+    /**
+     * @notice Returns true if the address is AssetListingAdmin, false otherwise
+     * @param admin The address to check
+     * @return True if the given address is AssetListingAdmin, false otherwise
+     */
+    function isAssetListingAdmin(address admin) external view returns (bool);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IACLManager.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IAToken.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+import {IPool} from "./IPool.sol";
+
+/************
+@title IAToken interface
+@notice Interface for rebasing AToken support.*/
+
+interface IAToken {
+    function POOL() external view returns (IPool pool);
+
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IAToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IAtomicPriceAggregator.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+/************
+@title IAtomicPriceAggregator interface
+@notice Interface for individual NFT token price oracle.*/
+
+interface IAtomicPriceAggregator {
+    // get price of a specific tokenId
+    function getTokenPrice(uint256 tokenId) external view returns (uint256);
+
+    // get list of prices for list of tokenIds
+    function getTokensPrices(uint256[] calldata _okenIds)
+        external
+        view
+        returns (uint256[] memory);
+
+    // get the sum of prices for list of tokenIds
+    function getTokensPricesSum(uint256[] calldata tokenIds)
+        external
+        view
+        returns (uint256);
+
+    function latestAnswer() external view returns (int256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IAtomicPriceAggregator.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IAuctionableERC721.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title IAuctionableERC721
+ * @author Parallel
+ * @notice Defines the basic interface for an AuctionableERC721.
+ **/
+interface IAuctionableERC721 {
+    /**
+     * @dev get the auction configuration of a specific token
+     */
+    function isAuctioned(uint256 tokenId) external view returns (bool);
+
+    /**
+     *
+     * @dev start auction
+     */
+    function startAuction(uint256 tokenId) external;
+
+    /**
+     *
+     * @dev end auction
+     */
+    function endAuction(uint256 tokenId) external;
+
+    /**
+     *
+     * @dev get auction data
+     */
+    function getAuctionData(uint256 tokenId)
+        external
+        view
+        returns (DataTypes.Auction memory);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IAuctionableERC721.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/ICollateralizableERC721.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title ICollateralizableERC721
+ * @author Parallel
+ * @notice Defines the basic interface for an CollateralizableERC721.
+ **/
+interface ICollateralizableERC721 {
+    /**
+     * @dev get the collateralized balance of a specific user
+     */
+    function collateralizedBalanceOf(address user)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @dev get the the collateral configuration of a specific token
+     */
+    function isUsedAsCollateral(uint256 tokenId) external view returns (bool);
+
+    /**
+     * @dev changes the collateral state/config of a token
+     * @return if the state has changed
+     */
+    function setIsUsedAsCollateral(
+        uint256 tokenId,
+        bool useAsCollateral,
+        address sender
+    ) external returns (bool);
+
+    /**
+     * @dev the ids of the token want to change the collateral state
+     * @return uint256 (user's old collateralized balance), uint256 (user's new collateralized balance)
+     */
+    function batchSetIsUsedAsCollateral(
+        uint256[] calldata tokenIds,
+        bool useAsCollateral,
+        address sender
+    ) external returns (uint256, uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/ICollateralizableERC721.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/ICreditDelegationToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title ICreditDelegationToken
+ *
+ * @notice Defines the basic interface for a token supporting credit delegation.
+ **/
+interface ICreditDelegationToken {
+    /**
+     * @dev Emitted on `approveDelegation` and `borrowAllowance
+     * @param fromUser The address of the delegator
+     * @param toUser The address of the delegatee
+     * @param asset The address of the delegated asset
+     * @param amount The amount being delegated
+     */
+    event BorrowAllowanceDelegated(
+        address indexed fromUser,
+        address indexed toUser,
+        address indexed asset,
+        uint256 amount
+    );
+
+    /**
+     * @notice Delegates borrowing power to a user on the specific debt token.
+     * Delegation will still respect the liquidation constraints (even if delegated, a
+     * delegatee cannot force a delegator HF to go below 1)
+     * @param delegatee The address receiving the delegated borrowing power
+     * @param amount The maximum amount being delegated.
+     **/
+    function approveDelegation(address delegatee, uint256 amount) external;
+
+    /**
+     * @notice Returns the borrow allowance of the user
+     * @param fromUser The user to giving allowance
+     * @param toUser The user to give allowance to
+     * @return The current allowance of `toUser`
+     **/
+    function borrowAllowance(address fromUser, address toUser)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Delegates borrowing power to a user on the specific debt token via ERC712 signature
+     * @param delegator The delegator of the credit
+     * @param delegatee The delegatee that can use the credit
+     * @param value The amount to be delegated
+     * @param deadline The deadline timestamp, type(uint256).max for max deadline
+     * @param v The V signature param
+     * @param s The S signature param
+     * @param r The R signature param
+     */
+    function delegationWithSig(
+        address delegator,
+        address delegatee,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/ICreditDelegationToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IDelegationToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IDelegationToken
+ *
+ * @notice Implements an interface for tokens with delegation COMP/UNI compatible
+ **/
+interface IDelegationToken {
+    /**
+     * @notice Delegate voting power to a delegatee
+     * @param delegatee The address of the delegatee
+     */
+    function delegate(address delegatee) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IDelegationToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IEACAggregatorProxy.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+interface IEACAggregatorProxy {
+    function decimals() external view returns (uint8);
+
+    function latestAnswer() external view returns (int256);
+
+    function latestTimestamp() external view returns (uint256);
+
+    function latestRound() external view returns (uint256);
+
+    function getAnswer(uint256 roundId) external view returns (int256);
+
+    function getTimestamp(uint256 roundId) external view returns (uint256);
+
+    event AnswerUpdated(
+        int256 indexed current,
+        uint256 indexed roundId,
+        uint256 timestamp
+    );
+    event NewRound(uint256 indexed roundId, address indexed startedBy);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IEACAggregatorProxy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IERC20WithPermit.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IERC20} from "../dependencies/openzeppelin/contracts/IERC20.sol";
+
+/**
+ * @title IERC20WithPermit
+ *
+ * @notice Interface for the permit function (EIP-2612)
+ **/
+interface IERC20WithPermit is IERC20 {
+    /**
+     * @notice Allow passing a signed message to approve spending
+     * @dev implements the permit function as for
+     * https://github.com/ethereum/EIPs/blob/8a34d644aacf0f9f8f00815307fd7dd5da07655f/EIPS/eip-2612.md
+     * @param owner The owner of the funds
+     * @param spender The spender
+     * @param value The amount
+     * @param deadline The deadline timestamp, type(uint256).max for max deadline
+     * @param v Signature param
+     * @param s Signature param
+     * @param r Signature param
+     */
+    function permit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IERC20WithPermit.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IInitializableDebtToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IRewardController} from "./IRewardController.sol";
+import {IPool} from "./IPool.sol";
+
+/**
+ * @title IInitializableDebtToken
+ *
+ * @notice Interface for the initialize function common between debt tokens
+ **/
+interface IInitializableDebtToken {
+    /**
+     * @dev Emitted when a debt token is initialized
+     * @param underlyingAsset The address of the underlying asset
+     * @param pool The address of the associated pool
+     * @param incentivesController The address of the incentives controller for this xToken
+     * @param debtTokenDecimals The decimals of the debt token
+     * @param debtTokenName The name of the debt token
+     * @param debtTokenSymbol The symbol of the debt token
+     * @param params A set of encoded parameters for additional initialization
+     **/
+    event Initialized(
+        address indexed underlyingAsset,
+        address indexed pool,
+        address incentivesController,
+        uint8 debtTokenDecimals,
+        string debtTokenName,
+        string debtTokenSymbol,
+        bytes params
+    );
+
+    /**
+     * @notice Initializes the debt token.
+     * @param pool The pool contract that is initializing this contract
+     * @param underlyingAsset The address of the underlying asset of this xToken (E.g. WETH for pWETH)
+     * @param incentivesController The smart contract managing potential incentives distribution
+     * @param debtTokenDecimals The decimals of the debtToken, same as the underlying asset's
+     * @param debtTokenName The name of the token
+     * @param debtTokenSymbol The symbol of the token
+     * @param params A set of encoded parameters for additional initialization
+     */
+    function initialize(
+        IPool pool,
+        address underlyingAsset,
+        IRewardController incentivesController,
+        uint8 debtTokenDecimals,
+        string memory debtTokenName,
+        string memory debtTokenSymbol,
+        bytes calldata params
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IInitializableDebtToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IInitializableNToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IRewardController} from "./IRewardController.sol";
+import {IPool} from "./IPool.sol";
+
+/**
+ * @title IInitializablenToken
+ *
+ * @notice Interface for the initialize function on NToken
+ **/
+interface IInitializableNToken {
+    /**
+     * @dev Emitted when an nToken is initialized
+     * @param underlyingAsset The address of the underlying asset
+     * @param pool The address of the associated pool
+     * @param incentivesController The address of the incentives controller for this nToken
+     * @param nTokenName The name of the nToken
+     * @param nTokenSymbol The symbol of the nToken
+     * @param params A set of encoded parameters for additional initialization
+     **/
+    event Initialized(
+        address indexed underlyingAsset,
+        address indexed pool,
+        address incentivesController,
+        string nTokenName,
+        string nTokenSymbol,
+        bytes params
+    );
+
+    /**
+     * @notice Initializes the nToken
+     * @param pool The pool contract that is initializing this contract
+     * @param underlyingAsset The address of the underlying asset of this nToken (E.g. WETH for pWETH)
+     * @param incentivesController The smart contract managing potential incentives distribution
+     * @param nTokenName The name of the nToken
+     * @param nTokenSymbol The symbol of the nToken
+     * @param params A set of encoded parameters for additional initialization
+     */
+    function initialize(
+        IPool pool,
+        address underlyingAsset,
+        IRewardController incentivesController,
+        string calldata nTokenName,
+        string calldata nTokenSymbol,
+        bytes calldata params
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IInitializableNToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IInitializablePToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IRewardController} from "./IRewardController.sol";
+import {IPool} from "./IPool.sol";
+
+/**
+ * @title IInitializablePToken
+ *
+ * @notice Interface for the initialize function on PToken
+ **/
+interface IInitializablePToken {
+    /**
+     * @dev Emitted when an pToken is initialized
+     * @param underlyingAsset The address of the underlying asset
+     * @param pool The address of the associated pool
+     * @param treasury The address of the treasury
+     * @param incentivesController The address of the incentives controller for this pToken
+     * @param pTokenDecimals The decimals of the underlying
+     * @param pTokenName The name of the pToken
+     * @param pTokenSymbol The symbol of the pToken
+     * @param params A set of encoded parameters for additional initialization
+     **/
+    event Initialized(
+        address indexed underlyingAsset,
+        address indexed pool,
+        address treasury,
+        address incentivesController,
+        uint8 pTokenDecimals,
+        string pTokenName,
+        string pTokenSymbol,
+        bytes params
+    );
+
+    /**
+     * @notice Initializes the pToken
+     * @param pool The pool contract that is initializing this contract
+     * @param treasury The address of the ParaSpace treasury, receiving the fees on this pToken
+     * @param underlyingAsset The address of the underlying asset of this pToken (E.g. WETH for pWETH)
+     * @param incentivesController The smart contract managing potential incentives distribution
+     * @param pTokenDecimals The decimals of the pToken, same as the underlying asset's
+     * @param pTokenName The name of the pToken
+     * @param pTokenSymbol The symbol of the pToken
+     * @param params A set of encoded parameters for additional initialization
+     */
+    function initialize(
+        IPool pool,
+        address treasury,
+        address underlyingAsset,
+        IRewardController incentivesController,
+        uint8 pTokenDecimals,
+        string calldata pTokenName,
+        string calldata pTokenSymbol,
+        bytes calldata params
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IInitializablePToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/ILido.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface ILido {
+    function getPooledEthByShares(uint256 _sharesAmount)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/ILido.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IMarketplace.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {Errors} from "../protocol/libraries/helpers/Errors.sol";
+import {OrderTypes} from "../dependencies/looksrare/contracts/libraries/OrderTypes.sol";
+import {SeaportInterface} from "../dependencies/seaport/contracts/interfaces/SeaportInterface.sol";
+import {ILooksRareExchange} from "../dependencies/looksrare/contracts/interfaces/ILooksRareExchange.sol";
+import {SignatureChecker} from "../dependencies/looksrare/contracts/libraries/SignatureChecker.sol";
+import {ConsiderationItem} from "../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {AdvancedOrder, CriteriaResolver, Fulfillment, OfferItem, ItemType} from "../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {Address} from "../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC1271} from "../dependencies/openzeppelin/contracts/IERC1271.sol";
+
+interface IMarketplace {
+    function getAskOrderInfo(bytes memory data, address WETH)
+        external
+        view
+        returns (DataTypes.OrderInfo memory orderInfo);
+
+    function getBidOrderInfo(bytes memory data)
+        external
+        view
+        returns (DataTypes.OrderInfo memory orderInfo);
+
+    function matchAskWithTakerBid(
+        address marketplace,
+        bytes calldata data,
+        uint256 value
+    ) external payable returns (bytes memory);
+
+    function matchBidWithTakerAsk(address marketplace, bytes calldata data)
+        external
+        returns (bytes memory);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IMarketplace.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/INToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IERC721} from "../dependencies/openzeppelin/contracts/IERC721.sol";
+import {IERC721Receiver} from "../dependencies/openzeppelin/contracts/IERC721Receiver.sol";
+import {IERC721Enumerable} from "../dependencies/openzeppelin/contracts/IERC721Enumerable.sol";
+import {IERC1155Receiver} from "../dependencies/openzeppelin/contracts/IERC1155Receiver.sol";
+
+import {IInitializableNToken} from "./IInitializableNToken.sol";
+import {IXTokenType} from "./IXTokenType.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title INToken
+ * @author ParallelFi
+ * @notice Defines the basic interface for an NToken.
+ **/
+interface INToken is
+    IERC721Enumerable,
+    IInitializableNToken,
+    IERC721Receiver,
+    IERC1155Receiver,
+    IXTokenType
+{
+    /**
+     * @dev Emitted during rescueERC20()
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amount The amount being rescued
+     **/
+    event RescueERC20(
+        address indexed token,
+        address indexed to,
+        uint256 amount
+    );
+
+    /**
+     * @dev Emitted during rescueERC721()
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param ids The ids of the tokens being rescued
+     **/
+    event RescueERC721(
+        address indexed token,
+        address indexed to,
+        uint256[] ids
+    );
+
+    /**
+     * @dev Emitted during RescueERC1155()
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param ids The ids of the tokens being rescued
+     * @param amounts The amount of NFTs being rescued for a specific id.
+     * @param data The data of the tokens that is being rescued. Usually this is 0.
+     **/
+    event RescueERC1155(
+        address indexed token,
+        address indexed to,
+        uint256[] ids,
+        uint256[] amounts,
+        bytes data
+    );
+
+    /**
+     * @dev Emitted during executeAirdrop()
+     * @param airdropContract The address of the airdrop contract
+     **/
+    event ExecuteAirdrop(address indexed airdropContract);
+
+    /**
+     * @notice Mints `amount` nTokens to `user`
+     * @param onBehalfOf The address of the user that will receive the minted nTokens
+     * @param tokenData The list of the tokens getting minted and their collateral configs
+     * @return old and new collateralized balance
+     */
+    function mint(
+        address onBehalfOf,
+        DataTypes.ERC721SupplyParams[] calldata tokenData
+    ) external returns (uint64, uint64);
+
+    /**
+     * @notice Burns nTokens from `user` and sends the equivalent amount of underlying to `receiverOfUnderlying`
+     * @dev In some instances, the mint event could be emitted from a burn transaction
+     * if the amount to burn is less than the interest that the user accrued
+     * @param from The address from which the nTokens will be burned
+     * @param receiverOfUnderlying The address that will receive the underlying
+     * @param tokenIds The ids of the tokens getting burned
+     * @return old and new collateralized balance
+     **/
+    function burn(
+        address from,
+        address receiverOfUnderlying,
+        uint256[] calldata tokenIds
+    ) external returns (uint64, uint64);
+
+    // TODO are we using the Treasury at all? Can we remove?
+    // /**
+    //  * @notice Mints nTokens to the reserve treasury
+    //  * @param tokenId The id of the token getting minted
+    //  * @param index The next liquidity index of the reserve
+    //  */
+    // function mintToTreasury(uint256 tokenId, uint256 index) external;
+
+    /**
+     * @notice Transfers nTokens in the event of a borrow being liquidated, in case the liquidators reclaims the nToken
+     * @param from The address getting liquidated, current owner of the nTokens
+     * @param to The recipient
+     * @param tokenId The id of the token getting transferred
+     **/
+    function transferOnLiquidation(
+        address from,
+        address to,
+        uint256 tokenId
+    ) external;
+
+    /**
+     * @notice Transfers the underlying asset to `target`.
+     * @dev Used by the Pool to transfer assets in borrow(), withdraw() and flashLoan()
+     * @param user The recipient of the underlying
+     * @param tokenId The id of the token getting transferred
+     **/
+    function transferUnderlyingTo(address user, uint256 tokenId) external;
+
+    /**
+     * @notice Handles the underlying received by the nToken after the transfer has been completed.
+     * @dev The default implementation is empty as with standard ERC721 tokens, nothing needs to be done after the
+     * transfer is concluded. However in the future there may be nTokens that allow for example to stake the underlying
+     * to receive LM rewards. In that case, `handleRepayment()` would perform the staking of the underlying asset.
+     * @param user The user executing the repayment
+     * @param tokenId The amount getting repaid
+     **/
+    function handleRepayment(address user, uint256 tokenId) external;
+
+    /**
+     * @notice Returns the address of the underlying asset of this nToken (E.g. WETH for pWETH)
+     * @return The address of the underlying asset
+     **/
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+
+    /**
+     * @notice Rescue ERC20 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amount The amount being rescued
+     **/
+    function rescueERC20(
+        address token,
+        address to,
+        uint256 amount
+    ) external;
+
+    /**
+     * @notice Rescue ERC721 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param ids The ids of the tokens being rescued
+     **/
+    function rescueERC721(
+        address token,
+        address to,
+        uint256[] calldata ids
+    ) external;
+
+    /**
+     * @notice Rescue ERC1155 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param ids The ids of the tokens being rescued
+     * @param amounts The amount of NFTs being rescued for a specific id.
+     * @param data The data of the tokens that is being rescued. Usually this is 0.
+     **/
+    function rescueERC1155(
+        address token,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external;
+
+    /**
+     * @notice Executes airdrop.
+     * @param airdropContract The address of the airdrop contract
+     * @param airdropParams Third party airdrop abi data. You need to get this from the third party airdrop.
+     **/
+    function executeAirdrop(
+        address airdropContract,
+        bytes calldata airdropParams
+    ) external;
+
+    function getAtomicPricingConfig() external view returns (bool);
+}
+// ===== END SOURCE FILE: contracts/interfaces/INToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/INTokenApeStaking.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import "../dependencies/yoga-labs/ApeCoinStaking.sol";
+import "./INToken.sol";
+
+interface INTokenApeStaking {
+    function getBAKC() external view returns (IERC721);
+
+    function getApeStaking() external view returns (ApeCoinStaking);
+
+    function depositApeCoin(ApeCoinStaking.SingleNft[] calldata _nfts) external;
+
+    function claimApeCoin(uint256[] calldata _nfts, address _recipient)
+        external;
+
+    function withdrawApeCoin(
+        ApeCoinStaking.SingleNft[] calldata _nfts,
+        address _recipient
+    ) external;
+
+    function depositBAKC(ApeCoinStaking.PairNftWithAmount[] calldata _nftPairs)
+        external;
+
+    function claimBAKC(
+        ApeCoinStaking.PairNft[] calldata _nftPairs,
+        address _recipient
+    ) external;
+
+    function withdrawBAKC(
+        ApeCoinStaking.PairNftWithAmount[] memory _nftPairs,
+        address _apeRecipient
+    ) external;
+
+    function unstakePositionAndRepay(uint256 tokenId, address unstaker)
+        external;
+
+    function getUserApeStakingAmount(address user)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/INTokenApeStaking.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/INTokenUniswapV3.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface INTokenUniswapV3 {
+    /**
+     * @notice Decreases liquidity for underlying Uniswap V3 NFT LP and validates
+     * that the user respects liquidation checks.
+     * @param user The user address decreasing liquidity for
+     * @param tokenId The id of the erc721 token
+     * @param liquidityDecrease The amount of liquidity to remove of LP
+     * @param amount0Min The minimum amount to remove of token0
+     * @param amount1Min The minimum amount to remove of token1
+     * @param receiveEthAsWeth If convert weth to ETH
+     */
+    function decreaseUniswapV3Liquidity(
+        address user,
+        uint256 tokenId,
+        uint128 liquidityDecrease,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        bool receiveEthAsWeth
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/INTokenUniswapV3.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IParaProxy.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity ^0.8.10;
+
+/******************************************************************************\
+* EIP-2535: https://eips.ethereum.org/EIPS/eip-2535
+/******************************************************************************/
+
+interface IParaProxy {
+    enum ProxyImplementationAction {
+        Add,
+        Replace,
+        Remove
+    }
+    // Add=0, Replace=1, Remove=2
+
+    struct ProxyImplementation {
+        address implAddress;
+        ProxyImplementationAction action;
+        bytes4[] functionSelectors;
+    }
+
+    /// @notice Add/replace/remove any number of functions and optionally execute
+    ///         a function with delegatecall
+    /// @param _implementationParams Contains the implementation addresses and function selectors
+    /// @param _init The address of the contract or implementation to execute _calldata
+    /// @param _calldata A function call, including function selector and arguments
+    ///                  _calldata is executed with delegatecall on _init
+    function updateImplementation(
+        ProxyImplementation[] calldata _implementationParams,
+        address _init,
+        bytes calldata _calldata
+    ) external;
+
+    event ImplementationUpdated(
+        ProxyImplementation[] _implementationParams,
+        address _init,
+        bytes _calldata
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/IParaProxy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IParaSpaceOracle.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPriceOracleGetter} from "./IPriceOracleGetter.sol";
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+
+/**
+ * @title IParaSpaceOracle
+ *
+ * @notice Defines the basic interface for the ParaSpace Oracle
+ */
+interface IParaSpaceOracle is IPriceOracleGetter {
+    /**
+     * @dev Emitted after the base currency is set
+     * @param baseCurrency The base currency of used for price quotes
+     * @param baseCurrencyUnit The unit of the base currency
+     */
+    event BaseCurrencySet(
+        address indexed baseCurrency,
+        uint256 baseCurrencyUnit
+    );
+
+    /**
+     * @dev Emitted after the price source of an asset is updated
+     * @param asset The address of the asset
+     * @param source The price source of the asset
+     */
+    event AssetSourceUpdated(address indexed asset, address indexed source);
+
+    /**
+     * @dev Emitted after the address of fallback oracle is updated
+     * @param fallbackOracle The address of the fallback oracle
+     */
+    event FallbackOracleUpdated(address indexed fallbackOracle);
+
+    /**
+     * @notice Returns the PoolAddressesProvider
+     * @return The address of the PoolAddressesProvider contract
+     */
+    function ADDRESSES_PROVIDER()
+        external
+        view
+        returns (IPoolAddressesProvider);
+
+    /**
+     * @notice Sets or replaces price sources of assets
+     * @param assets The addresses of the assets
+     * @param sources The addresses of the price sources
+     */
+    function setAssetSources(
+        address[] calldata assets,
+        address[] calldata sources
+    ) external;
+
+    /**
+     * @notice Sets the fallback oracle
+     * @param fallbackOracle The address of the fallback oracle
+     */
+    function setFallbackOracle(address fallbackOracle) external;
+
+    /**
+     * @notice Returns a list of prices from a list of assets addresses
+     * @param assets The list of assets addresses
+     * @return The prices of the given assets
+     */
+    function getAssetsPrices(address[] calldata assets)
+        external
+        view
+        returns (uint256[] memory);
+
+    /**
+     * @notice Returns the address of the source for an asset address
+     * @param asset The address of the asset
+     * @return The address of the source
+     */
+    function getSourceOfAsset(address asset) external view returns (address);
+
+    /**
+     * @notice Returns the address of the fallback oracle
+     * @return The address of the fallback oracle
+     */
+    function getFallbackOracle() external view returns (address);
+
+    /**
+     * @notice Returns a list of prices from a list of tokenIds
+     * @param asset the asset address
+     * @param tokenIds The list of token ids
+     * @return The prices of the given tokens
+     */
+    function getTokensPrices(address asset, uint256[] calldata tokenIds)
+        external
+        view
+        returns (uint256[] memory);
+
+    /**
+     * @notice Returns the sum of prices for list of tokenIds
+     * @param asset the asset address
+     * @param tokenIds The list of token ids
+     * @return The prices of the given tokens
+     */
+    function getTokensPricesSum(address asset, uint256[] calldata tokenIds)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IParaSpaceOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPool.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolCore} from "./IPoolCore.sol";
+import {IPoolMarketplace} from "./IPoolMarketplace.sol";
+import {IPoolParameters} from "./IPoolParameters.sol";
+import "./IPoolApeStaking.sol";
+
+/**
+ * @title IPool
+ *
+ * @notice Defines the basic interface for an ParaSpace Pool.
+ **/
+interface IPool is
+    IPoolCore,
+    IPoolMarketplace,
+    IPoolParameters,
+    IPoolApeStaking
+{
+
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPool.sol =====

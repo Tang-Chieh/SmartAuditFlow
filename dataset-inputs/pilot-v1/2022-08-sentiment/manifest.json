@@ -1,0 +1,395 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2022-08-sentiment",
+  "working_directory": "oracle",
+  "source_root_relative_to_repo": "oracle",
+  "expected_resolved_commit": "96a28ee75fbdcd8726be78813c13d3b39306505a",
+  "actual_git_head": "96a28ee75fbdcd8726be78813c13d3b39306505a",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 30,
+  "excluded_solidity_file_count": 0,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 22858,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 22858,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "src/aave/ATokenOracle.sol",
+          "sha256": "9ecf322ccaabb9e8a504ed74e8c19a4cf927de47601f4d44a7766a93c6fd7ce5",
+          "source_bytes_utf8": 1446,
+          "source_line_count": 40,
+          "imports": [
+            "./IAToken.sol",
+            "../core/IOracle.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 41
+        },
+        {
+          "file": "src/aave/IAToken.sol",
+          "sha256": "c2789ae6a29c3f43d55288830e5670284ce7dbb39bdf148efc97b1fe2dae6d01",
+          "source_bytes_utf8": 152,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 43,
+          "bundle_source_start_line": 44,
+          "bundle_source_end_line": 49
+        },
+        {
+          "file": "src/balancer/IPool.sol",
+          "sha256": "8f42c61400f951af1977fb155615831d4b420c236a0d4be3e4de31947cb021d2",
+          "source_bytes_utf8": 330,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 51,
+          "bundle_source_start_line": 52,
+          "bundle_source_end_line": 60
+        },
+        {
+          "file": "src/balancer/IVault.sol",
+          "sha256": "de784c69ba1e84963f95a9951fef1b3d2fdc3ae5fc1e0c5dc7eedf82c5133dd5",
+          "source_bytes_utf8": 183,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 62,
+          "bundle_source_start_line": 63,
+          "bundle_source_end_line": 68
+        },
+        {
+          "file": "src/balancer/library/BalancerErrors.sol",
+          "sha256": "921d44d736141582ca71ee098d94894cfa5f73428e5a3b726dfe96789bfc5591",
+          "source_bytes_utf8": 14771,
+          "source_line_count": 282,
+          "imports": [],
+          "bundle_marker_line": 70,
+          "bundle_source_start_line": 71,
+          "bundle_source_end_line": 352
+        },
+        {
+          "file": "src/balancer/library/FixedPoint.sol",
+          "sha256": "e2c21fbcc51762d6175e446e966ce7babd37eb87d258b7b05b233e7849c9bb4a",
+          "source_bytes_utf8": 6037,
+          "source_line_count": 163,
+          "imports": [
+            "./BalancerErrors.sol",
+            "./LogExpMath.sol"
+          ],
+          "bundle_marker_line": 354,
+          "bundle_source_start_line": 355,
+          "bundle_source_end_line": 517
+        },
+        {
+          "file": "src/balancer/library/LogExpMath.sol",
+          "sha256": "cf7c0f117feb3dd090cbc0ffd8d6d5df8a951ddd381836415dc200309edddf2e",
+          "source_bytes_utf8": 21256,
+          "source_line_count": 516,
+          "imports": [
+            "./BalancerErrors.sol"
+          ],
+          "bundle_marker_line": 519,
+          "bundle_source_start_line": 520,
+          "bundle_source_end_line": 1035
+        },
+        {
+          "file": "src/balancer/StableBalancerLPOracle.sol",
+          "sha256": "672fac8c99f561bd2de241fedcfd181f5541e8c733e453fae76b6800133abd83",
+          "source_bytes_utf8": 1925,
+          "source_line_count": 56,
+          "imports": [
+            "../core/IOracle.sol",
+            "../utils/IERC20.sol",
+            "solmate/utils/FixedPointMathLib.sol",
+            "./IVault.sol",
+            "./IPool.sol"
+          ],
+          "bundle_marker_line": 1037,
+          "bundle_source_start_line": 1038,
+          "bundle_source_end_line": 1093
+        },
+        {
+          "file": "src/balancer/WeightedBalancerLPOracle.sol",
+          "sha256": "cf1df5b4e5e38df6af906b9aa5958f7b57d6e2e0ad72b99ed773c58a3b681fda",
+          "source_bytes_utf8": 2299,
+          "source_line_count": 68,
+          "imports": [
+            "../core/IOracle.sol",
+            "../utils/IERC20.sol",
+            "./IVault.sol",
+            "./IPool.sol",
+            "./library/FixedPoint.sol"
+          ],
+          "bundle_marker_line": 1095,
+          "bundle_source_start_line": 1096,
+          "bundle_source_end_line": 1163
+        },
+        {
+          "file": "src/chainlink/AggregatorV3Interface.sol",
+          "sha256": "f295958a42df0ae5ad69886c35ef3d61fcfd1b9f22f6be0e192a1f637be1d7e7",
+          "source_bytes_utf8": 289,
+          "source_line_count": 15,
+          "imports": [],
+          "bundle_marker_line": 1165,
+          "bundle_source_start_line": 1166,
+          "bundle_source_end_line": 1180
+        },
+        {
+          "file": "src/chainlink/ArbiChainlinkOracle.sol",
+          "sha256": "b94f0edbb31850d1ba18b1b887d57c05add3453a39bf392071a8b762a0403cfd",
+          "source_bytes_utf8": 2655,
+          "source_line_count": 71,
+          "imports": [
+            "./ChainlinkOracle.sol",
+            "../utils/Errors.sol",
+            "./AggregatorV3Interface.sol"
+          ],
+          "bundle_marker_line": 1182,
+          "bundle_source_start_line": 1183,
+          "bundle_source_end_line": 1253
+        },
+        {
+          "file": "src/chainlink/ChainlinkOracle.sol",
+          "sha256": "b42fc547cf8034901df4d4504d81ab45e1d0d902efbea6697e385ce5d71d7790",
+          "source_bytes_utf8": 3375,
+          "source_line_count": 86,
+          "imports": [
+            "../core/IOracle.sol",
+            "../utils/Ownable.sol",
+            "../utils/Errors.sol",
+            "./AggregatorV3Interface.sol"
+          ],
+          "bundle_marker_line": 1255,
+          "bundle_source_start_line": 1256,
+          "bundle_source_end_line": 1341
+        },
+        {
+          "file": "src/compound/CTokenOracle.sol",
+          "sha256": "7c60009491012ad00205cdd0053e2c4f91628f173d2086142c0da3482d6f4115",
+          "source_bytes_utf8": 3373,
+          "source_line_count": 77,
+          "imports": [
+            "./ICToken.sol",
+            "../utils/IERC20.sol",
+            "../core/IOracle.sol",
+            "solmate/utils/FixedPointMathLib.sol"
+          ],
+          "bundle_marker_line": 1343,
+          "bundle_source_start_line": 1344,
+          "bundle_source_end_line": 1420
+        },
+        {
+          "file": "src/compound/ICToken.sol",
+          "sha256": "a630f9295e7be74ac3436281e869b05379acab47dc1569e4edac37984ef133fc",
+          "source_bytes_utf8": 202,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1422,
+          "bundle_source_start_line": 1423,
+          "bundle_source_end_line": 1429
+        },
+        {
+          "file": "src/core/IOracle.sol",
+          "sha256": "5a0ecd5ee1d1c9ec2cc9211f9045279bad19018455f73d2b4dfbb0c7d1622f8d",
+          "source_bytes_utf8": 316,
+          "source_line_count": 12,
+          "imports": [],
+          "bundle_marker_line": 1431,
+          "bundle_source_start_line": 1432,
+          "bundle_source_end_line": 1443
+        },
+        {
+          "file": "src/core/OracleFacade.sol",
+          "sha256": "9c123bcdf31aedee9e4b42b23c5cb172da21bf0fa4ab6dd3d1bf6393ac0f047c",
+          "source_bytes_utf8": 2325,
+          "source_line_count": 53,
+          "imports": [
+            "./IOracle.sol",
+            "../utils/Errors.sol",
+            "../utils/Ownable.sol"
+          ],
+          "bundle_marker_line": 1445,
+          "bundle_source_start_line": 1446,
+          "bundle_source_end_line": 1498
+        },
+        {
+          "file": "src/curve/CurveTriCryptoOracle.sol",
+          "sha256": "58386f3b3ec63974356d870df0dae89fc00f933cfc195197027c6089a9a76ddb",
+          "source_bytes_utf8": 1979,
+          "source_line_count": 54,
+          "imports": [
+            "../core/IOracle.sol"
+          ],
+          "bundle_marker_line": 1500,
+          "bundle_source_start_line": 1501,
+          "bundle_source_end_line": 1554
+        },
+        {
+          "file": "src/curve/Stable2CurveOracle.sol",
+          "sha256": "414d3b1f87542d4c84a5165adda5ea56b1f8558a04f6226a55bd01428ea1365a",
+          "source_bytes_utf8": 1880,
+          "source_line_count": 50,
+          "imports": [
+            "../core/IOracle.sol",
+            "solmate/utils/FixedPointMathLib.sol"
+          ],
+          "bundle_marker_line": 1556,
+          "bundle_source_start_line": 1557,
+          "bundle_source_end_line": 1606
+        },
+        {
+          "file": "src/erc4626/ERC4626Oracle.sol",
+          "sha256": "8b41caa11f3be64bcb3d99e54cddb17592e92ae19bd748a6283d09261f201a0f",
+          "source_bytes_utf8": 1621,
+          "source_line_count": 44,
+          "imports": [
+            "../core/IOracle.sol",
+            "./IERC4626.sol",
+            "solmate/utils/FixedPointMathLib.sol"
+          ],
+          "bundle_marker_line": 1608,
+          "bundle_source_start_line": 1609,
+          "bundle_source_end_line": 1652
+        },
+        {
+          "file": "src/erc4626/IERC4626.sol",
+          "sha256": "e93f8afa95dd95a76782a91be8c3d1cf59b45d532ca411e554ffba5449dff60e",
+          "source_bytes_utf8": 264,
+          "source_line_count": 9,
+          "imports": [
+            "../utils/IERC20.sol"
+          ],
+          "bundle_marker_line": 1654,
+          "bundle_source_start_line": 1655,
+          "bundle_source_end_line": 1663
+        },
+        {
+          "file": "src/uniswap/IUniswapV2Pair.sol",
+          "sha256": "fba2f5db1c439d0cca65a7c115aa57a7a709540c8e9b5063c900ca6056fbba07",
+          "source_bytes_utf8": 395,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 1665,
+          "bundle_source_start_line": 1666,
+          "bundle_source_end_line": 1681
+        },
+        {
+          "file": "src/uniswap/library/OracleLibrary.sol",
+          "sha256": "1cd31c30a656228cf07bb812559b07f12f22cf3ef1874bfc6807197b7fb6ac1b",
+          "source_bytes_utf8": 3693,
+          "source_line_count": 71,
+          "imports": [
+            "./TickMath.sol",
+            "v3-core/contracts/interfaces/IUniswapV3Pool.sol",
+            "solmate/utils/FixedPointMathLib.sol"
+          ],
+          "bundle_marker_line": 1683,
+          "bundle_source_start_line": 1684,
+          "bundle_source_end_line": 1754
+        },
+        {
+          "file": "src/uniswap/library/TickMath.sol",
+          "sha256": "b59bcc8f4c6f5267d8d9692b8ff9651b0196025110919269175733bb273f59ba",
+          "source_bytes_utf8": 8730,
+          "source_line_count": 206,
+          "imports": [],
+          "bundle_marker_line": 1756,
+          "bundle_source_start_line": 1757,
+          "bundle_source_end_line": 1962
+        },
+        {
+          "file": "src/uniswap/UniV2LPOracle.sol",
+          "sha256": "fe6fc7f0d674b9b5b0a8c036aa6954ba0d72809ef1e665b7d96dd6ec6b3b6032",
+          "source_bytes_utf8": 1996,
+          "source_line_count": 51,
+          "imports": [
+            "../core/IOracle.sol",
+            "./IUniswapV2Pair.sol",
+            "solmate/utils/FixedPointMathLib.sol"
+          ],
+          "bundle_marker_line": 1964,
+          "bundle_source_start_line": 1965,
+          "bundle_source_end_line": 2015
+        },
+        {
+          "file": "src/uniswap/UniV3TWAPOracle.sol",
+          "sha256": "ce8d5a4f3650ea864143104db141c2a58013f072df6a5d54be7d590654955680",
+          "source_bytes_utf8": 2871,
+          "source_line_count": 81,
+          "imports": [
+            "../utils/Errors.sol",
+            "../core/IOracle.sol",
+            "../utils/Ownable.sol",
+            "./library/OracleLibrary.sol",
+            "../utils/IERC20.sol"
+          ],
+          "bundle_marker_line": 2017,
+          "bundle_source_start_line": 2018,
+          "bundle_source_end_line": 2098
+        },
+        {
+          "file": "src/utils/Errors.sol",
+          "sha256": "184d740a607d1e7bfb186b0171992d59334d75c7930c805ea0b27d9414888e3e",
+          "source_bytes_utf8": 289,
+          "source_line_count": 11,
+          "imports": [],
+          "bundle_marker_line": 2100,
+          "bundle_source_start_line": 2101,
+          "bundle_source_end_line": 2111
+        },
+        {
+          "file": "src/utils/IERC20.sol",
+          "sha256": "d5f2d0f7164b07937715421cd705507e76beb802921f983e930f84a32362f9ca",
+          "source_bytes_utf8": 195,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 2113,
+          "bundle_source_start_line": 2114,
+          "bundle_source_end_line": 2120
+        },
+        {
+          "file": "src/utils/Ownable.sol",
+          "sha256": "df47c7e35c709b0152c8ccd021ea6e96758fcbc3f7af933938d4fa88d784809b",
+          "source_bytes_utf8": 702,
+          "source_line_count": 26,
+          "imports": [
+            "./Errors.sol"
+          ],
+          "bundle_marker_line": 2122,
+          "bundle_source_start_line": 2123,
+          "bundle_source_end_line": 2148
+        },
+        {
+          "file": "src/weth/WETHOracle.sol",
+          "sha256": "36d8bca70323257c9954888baf41f0948f583fa47f05469d73032940b87ff9c8",
+          "source_bytes_utf8": 628,
+          "source_line_count": 19,
+          "imports": [
+            "../core/IOracle.sol"
+          ],
+          "bundle_marker_line": 2150,
+          "bundle_source_start_line": 2151,
+          "bundle_source_end_line": 2169
+        },
+        {
+          "file": "src/yearn/YTokenOracle.sol",
+          "sha256": "501432620e0bcd85658762d471cac84f5b70aeb1daf7a7698cf77975d5f148ef",
+          "source_bytes_utf8": 1470,
+          "source_line_count": 44,
+          "imports": [
+            "../core/IOracle.sol"
+          ],
+          "bundle_marker_line": 2171,
+          "bundle_source_start_line": 2172,
+          "bundle_source_end_line": 2215
+        }
+      ]
+    }
+  ],
+  "excluded_files": [],
+  "source_repo_dir": "2022-08-sentiment"
+}

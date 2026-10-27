@@ -1,0 +1,958 @@
+// ===== BEGIN SOURCE FILE: contracts/fee-buyback/FeeBuyback.sol =====
+// SPDX-License-Identifier: Unlicensed
+pragma solidity ^0.8.0;
+
+//imports
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./TieredOwnership.sol";
+import "./IFeeBuyback.sol";
+import "./ISimplePlugin.sol";
+
+/**
+ * @title FeeBuyback
+ * @author Amir Shirif, Telcoin, LLC.
+ * @notice Helps facilitate a secondary swap, if required, to allow the referrer of a user to receive a fraction of the generated transaction fee, based on the stake of the referrer.
+ */
+contract FeeBuyback is IFeeBuyback, TieredOwnership {
+  //MATIC address
+  address constant public MATIC = 0x0000000000000000000000000000000000001010;
+  //1 inch aggregator address
+  address immutable public _aggregator;
+  //location of fee rewards
+  address immutable public _safe;
+  //reward token
+  IERC20 immutable public _telcoin;
+  //destination of rewards
+  ISimplePlugin immutable public _referral;
+
+  //constructor
+  constructor(address aggregator_, address safe_, IERC20 telcoin_, ISimplePlugin referral_) TieredOwnership() {
+    _aggregator = aggregator_;
+    _safe = safe_;
+    _telcoin = telcoin_;
+    _referral = referral_;
+  }
+
+  /**
+   * @notice submits wallet transactions
+   * @dev a secondary swap may occur
+   * @dev staking contract updates may be made
+   * @dev function can be paused
+   * @param wallet address of the primary transaction
+   * @param walletData bytes wallet data for primary transaction
+   * @param token address the token that is being swapped from in a secondary transaction
+   * @param amount uint256 the quantity of the token being swapped
+   * @param swapData bytes swap data from primary transaction
+   * @return boolean representing if a referral transaction was made
+   */
+  function submit(address wallet, bytes memory walletData, address token, address recipient, uint256 amount, bytes memory swapData) external override payable onlyOwner() returns (bool) {
+    //Perform user swap first
+    //Verify success
+    (bool walletResult,) = wallet.call{value: 0}(walletData);
+    require(walletResult, "FeeBuyback: wallet transaction failed");
+
+    //check if this is a referral transaction
+    //if not exit execution
+    if (token == address(0) || recipient == address(0) || amount == 0 ) {
+      return false;
+    }
+
+    //if swapped token is in TEL, no swap is necessary
+    //do simple transfer from and submit
+    if (token == address(_telcoin)) {
+      _telcoin.transferFrom(_safe, address(this), amount);
+      _telcoin.approve(address(_referral), _telcoin.balanceOf(address(this)));
+      require(_referral.increaseClaimableBy(recipient, _telcoin.balanceOf(address(this))), "FeeBuyback: balance was not adjusted");
+      return true;
+    }
+
+    //MATIC does not allow for approvals
+    //ERC20s only
+    if (token != MATIC) {
+      IERC20(token).transferFrom(_safe, address(this), amount);
+      IERC20(token).approve(_aggregator, amount);
+    }
+
+    //Perform secondary swap from fee token to TEL
+    //do simple transfer from and submit
+    (bool swapResult,) = _aggregator.call{value: msg.value}(swapData);
+    require(swapResult, "FeeBuyback: swap transaction failed");
+    _telcoin.approve(address(_referral), _telcoin.balanceOf(address(this)));
+    require(_referral.increaseClaimableBy(recipient, _telcoin.balanceOf(address(this))), "FeeBuyback: balance was not adjusted");
+    return true;
+  }
+
+  /**
+  * @notice Sends ERC20 tokens trapped in contract to external address
+  * @dev Only an owner is allowed to make this function call
+  * @param account is the receiving address
+  * @param externalToken is the token being sent
+  * @param amount is the quantity being sent
+  * @return boolean value indicating whether the operation succeeded.
+  *
+  * Emits a {Transfer} event.
+  */
+  function rescueERC20(address account, address externalToken, uint256 amount) public onlyExecutor() returns (bool) {
+    IERC20(externalToken).transfer(account, amount);
+    return true;
+  }
+}
+// ===== END SOURCE FILE: contracts/fee-buyback/FeeBuyback.sol =====
+// ===== BEGIN SOURCE FILE: contracts/fee-buyback/IFeeBuyback.sol =====
+// SPDX-License-Identifier: Unlicensed
+pragma solidity ^0.8.0;
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+/**
+ * @title IFeeBuyback
+ * @author Amir Shirif, Telcoin, LLC.
+ * @notice Helps facilitate a secondary swap, if required, to allow the referrer of a user to receive a fraction of the generated transaction fee, based on the stake of the referrer.
+ */
+interface IFeeBuyback {
+  function submit(address wallet, bytes memory walletData, address token, address recipient, uint256 amount, bytes memory swapData) external payable returns (bool);
+}
+// ===== END SOURCE FILE: contracts/fee-buyback/IFeeBuyback.sol =====
+// ===== BEGIN SOURCE FILE: contracts/fee-buyback/ISimplePlugin.sol =====
+// SPDX-License-Identifier: Unlicensed
+pragma solidity ^0.8.0;
+
+interface ISimplePlugin {
+    function increaseClaimableBy(address account, uint256 amount) external returns (bool);
+}
+// ===== END SOURCE FILE: contracts/fee-buyback/ISimplePlugin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/fee-buyback/TieredOwnership.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/utils/Context.sol";
+
+/**
+ * @dev Implements Openzeppelin Audited Contracts
+ * @dev Contract module a sole executor responsible for adding and removing owners
+ * @dev Contract module which provides a basic access control mechanism, where
+ * there is a variable number of accounts (owners) that can be granted exclusive access to
+ * specific functions.
+ *
+ * This module is used through inheritance. It will make available the modifier
+ * `onlyOwner`, which can be applied to your functions to restrict their use to
+ * the owners.
+ */
+abstract contract TieredOwnership is Context {
+    address private _executor;
+    address private _nominatedExecutor;
+    mapping (address => bool) private _owners;
+
+    event ExecutorNominated(address indexed newExecutor);
+    event ExecutorChanged(address indexed oldExecutor, address indexed newExecutor);
+    event OwnershipAdded(address indexed newOwner);
+    event OwnershipRemoved(address indexed oldOwner);
+
+    /**
+     * @dev Initializes the contract setting the deployer as the executor
+     *
+     * Emits a {ExecutorChanged} event.
+     */
+    constructor() {
+        _executor = _msgSender();
+        emit ExecutorChanged(address(0), _executor);
+    }
+
+    /**
+     * @dev Returns the address of the current executor.
+     */
+    function executor() public view virtual returns (address) {
+        return _executor;
+    }
+
+    /**
+     * @dev Throws if called by any account other than the executor.
+     */
+    modifier onlyExecutor() {
+        require(executor() == _msgSender(), "TieredOwnership: caller is not an executor");
+        _;
+    }
+
+    /**
+     * @dev Returns the address of the currently nominated executor.
+     */
+    function nominatedExecutor() public view virtual returns (address) {
+        return _nominatedExecutor;
+    }
+
+    /**
+     * @notice nominates address as new executor
+     * @param newExecutor address is the new address being given executorship
+     *
+     * Emits a {ExecutorNominated} event.
+     */
+    function nominateExecutor(address newExecutor) external onlyExecutor() {
+        _nominatedExecutor = newExecutor;
+        emit ExecutorNominated(_nominatedExecutor);
+    }
+
+    /**
+     * @notice promotes nominated executor to executor
+     *
+     * Emits a {ExecutorChanged} event.
+     */
+    function acceptExecutorship() external {
+        require(_msgSender() == nominatedExecutor(), "TieredOwnership: You must be nominated before you can accept executorship");
+        emit ExecutorChanged(executor(), nominatedExecutor());
+        _executor = nominatedExecutor();
+        _nominatedExecutor = address(0);
+    }
+
+    /**
+     * @dev Returns true if address is owner
+     * @param owner address of possible owner
+     */
+    function isOwner(address owner) public view virtual returns (bool) {
+        return _owners[owner];
+    }
+
+    /**
+     * @dev Throws if called by any account other than one of the owners.
+     */
+    modifier onlyOwner() {
+        require(isOwner(_msgSender()) == true, "TieredOwnership: caller is not an owner");
+        _;
+    }
+
+    /**
+    * @notice adds additional owner
+    * @param newOwner address is the new address being given ownership
+    *
+    * Emits a {OwnershipAdded} event.
+    */
+    function addOwner(address newOwner) public virtual onlyExecutor() {
+        _owners[newOwner] = true;
+        emit OwnershipAdded(newOwner);
+    }
+
+
+    /**
+     * @dev removes an owner.
+     * @param oldOwner address is the owner to be removed
+     */
+    function removeOwner(address oldOwner) public virtual onlyExecutor() {
+        _owners[oldOwner] = false;
+        emit OwnershipRemoved(oldOwner);
+    }
+}
+// ===== END SOURCE FILE: contracts/fee-buyback/TieredOwnership.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPlugin.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+interface IPlugin {
+    function claim(address account, address to, bytes calldata auxData) external returns (uint256);
+    function claimable(address account, bytes calldata auxData) external view returns (uint256);
+    function totalClaimable() external view returns (uint256);
+    function claimableAt(address account, uint256 blockNumber, bytes calldata auxData) external view returns (uint256);
+    function notifyStakeChange(address account, uint256 amountBefore, uint256 amountAfter) external;
+    function requiresNotification() external view returns (bool);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPlugin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/libraries/AuxDataLib.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "solidity-bytes-utils/contracts/BytesLib.sol";
+
+/** 
+ * @title Auxiliary Data Library
+ * @dev This library helps Plugins parse auxiliary data passed to them.
+ * 
+ * Currently, this library is not being used, but will likely be used in future Plugins
+ * 
+ * Since multiple Plugins may require auxiliary data for claiming yield, 
+ * we must have a way to pack this data into one `bytes` parameter that 
+ * can be parsed by the plugins.
+ * 
+ * This library helps Plugins parse auxiliary data.
+ * 
+ * auxData is encoded as (HeaderItem[], bytes) "header" and "payload"
+ * 
+ * Each HeaderItem has an address, start and length
+ * 
+ * If I am a plugin with address 0x01, I first find the HeaderItem that has 0x01 as the address.
+ * Then I get the start and len of that HeaderItem.
+ * The information that is relevant to me is payload[start: start+len]
+*/
+library AuxDataLib {
+    using BytesLib for bytes;
+
+    /// @dev The header of a data payload is an array of HeaderItem's
+    /// @dev The purpose of the HeaderItem(s) is to let a plugin know which part of the payload is meant for them.
+    struct HeaderItem {
+        address addr;
+        uint256 start;
+        uint256 len;
+    }
+
+    /// @dev Parse `data` into its HeaderItem's and its payload
+    function parse(bytes calldata data) internal pure returns (HeaderItem[] memory, bytes memory) {
+        return abi.decode(data, (HeaderItem[], bytes));
+    }
+
+    /// @dev Parse `data` and return the data that is relevant to `addr`
+    function selectRelevantBytes(bytes calldata data, address addr) internal pure returns (bytes memory) {
+        // if data is empty, do nothing and return empty bytes
+        if (data.length == 0) {
+            return "";
+        }
+
+        // parse the data into its header and payload
+        (HeaderItem[] memory header, bytes memory payload) = parse(data);
+
+        // iterate over HeaderItems until we find the one that matches addr
+        for (uint256 i = 0; i < header.length; i++) {
+            if (header[i].addr == addr) {
+                // once we have found the correct HeaderItem we slice the payload and return
+                return payload.slice(header[i].start, header[i].len);
+            }
+        }
+
+        // if we never found a HeaderItem corresponding to addr, we return empty bytes
+        return "";
+    }
+}
+// ===== END SOURCE FILE: contracts/libraries/AuxDataLib.sol =====
+// ===== BEGIN SOURCE FILE: contracts/SimplePlugin.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "./interfaces/IPlugin.sol";
+import "./StakingModule.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Checkpoints.sol";
+
+/// @title Simple Plugin
+/// @notice This contract is the simplest IPlugin possible
+/// @dev A designated address (`increaser`) can call a function to increase rewards for a given user
+contract SimplePlugin is IPlugin, Ownable {
+    using Checkpoints for Checkpoints.History;
+    using SafeERC20 for IERC20;
+
+    /// @dev This address is allowed to call `increaseClaimableBy`
+    address public increaser;
+
+    /// @dev Addres of the StakingModule
+    StakingModule public staking;
+
+    /// @dev TEL ERC20 address
+    IERC20 public tel;
+
+    /// @dev Amount claimable by an account
+    mapping(address => Checkpoints.History) private _claimable;
+
+    /// @dev Total amount claimable by all accounts
+    uint256 private _totalOwed;
+
+    /// @notice Event that's emitted when a user claims some rewards
+    event Claimed(address indexed account, uint256 amount);
+    /// @notice Event that's emitted when a user's claimable rewards are increased
+    event ClaimableIncreased(address indexed account, uint256 oldClaimable, uint256 newClaimable);
+    /// @notice Event that's emitted when a the increaser is changed
+    event IncreaserChanged(address indexed oldIncreaser, address indexed newIncreaser);
+
+    constructor(address _stakingAddress) {
+        staking = StakingModule(_stakingAddress);
+        tel = IERC20(staking.tel());
+    }
+
+    modifier onlyStaking() {
+        require(msg.sender == address(staking), "SimplePlugin::onlyStaking: Caller is not StakingModule");
+        _;
+    }
+
+    modifier onlyIncreaser() {
+        require(msg.sender == increaser, "SimplePlugin::onlyIncreaser: Caller is not Increaser");
+        _;
+    }
+
+    /************************************************
+    *   view functions
+    ************************************************/
+
+    /// @return amount claimable by `account`
+    function claimable(address account, bytes calldata) external view override returns (uint256) {
+        return _claimable[account].latest();
+    }
+
+    /// @return total amount claimable by all accounts
+    function totalClaimable() external view override returns (uint256) {
+        return _totalOwed;
+    }
+    
+    /// @return amount claimable by account at a specific block 
+    function claimableAt(address account, uint256 blockNumber, bytes calldata) external view override returns (uint256) {
+        return _claimable[account].getAtBlock(blockNumber);
+    }
+
+    /************************************************
+    *   onlyStaking functions
+    ************************************************/
+
+    /// @notice Claims all earned yield on behalf of account
+    /// @param account the account to claim on behalf of
+    /// @param to the account to send the rewards to
+    function claim(address account, address to, bytes calldata) external override onlyStaking returns (uint256) {
+        uint256 amt = _claimable[account].latest();
+
+        // if claimable amount is 0, do nothing
+        if (amt <= 0) {
+            return 0;
+        }
+        
+        // update _claimable checkpoints
+        _claimable[account].push(0);
+
+        // update _totalOwed
+        _totalOwed -= amt;
+
+        // transfer TEL
+        tel.safeTransfer(to, amt);
+
+        emit Claimed(account, amt);
+
+        return amt;
+    }
+
+    /// @notice Returns true if this plugin requires notifications when users' stakes change
+    function requiresNotification() external override pure returns (bool) {
+        // This plugin does not require notifications from the staking module.
+        return false;
+    }
+    /// @notice Do nothing
+    /// @dev If this function did anything, it would have onlyStaking modifier
+    function notifyStakeChange(address, uint256, uint256) external override pure {}
+
+    /************************************************
+    *   onlyIncreaser functions
+    ************************************************/
+
+    /// @notice increases rewards of an account
+    /// @dev This function will pull TEL from the increaser, so this contract must be approved by the increaser first
+    /// @param account account to credit tokens to
+    /// @param amount amount to credit
+    /// @return false if amount is 0, otherwise true
+    function increaseClaimableBy(address account, uint256 amount) external onlyIncreaser returns (bool) {
+        // if amount is zero do nothing
+        if (amount == 0) {
+            return false;
+        }
+
+        // keep track of old claimable and new claimable
+        uint256 oldClaimable = _claimable[account].latest();
+        uint256 newClaimable = oldClaimable + amount;
+
+        // update _claimable[account] with newClaimable
+        _claimable[account].push(newClaimable);
+
+        // update _totalOwed
+        _totalOwed += amount;
+
+        // transfer TEL
+        tel.safeTransferFrom(msg.sender, address(this), amount);
+
+        emit ClaimableIncreased(account, oldClaimable, newClaimable);
+
+        return true;
+    }
+
+    /************************************************
+    *   onlyOwner functions
+    ************************************************/
+
+    /// @notice Sets increaser address
+    /// @dev Only callable by contract Owner
+    function setIncreaser(address newIncreaser) external onlyOwner {
+        address old = increaser;
+        increaser = newIncreaser;
+        emit IncreaserChanged(old, increaser);
+    }
+
+    /// @notice rescues any stuck erc20
+    /// @dev if the token is TEL, then it only allows maximum of balanceOf(this) - _totalOwed to be rescued
+    function rescueTokens(IERC20 token, address to) external onlyOwner {
+        if (token == tel) {
+            // if the token is TEL, only send the extra amount. Do not send anything that is meant for users.
+            token.safeTransfer(to, token.balanceOf(address(this)) - _totalOwed);
+        }
+        else {
+            // if the token isn't TEL, it's not supposed to be here. Send all of it.
+            token.safeTransfer(to, token.balanceOf(address(this)));
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/SimplePlugin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/StakingModule.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/CheckpointsUpgradeable.sol";
+
+import "./interfaces/IPlugin.sol";
+
+// TODO: improve require messages
+
+/// @title Staking Module
+/// @notice Users interact directly with this contract to participate in staking. 
+/// @dev This contract holds user funds. It does not accrue any staking yield on its own, it must have one or more `IPlugin` contracts "connected" to it.
+contract StakingModule is ReentrancyGuardUpgradeable, AccessControlEnumerableUpgradeable, PausableUpgradeable {
+    using CheckpointsUpgradeable for CheckpointsUpgradeable.History;
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    /// @notice This role grants the ability to slash users' stakes at its own discretion
+    bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
+    /// @notice This role grants the ability to add and remove IPlugin contracts
+    bytes32 public constant PLUGIN_EDITOR_ROLE = keccak256("PLUGIN_EDITOR_ROLE");
+    /// @notice This role grants the ability to pause all unrestricted external functions in an emergency situation
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    /// @notice This role grants the ability to rescue ERC20 tokens that do not rightfully belong to this contract
+    bytes32 public constant RECOVERY_ROLE = keccak256("RECOVERY_ROLE");
+
+    /// @notice TEL ERC20 address
+    address public tel;
+
+    /// @notice Array of all connected IPlugin contracts
+    address[] public plugins;
+
+    /// @notice Number of currently connected Plugins
+    uint256 public nPlugins;
+
+    /// @notice Maps a Plugin to whether or not it is included in `plugins`
+    /// @dev This allows duplicate plugins to be prevented
+    mapping(address => bool) public pluginsMapping;
+
+    /// @notice Total TEL staked by users in this contract
+    uint256 private _totalStaked;
+    /// @notice Maps an account to its staked amount history
+    mapping(address => CheckpointsUpgradeable.History) private _stakes;
+
+    /// @notice An event that's emitted when a account's stake changes (deposit/withdraw/slash)
+    event StakeChanged(address indexed account, uint256 oldStake, uint256 newStake);
+    /// @notice An event that's emitted when an account claims some yield
+    event Claimed(address indexed account, uint256 amount);
+    /// @notice An event that's emitted when an account's stake is slashed
+    event Slashed(address indexed account, uint256 amount);
+
+    /// @notice An event that's emitted when a plugin is added
+    event PluginAdded(address indexed plugin, uint256 nPlugins);
+    /// @notice An event that's emitted when a plugin is removed
+    event PluginRemoved(address indexed plugin, uint256 nPlugins);
+
+    function initialize(address _telAddress) public payable initializer {
+        tel = _telAddress;
+
+        // initialize OZ stuff
+        ReentrancyGuardUpgradeable.__ReentrancyGuard_init_unchained();
+        AccessControlEnumerableUpgradeable.__AccessControlEnumerable_init_unchained();
+        PausableUpgradeable.__Pausable_init_unchained();
+
+        // set deployer as ADMIN
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    /************************************************
+    *   view functions
+    ************************************************/
+
+    /// @dev For some future Plugins not yet ideated, totalClaimable may be hard or impossible to implement. 
+    /// @dev This would break `totalSupply`, but `totalSupply` is not strictly necessary anyway.
+    /// @return Total supply of staked TEL, including all yield
+    function totalSupply() external view returns (uint256) {
+        uint256 total;
+
+        // loop over all plugins and sum up totalClaimable
+        for (uint256 i = 0; i < nPlugins; i++) {
+            total += IPlugin(plugins[i]).totalClaimable();
+        }
+        
+        // totalSupply is the total claimable from all plugins plus the total amount staked
+        return total + _totalStaked;
+    }
+
+    /// @return Balance of an account. This includes stake and claimable yield.
+    /// @param account Account to query balance of
+    /// @param auxData Auxiliary data to pass to plugins
+    function balanceOf(address account, bytes calldata auxData) public view returns (uint256) {
+        return _stakes[account].latest() + claimable(account, auxData);
+    }
+
+    /// @return Balance of an account at a specific block. This includes stake and claimable yield.
+    /// @param account Account to query balance of
+    /// @param blockNumber Block at which to query balance
+    /// @param auxData Auxiliary data to pass to plugins
+    function balanceOfAt(address account, uint256 blockNumber, bytes calldata auxData) external view returns (uint256) {
+        return stakedByAt(account, blockNumber) + claimableAt(account, blockNumber, auxData);
+    }
+
+    /// @return Total amount staked by all accounts
+    function totalStaked() external view returns (uint256) {
+        return _totalStaked;
+    }
+
+    /// @dev Checks `claimable(account)` of all Plugins and returns the total.
+    /// @param account Account to query balance of
+    /// @param auxData Auxiliary data to pass to plugins
+    /// @return Total amount claimable by an account
+    function claimable(address account, bytes calldata auxData) public view returns (uint256) {
+        uint256 total;
+        // loop over all plugins, sum claimable of account
+        for (uint256 i = 0; i < nPlugins; i++) {
+            total += IPlugin(plugins[i]).claimable(account, auxData);
+        }
+        return total;
+    }
+
+    /// @dev Checks `claimableAt(account, blockNumber)` of all Plugins.
+    /// @param account Account to query claimable amount
+    /// @param blockNumber Block at which to query claimable amount
+    /// @param auxData Auxiliary data to pass to plugins
+    /// @return Total amount claimable by an account at a specific block number.
+    function claimableAt(address account, uint256 blockNumber, bytes calldata auxData) public view returns (uint256) {
+        uint256 total;
+        // loop over all plugins, sum claimableAt of account
+        for (uint256 i = 0; i < nPlugins; i++) {
+            total += IPlugin(plugins[i]).claimableAt(account, blockNumber, auxData);
+        }
+        return total;
+    }
+
+    /// @return Amount staked by an account. This does not include claimable yield from plugins.
+    /// @param account Account to query staked amount
+    function stakedBy(address account) external view returns (uint256) {
+        return _stakes[account].latest();
+    }
+
+    /// @return Amount staked by an account at a specific block number excluding claimable yield.
+    /// @param account Account to query staked amount
+    /// @param blockNumber Block at which to query staked amount
+    function stakedByAt(address account, uint256 blockNumber) public view returns (uint256) {
+        return _stakes[account].getAtBlock(blockNumber);
+    }
+
+    /************************************************
+    *   external mutative functions
+    ************************************************/
+
+    /// @notice Stakes some amount of TEL to earn potential rewards.
+    /// @param amount Amount to stake
+    function stake(uint256 amount) external whenNotPaused nonReentrant {
+        _stake({
+            account: msg.sender, 
+            from: msg.sender, 
+            amount: amount
+        });
+    }
+
+    /// @notice Withdraws staked TEL, does not claim any yield.
+    /// @return Amount withdrawn
+    function exit() external whenNotPaused nonReentrant returns (uint256) {
+        return _exit({
+            account: msg.sender, 
+            to: msg.sender
+        });
+    }
+
+    /// @notice Claims yield from an individual plugin and sends it to calling account.
+    /// @param pluginIndex Index of desired plugin
+    /// @param auxData Auxiliary data for the plugin
+    /// @return Amount claimed
+    function claimFromIndividualPlugin(uint256 pluginIndex, bytes calldata auxData) external whenNotPaused nonReentrant returns (uint256) {
+        return _claimFromIndividualPlugin({
+            account: msg.sender, 
+            to: msg.sender, 
+            pluginIndex: pluginIndex, 
+            auxData: auxData
+        });
+    }
+
+    /// @notice Claims yield from all plugins and sends it to calling account.
+    /// @param auxData Auxiliary data for the plugins
+    /// @return Amount claimed
+    function claim(bytes calldata auxData) external whenNotPaused nonReentrant returns (uint256) {
+        return _claim({
+            account: msg.sender, 
+            to: msg.sender, 
+            auxData: auxData
+        });
+    }
+
+    /// @notice Claims all yield and withdraws all stake.
+    /// @param auxData Auxiliary data for the plugins
+    /// @return Amount claimed
+    /// @return Amount withdrawn
+    function fullClaimAndExit(bytes calldata auxData) external whenNotPaused nonReentrant returns (uint256, uint256) {
+        return (
+            _claim({ account: msg.sender, to: msg.sender, auxData: auxData }), 
+            _exit(msg.sender, msg.sender)
+        );
+    }
+
+    /// @notice Claims yield and withdraws some of stake.
+    /// @param amount Amount to withdraw
+    /// @param auxData Auxiliary data for the plugins
+    function partialClaimAndExit(uint256 amount, bytes calldata auxData) external whenNotPaused nonReentrant {
+        _claimAndExit({
+            account: msg.sender, 
+            amount: amount, 
+            to: msg.sender,
+            auxData: auxData
+        });
+    }
+
+    
+
+    /************************************************
+    *   private mutative functions
+    ************************************************/
+
+    /// @notice Claims earned yield from an individual plugin
+    /// @param account Account to claim on behalf of.
+    /// @param to Address to send the claimed yield to.
+    /// @param pluginIndex Index of the desired plugin to claim from
+    /// @dev Calls `claim` on the desired plugin
+    /// @dev Checks to make sure the amount of tokens the plugins sent matches what the `claim` functions returned. (Probably unnecessary)
+    /// @return Amount claimed
+    function _claimFromIndividualPlugin(address account, address to, uint256 pluginIndex, bytes calldata auxData) private returns (uint256) {
+        require(pluginIndex < nPlugins, "StakingModule::_claimFromIndividualPlugin: Provided pluginIndex is out of bounds");
+        
+        // balance of `to` before claiming
+        uint256 balBefore = IERC20Upgradeable(tel).balanceOf(to);
+
+        // xClaimed = "amount of TEL claimed from the plugin"
+        uint256 xClaimed = IPlugin(plugins[pluginIndex]).claim(account, to, auxData);
+
+        // we want to make sure the plugin did not return the wrong amount
+        require(IERC20Upgradeable(tel).balanceOf(to) - balBefore == xClaimed, "The plugin did not send appropriate token amount");
+
+        // only emit Claimed if anything was actually claimed
+        if (xClaimed > 0) {
+            emit Claimed(account, xClaimed);
+        }
+
+        return xClaimed;
+    }
+
+    /// @notice Claims earned yield
+    /// @param account Account to claim on behalf of.
+    /// @param to Address to send the claimed yield to.
+    /// @param auxData Auxiliary data for the plugins
+    /// @dev Iterates over all plugins and calls `claim`
+    /// @dev Checks to make sure the amount of tokens the plugins sent matches what the `claim` functions returned.
+    /// @dev If amount claimed is >0, emit Claimed
+    /// @return Amount claimed
+    function _claim(address account, address to, bytes calldata auxData) private returns (uint256) {
+        // balance of `to` before claiming
+        uint256 balBefore = IERC20Upgradeable(tel).balanceOf(to);
+
+        // call claim on all plugins and count the total amount claimed
+        uint256 total;
+        for (uint256 i = 0; i < nPlugins; i++) {
+            total += IPlugin(plugins[i]).claim(account, to, auxData);
+        }
+
+        // make sure `total` actually matches how much we've claimed
+        require(IERC20Upgradeable(tel).balanceOf(to) - balBefore == total, "one or more plugins did not send appropriate token amount");
+
+        // only emit Claimed if anything was actually claimed
+        if (total > 0) {
+            emit Claimed(account, total);
+        }
+
+        return total;
+    }
+
+    /// @notice Withdraws staked TEL to the specified `to` address, does not claim any yield.
+    /// @dev Notifies all plugins that account's stake is changing.
+    /// @dev Writes _stakes checkpoint. 
+    /// @dev Decrements _totalStaked
+    /// @dev Transfers TEL
+    /// @dev Emits StakeChanged.
+    /// @param account Account to exit on behalf of.
+    /// @param to Address to send the withdrawn balance to.
+    /// @return Amount withdrawn
+    function _exit(address account, address to) private returns (uint256) {
+        uint256 amt = _stakes[account].latest();
+
+        if (amt == 0) {
+            return 0;
+        }
+
+        // notify plugins
+        _notifyStakeChangeAllPlugins(account, amt, 0);
+
+        // update checkpoints
+        _stakes[account].push(0);
+
+        // update _totalStaked
+        _totalStaked -= amt;
+
+        // move the tokens
+        IERC20Upgradeable(tel).safeTransfer(to, amt);
+
+        emit StakeChanged(account, amt, 0);
+
+        return amt;
+    }
+
+    /// @notice Stakes some amount of TEL to earn potential rewards.
+    /// @dev Notifies all plugins that account's stake is changing.
+    /// @dev Updates _stakes[account]
+    /// @dev Increments _totalStaked
+    /// @dev Transfers TEL
+    /// @dev Emits StakeChanged.
+    /// @param account Account to stake on behalf of
+    /// @param from Address to pull TEL from
+    /// @param amount Amount to stake
+    function _stake(address account, address from, uint256 amount) private {
+        require(amount > 0, "Cannot stake 0");
+
+        uint256 stakedBefore = _stakes[account].latest();
+        uint256 stakedAfter = stakedBefore + amount;
+
+        // notify plugins
+        _notifyStakeChangeAllPlugins(account, stakedBefore, stakedAfter);
+        
+        // update _stakes
+        _stakes[account].push(stakedAfter);
+
+        // update _totalStaked
+        _totalStaked += amount;
+
+        // move the tokens
+        IERC20Upgradeable(tel).safeTransferFrom(from, address(this), amount);
+
+        emit StakeChanged(account, stakedBefore, stakedAfter);
+    }
+
+    /// @notice Claims yield and withdraws some of stake. Everything leftover remains staked
+    /// @param account account
+    /// @param amount amount to withdraw
+    /// @param to account to send withdrawn funds to
+    /// @dev The yield of the account is claimed to this contract
+    /// @dev Call `notifyStakeChange` on all plugins
+    /// @dev Update _stakes[account]
+    /// @dev Update _totalStaked
+    /// @dev Transfer `amount` of tokens to `to`
+    /// @dev Emit StakeChanged
+    function _claimAndExit(address account, uint256 amount, address to, bytes calldata auxData) private {
+        require(amount <= balanceOf(account, auxData), "Account has insufficient balance");
+
+        // keep track of initial stake
+        uint256 oldStake = _stakes[account].latest();
+        // xClaimed = total amount claimed
+        uint256 xClaimed = _claim(account, address(this), auxData);
+
+        uint256 newStake = oldStake + xClaimed - amount;
+
+        // notify all plugins that account's stake has changed (if the plugin requires)
+        _notifyStakeChangeAllPlugins(account, oldStake, newStake);
+
+        // update _stakes
+        _stakes[account].push(newStake);
+
+        // decrement _totalStaked
+        _totalStaked = _totalStaked - oldStake + newStake;
+
+        // transfer the tokens to `to`
+        IERC20Upgradeable(tel).safeTransfer(to, amount);
+
+        emit StakeChanged(account, oldStake, newStake);
+    }
+
+    /// @dev Calls `notifyStakeChange` on all plugins that require it. This is done in case any given plugin needs to do some stuff when a user exits.
+    /// @param account Account that is exiting
+    function _notifyStakeChangeAllPlugins(address account, uint256 amountBefore, uint256 amountAfter) private {
+        // loop over all plugins
+        for (uint256 i = 0; i < nPlugins; i++) {
+            // only notify if the plugin requires
+            // if (IPlugin(plugins[i]).requiresNotification()) {
+                IPlugin(plugins[i]).notifyStakeChange(account, amountBefore, amountAfter);
+            // }
+        }
+    }
+
+
+    /************************************************
+    *   restricted functions
+    ************************************************/
+
+    /// @notice Slashes stake of an account.
+    /// @notice Only those holding the `SLASHER_ROLE` may call this.
+    /// @param account account to slash
+    /// @param amount amount to slash
+    /// @param to account to send slashed funds to
+    function slash(address account, uint amount, address to, bytes calldata auxData) external onlyRole(SLASHER_ROLE) nonReentrant {
+        _claimAndExit(account, amount, to, auxData);
+        emit Slashed(account, amount);
+    }
+
+    /// @notice Adds a new plugin
+    function addPlugin(address plugin) external onlyRole(PLUGIN_EDITOR_ROLE) {
+        require(!pluginsMapping[plugin], "StakingModule::addPlugin: Cannot add an existing plugin");
+
+        plugins.push(plugin);
+        pluginsMapping[plugin] = true;
+        nPlugins++;
+
+        emit PluginAdded(plugin, nPlugins);
+    }
+
+    /// @notice Removes a plugin
+    function removePlugin(uint256 index) external onlyRole(PLUGIN_EDITOR_ROLE) {
+        address plugin = plugins[index];
+
+        pluginsMapping[plugin] = false;
+        plugins[index] = plugins[nPlugins - 1];
+        plugins.pop();
+        nPlugins--;
+
+        emit PluginRemoved(plugin, nPlugins);
+    }
+
+    /// @notice Pause all unrestricted external functions
+    function pause() external onlyRole(PAUSER_ROLE) {
+        _pause();
+    }
+
+    /// @notice Unpause all unrestricted external functions
+    function unpause() external onlyRole(PAUSER_ROLE) {
+        _unpause();
+    }
+
+    /// @notice rescues any stuck erc20
+    /// @dev if the token is TEL, then it only allows maximum of balanceOf(this) - _totalStaked to be rescued
+    function rescueTokens(IERC20Upgradeable token, address to) external onlyRole(RECOVERY_ROLE) {
+        if (address(token) == tel) {
+            // if the token is TEL, only remove the extra amount that isn't staked
+            token.safeTransfer(to, token.balanceOf(address(this)) - _totalStaked);
+        }
+        else {
+            // if the token isn't TEL, remove all of it
+            token.safeTransfer(to, token.balanceOf(address(this)));
+        }
+    }
+
+    /// @notice claim and exit on behalf of a user
+    /// @dev This function is in case of a token migration
+    /// @dev We know this would be insanely gas intensive if there are a lot of users
+    function claimAndExitFor(address account, address to, bytes calldata auxData) external onlyRole(RECOVERY_ROLE) whenPaused nonReentrant returns (uint256, uint256) {
+        return (_claim(account, to, auxData), _exit(account, to));
+    }
+
+    /// @notice stake on behalf of a user
+    /// @dev This function is in case of a token migration
+    /// @dev We know this would be insanely gas intensive if there are a lot of users
+    function stakeFor(address account, uint256 amount) external onlyRole(RECOVERY_ROLE) whenPaused nonReentrant {
+        _stake(account, msg.sender, amount);
+    }
+}
+// ===== END SOURCE FILE: contracts/StakingModule.sol =====

@@ -1,0 +1,3903 @@
+// ===== BEGIN SOURCE FILE: contracts/vaults/balancer/mixins/BalancerOracleMixin.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {IPriceOracle} from "../../../../interfaces/balancer/IPriceOracle.sol";
+import {StrategyVaultSettings, OracleContext} from "../BalancerVaultTypes.sol";
+import {Deployments} from "../../../global/Deployments.sol";
+import {BalancerVaultStorage} from "../internal/BalancerVaultStorage.sol";
+
+abstract contract BalancerOracleMixin {
+    uint32 internal immutable MAX_ORACLE_QUERY_WINDOW;
+
+    constructor(bytes32 balancerPoolId) {
+        (address pool, /* */) = Deployments.BALANCER_VAULT.getPool(balancerPoolId);
+
+        uint256 maxOracleQueryWindow = IPriceOracle(pool).getLargestSafeQueryWindow();
+        /// @dev getLargestSafeQueryWindow overflow
+        require(maxOracleQueryWindow > 0 && maxOracleQueryWindow <= type(uint32).max); 
+        MAX_ORACLE_QUERY_WINDOW = uint32(maxOracleQueryWindow);
+    }
+
+    function _oracleContext() internal view returns (OracleContext memory) {
+        StrategyVaultSettings memory settings = BalancerVaultStorage.getStrategyVaultSettings();
+        return OracleContext({
+            oracleWindowInSeconds: settings.oracleWindowInSeconds,
+            balancerOracleWeight: settings.balancerOracleWeight
+        });
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/balancer/mixins/BalancerOracleMixin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/balancer/mixins/Boosted3TokenPoolMixin.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {
+    ThreeTokenPoolContext, 
+    TwoTokenPoolContext, 
+    BoostedOracleContext,
+    OracleContext,
+    AuraVaultDeploymentParams
+} from "../BalancerVaultTypes.sol";
+import {IERC20} from "../../../../interfaces/IERC20.sol";
+import {IBoostedPool} from "../../../../interfaces/balancer/IBalancerPool.sol";
+import {BalancerUtils} from "../internal/pool/BalancerUtils.sol";
+import {Deployments} from "../../../global/Deployments.sol";
+import {PoolMixin} from "./PoolMixin.sol";
+import {NotionalProxy} from "../../../../interfaces/notional/NotionalProxy.sol";
+
+abstract contract Boosted3TokenPoolMixin is PoolMixin {
+    error InvalidPrimaryToken(address token);
+
+    uint8 internal constant NOT_FOUND = type(uint8).max;
+
+    IERC20 internal immutable PRIMARY_TOKEN;
+    IERC20 internal immutable SECONDARY_TOKEN;
+    IERC20 internal immutable TERTIARY_TOKEN;
+    uint8 internal immutable PRIMARY_INDEX;
+    uint8 internal immutable SECONDARY_INDEX;
+    uint8 internal immutable TERTIARY_INDEX;
+    uint8 internal immutable BPT_INDEX;
+    uint8 internal immutable PRIMARY_DECIMALS;
+    uint8 internal immutable SECONDARY_DECIMALS;
+    uint8 internal immutable TERTIARY_DECIMALS;
+
+    constructor(
+        NotionalProxy notional_, 
+        AuraVaultDeploymentParams memory params
+    ) PoolMixin(notional_, params) {
+        address primaryAddress = BalancerUtils.getTokenAddress(
+            _getNotionalUnderlyingToken(params.baseParams.primaryBorrowCurrencyId)
+        );
+        
+        // prettier-ignore
+        (
+            address[] memory tokens,
+            /* uint256[] memory balances */,
+            /* uint256 lastChangeBlock */
+        ) = Deployments.BALANCER_VAULT.getPoolTokens(params.baseParams.balancerPoolId);
+
+        // Boosted pools contain 4 tokens (3 LinearPool LP tokens + 1 BoostedPool LP token)
+        require(tokens.length == 4);
+
+        uint8 primaryIndex = NOT_FOUND;
+        uint8 secondaryIndex = NOT_FOUND;
+        uint8 tertiaryIndex = NOT_FOUND;
+        uint8 bptIndex = NOT_FOUND;
+        for (uint256 i; i < 4; i++) {
+            // Skip pool token
+            if (tokens[i] == address(BALANCER_POOL_TOKEN)) {
+                bptIndex = uint8(i);
+            } else if (IBoostedPool(tokens[i]).getMainToken() == primaryAddress) {
+                primaryIndex = uint8(i);
+            } else {
+                if (secondaryIndex == NOT_FOUND) {
+                    secondaryIndex = uint8(i);
+                } else {
+                    tertiaryIndex = uint8(i);
+                }
+            }
+        }
+
+        require(primaryIndex != NOT_FOUND);
+
+        PRIMARY_INDEX = primaryIndex;
+        SECONDARY_INDEX = secondaryIndex;
+        TERTIARY_INDEX = tertiaryIndex;
+        BPT_INDEX = bptIndex;
+
+        PRIMARY_TOKEN = IERC20(tokens[PRIMARY_INDEX]);
+        SECONDARY_TOKEN = IERC20(tokens[SECONDARY_INDEX]);
+        TERTIARY_TOKEN = IERC20(tokens[TERTIARY_INDEX]);
+
+        uint256 primaryDecimals = IERC20(primaryAddress).decimals();
+
+        // Do not allow decimal places greater than 18
+        require(primaryDecimals <= 18);
+        PRIMARY_DECIMALS = uint8(primaryDecimals);
+
+        // If the SECONDARY_TOKEN is ETH, it will be rewritten as WETH
+        uint256 secondaryDecimals = SECONDARY_TOKEN.decimals();
+
+        // Do not allow decimal places greater than 18
+        require(secondaryDecimals <= 18);
+        SECONDARY_DECIMALS = uint8(secondaryDecimals);
+        
+        // If the TERTIARY_TOKEN is ETH, it will be rewritten as WETH
+        uint256 tertiaryDecimals = TERTIARY_TOKEN.decimals();
+
+        // Do not allow decimal places greater than 18
+        require(tertiaryDecimals <= 18);
+        TERTIARY_DECIMALS = uint8(tertiaryDecimals);
+    }
+
+    function _boostedOracleContext(uint256[] memory balances) internal view returns (BoostedOracleContext memory) {
+        IBoostedPool pool = IBoostedPool(address(BALANCER_POOL_TOKEN));
+
+        (
+            uint256 value,
+            /* bool isUpdating */,
+            /* uint256 precision */
+        ) = pool.getAmplificationParameter();
+
+        return BoostedOracleContext({
+            ampParam: value,
+            bptBalance: balances[BPT_INDEX],
+            dueProtocolFeeBptAmount: pool.getDueProtocolFeeBptAmount() 
+        });
+    }
+
+    function _threeTokenPoolContext(uint256[] memory balances) internal view returns (ThreeTokenPoolContext memory) {
+        return ThreeTokenPoolContext({
+            tertiaryToken: address(TERTIARY_TOKEN),
+            tertiaryIndex: TERTIARY_INDEX,
+            tertiaryDecimals: TERTIARY_DECIMALS,
+            tertiaryBalance: balances[TERTIARY_INDEX],
+            basePool: TwoTokenPoolContext({
+                primaryToken: address(PRIMARY_TOKEN),
+                secondaryToken: address(SECONDARY_TOKEN),
+                primaryIndex: PRIMARY_INDEX,
+                secondaryIndex: SECONDARY_INDEX,
+                primaryDecimals: PRIMARY_DECIMALS,
+                secondaryDecimals: SECONDARY_DECIMALS,
+                primaryBalance: balances[PRIMARY_INDEX],
+                secondaryBalance: balances[SECONDARY_INDEX],
+                basePool: _poolContext()
+            })
+        });
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/balancer/mixins/Boosted3TokenPoolMixin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/balancer/mixins/MetaStable2TokenVaultMixin.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {IMetaStablePool} from "../../../../interfaces/balancer/IBalancerPool.sol";
+import {StableOracleContext} from "../BalancerVaultTypes.sol";
+import {BalancerOracleMixin} from "./BalancerOracleMixin.sol";
+import {TwoTokenPoolMixin} from "./TwoTokenPoolMixin.sol";
+import {AuraVaultDeploymentParams} from "../BalancerVaultTypes.sol";
+import {NotionalProxy} from "../../../../interfaces/notional/NotionalProxy.sol";
+
+abstract contract MetaStable2TokenVaultMixin is TwoTokenPoolMixin, BalancerOracleMixin {
+    constructor(NotionalProxy notional_, AuraVaultDeploymentParams memory params)
+        TwoTokenPoolMixin(notional_, params)
+        BalancerOracleMixin(params.baseParams.balancerPoolId) 
+    {
+        // The oracle is required for the vault to behave properly
+        (/* */, /* */, /* */, /* */, bool oracleEnabled) = 
+            IMetaStablePool(address(BALANCER_POOL_TOKEN)).getOracleMiscData();
+        require(oracleEnabled);
+    }
+
+    function _stableOracleContext() internal view returns (StableOracleContext memory) {
+        (
+            uint256 value,
+            /* bool isUpdating */,
+            /* uint256 precision */
+        ) = IMetaStablePool(address(BALANCER_POOL_TOKEN)).getAmplificationParameter();
+        
+        return StableOracleContext({
+            ampParam: value,
+            baseOracle: _oracleContext()
+        });
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/balancer/mixins/MetaStable2TokenVaultMixin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/balancer/mixins/PoolMixin.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {IERC20} from "../../../../interfaces/IERC20.sol";
+import {PoolContext, AuraVaultDeploymentParams, StrategyContext} from "../BalancerVaultTypes.sol";
+import {Deployments} from "../../../global/Deployments.sol";
+import {BalancerStrategyBase} from "../BalancerStrategyBase.sol";
+import {NotionalProxy} from "../../../../interfaces/notional/NotionalProxy.sol";
+import {AuraStakingMixin} from "./AuraStakingMixin.sol";
+import {BalancerVaultStorage} from "../internal/BalancerVaultStorage.sol";
+import {StrategyUtils} from "../internal/strategy/StrategyUtils.sol";
+
+abstract contract PoolMixin is AuraStakingMixin, BalancerStrategyBase {
+    using StrategyUtils for StrategyContext;
+
+    bytes32 internal immutable BALANCER_POOL_ID;
+    IERC20 internal immutable BALANCER_POOL_TOKEN;
+
+    constructor(NotionalProxy notional_, AuraVaultDeploymentParams memory params) 
+        AuraStakingMixin(
+            params.baseParams.liquidityGauge, params.auraRewardPool, params.baseParams.feeReceiver
+        )
+        BalancerStrategyBase(notional_, params.baseParams) {
+        BALANCER_POOL_ID = params.baseParams.balancerPoolId;
+        (address pool, /* */) = Deployments.BALANCER_VAULT.getPool(params.baseParams.balancerPoolId);
+        BALANCER_POOL_TOKEN = IERC20(pool);
+    }
+
+    function _poolContext() internal view returns (PoolContext memory) {
+        return PoolContext({
+            pool: BALANCER_POOL_TOKEN,
+            poolId: BALANCER_POOL_ID
+        });
+    }
+
+    /// @dev Gets the total BPT held by the aura reward pool
+    function _bptHeld() internal view returns (uint256) {
+        return AURA_REWARD_POOL.balanceOf(address(this));
+    }
+
+    function _baseStrategyContext() internal view returns(StrategyContext memory) {
+        return StrategyContext({
+            totalBPTHeld: _bptHeld(),
+            settlementPeriodInSeconds: SETTLEMENT_PERIOD_IN_SECONDS,
+            tradingModule: TRADING_MODULE,
+            vaultSettings: BalancerVaultStorage.getStrategyVaultSettings(),
+            vaultState: BalancerVaultStorage.getStrategyVaultState(),
+            feeReceiver: FEE_RECEIVER
+        });
+    }
+
+    /// @notice Converts BPT to strategy tokens
+    function convertBPTClaimToStrategyTokens(uint256 bptClaim)
+        external view returns (uint256 strategyTokenAmount) {
+        return _baseStrategyContext()._convertBPTClaimToStrategyTokens(bptClaim);
+    }
+
+    /// @notice Converts strategy tokens to BPT
+    function convertStrategyTokensToBPTClaim(uint256 strategyTokenAmount) 
+        external view returns (uint256 bptClaim) {
+        return _baseStrategyContext()._convertStrategyTokensToBPTClaim(strategyTokenAmount);
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/balancer/mixins/PoolMixin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/balancer/mixins/TwoTokenPoolMixin.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {IERC20} from "../../../../interfaces/IERC20.sol";
+import {Deployments} from "../../../global/Deployments.sol";
+import {TwoTokenPoolContext, AuraVaultDeploymentParams} from "../BalancerVaultTypes.sol";
+import {BalancerConstants} from "../internal/BalancerConstants.sol";
+import {BalancerUtils} from "../internal/pool/BalancerUtils.sol";
+import {PoolMixin} from "./PoolMixin.sol";
+import {NotionalProxy} from "../../../../interfaces/notional/NotionalProxy.sol";
+
+abstract contract TwoTokenPoolMixin is PoolMixin {
+    error InvalidPrimaryToken(address token);
+    error InvalidSecondaryToken(address token);
+
+    IERC20 internal immutable PRIMARY_TOKEN;
+    IERC20 internal immutable SECONDARY_TOKEN;
+    uint8 internal immutable PRIMARY_INDEX;
+    uint8 internal immutable SECONDARY_INDEX;
+    uint8 internal immutable PRIMARY_DECIMALS;
+    uint8 internal immutable SECONDARY_DECIMALS;
+
+    constructor(
+        NotionalProxy notional_, 
+        AuraVaultDeploymentParams memory params
+    ) PoolMixin(notional_, params) {
+        PRIMARY_TOKEN = IERC20(_getNotionalUnderlyingToken(params.baseParams.primaryBorrowCurrencyId));
+        address primaryAddress = BalancerUtils.getTokenAddress(address(PRIMARY_TOKEN));
+
+        // prettier-ignore
+        (
+            address[] memory tokens,
+            /* uint256[] memory balances */,
+            /* uint256 lastChangeBlock */
+        ) = Deployments.BALANCER_VAULT.getPoolTokens(params.baseParams.balancerPoolId);
+
+        // Balancer tokens are sorted by address, so we need to figure out
+        // the correct index for the primary token
+        PRIMARY_INDEX = tokens[0] == primaryAddress ? 0 : 1;
+        unchecked {
+            SECONDARY_INDEX = 1 - PRIMARY_INDEX;
+        }
+
+        SECONDARY_TOKEN = IERC20(tokens[SECONDARY_INDEX]);
+
+        // Make sure the deployment parameters are correct
+        if (tokens[PRIMARY_INDEX] != primaryAddress) {
+            revert InvalidPrimaryToken(tokens[PRIMARY_INDEX]);
+        }
+
+        if (tokens[SECONDARY_INDEX] !=
+            BalancerUtils.getTokenAddress(address(SECONDARY_TOKEN))
+        ) revert InvalidSecondaryToken(tokens[SECONDARY_INDEX]);
+
+        // If the underlying is ETH, primaryBorrowToken will be rewritten as WETH
+        uint256 primaryDecimals = IERC20(primaryAddress).decimals();
+        // Do not allow decimal places greater than 18
+        require(primaryDecimals <= 18);
+        PRIMARY_DECIMALS = uint8(primaryDecimals);
+
+        uint256 secondaryDecimals = address(SECONDARY_TOKEN) ==
+            Deployments.ETH_ADDRESS
+            ? 18
+            : SECONDARY_TOKEN.decimals();
+        require(primaryDecimals <= 18);
+        SECONDARY_DECIMALS = uint8(secondaryDecimals);
+    }
+
+    function _twoTokenPoolContext() internal view returns (TwoTokenPoolContext memory) {
+        (
+            /* address[] memory tokens */,
+            uint256[] memory balances,
+            /* uint256 lastChangeBlock */
+        ) = Deployments.BALANCER_VAULT.getPoolTokens(BALANCER_POOL_ID);
+
+        return TwoTokenPoolContext({
+            primaryToken: address(PRIMARY_TOKEN),
+            secondaryToken: address(SECONDARY_TOKEN),
+            primaryIndex: PRIMARY_INDEX,
+            secondaryIndex: SECONDARY_INDEX,
+            primaryDecimals: PRIMARY_DECIMALS,
+            secondaryDecimals: SECONDARY_DECIMALS,
+            primaryBalance: balances[PRIMARY_INDEX],
+            secondaryBalance: balances[SECONDARY_INDEX],
+            basePool: _poolContext()
+        });
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/balancer/mixins/TwoTokenPoolMixin.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/BaseStrategyVault.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {Token, TokenType} from "../global/Types.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
+import {IStrategyVault} from "../../interfaces/notional/IStrategyVault.sol";
+import {NotionalProxy} from "../../interfaces/notional/NotionalProxy.sol";
+import {ITradingModule, Trade} from "../../interfaces/trading/ITradingModule.sol";
+import {IERC20} from "../../interfaces/IERC20.sol";
+import {TokenUtils} from "../utils/TokenUtils.sol";
+import {TradeHandler} from "../trading/TradeHandler.sol";
+import {nProxy} from "../proxy/nProxy.sol";
+
+abstract contract BaseStrategyVault is Initializable, IStrategyVault {
+    using TokenUtils for IERC20;
+    using TradeHandler for Trade;
+
+    /// @notice Hardcoded on the implementation contract during deployment
+    NotionalProxy public immutable NOTIONAL;
+    ITradingModule public immutable TRADING_MODULE;
+    uint8 constant internal INTERNAL_TOKEN_DECIMALS = 8;
+
+    // Borrowing Currency ID the vault is configured with
+    uint16 private _BORROW_CURRENCY_ID;
+    // True if the underlying is ETH
+    bool private _UNDERLYING_IS_ETH;
+    // Address of the underlying token
+    IERC20 private _UNDERLYING_TOKEN;
+    // NOTE: end of first storage slot here
+
+    // Name of the vault
+    string private _NAME;
+
+
+    /**************************************************************************/
+    /* Global Modifiers, Constructor and Initializer                          */
+    /**************************************************************************/
+    modifier onlyNotional() {
+        require(msg.sender == address(NOTIONAL));
+        _;
+    }
+
+    modifier onlyNotionalOwner() {
+        require(msg.sender == address(NOTIONAL.owner()));
+        _;
+    }
+    
+    /// @notice Set the NOTIONAL address on deployment
+    constructor(NotionalProxy notional_, ITradingModule tradingModule_) initializer {
+        NOTIONAL = notional_;
+        TRADING_MODULE = tradingModule_;
+    }
+
+    /// @notice Override this method and revert if the contract should not receive ETH.
+    /// Upgradeable proxies must have this implemented on the proxy for transfer calls
+    /// succeed (use nProxy for this).
+    receive() external virtual payable {
+        // Allow ETH transfers to succeed
+    }
+
+    /// @notice All strategy vaults MUST implement 8 decimal precision
+    function decimals() public override view returns (uint8) {
+        return INTERNAL_TOKEN_DECIMALS;
+    }
+
+    function name() external override view returns (string memory) {
+        return _NAME;
+    }
+
+    function strategy() external virtual view returns (bytes4);
+
+    function _borrowCurrencyId() internal view returns (uint16) {
+        return _BORROW_CURRENCY_ID;
+    }
+
+    function _underlyingToken() internal view returns (IERC20) {
+        return _UNDERLYING_TOKEN;
+    }
+
+    function _isUnderlyingETH() internal view returns (bool) {
+        return _UNDERLYING_IS_ETH;
+    }
+
+    /// @notice Can only be called once during initialization
+    function __INIT_VAULT(
+        string memory name_,
+        uint16 borrowCurrencyId_
+    ) internal onlyInitializing {
+        _NAME = name_;
+        _BORROW_CURRENCY_ID = borrowCurrencyId_;
+
+        address underlyingAddress = _getNotionalUnderlyingToken(borrowCurrencyId_);
+        _UNDERLYING_TOKEN = IERC20(underlyingAddress);
+        _UNDERLYING_IS_ETH = underlyingAddress == address(0);
+    }
+
+    function _getNotionalUnderlyingToken(uint16 currencyId) internal view returns (address) {
+        (Token memory assetToken, Token memory underlyingToken) = NOTIONAL.getCurrency(currencyId);
+
+        return assetToken.tokenType == TokenType.NonMintable ?
+            assetToken.tokenAddress : underlyingToken.tokenAddress;
+    }
+
+    /// @notice Can be used to delegate call to the TradingModule's implementation in order to execute
+    /// a trade.
+    function _executeTrade(
+        uint16 dexId,
+        Trade memory trade
+    ) internal returns (uint256 amountSold, uint256 amountBought) {
+        return trade._executeTrade(dexId, TRADING_MODULE);
+    }
+
+    /**************************************************************************/
+    /* Virtual Methods Requiring Implementation                               */
+    /**************************************************************************/
+    function convertStrategyToUnderlying(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity
+    ) public view virtual returns (int256 underlyingValue);
+    
+    // Vaults need to implement these two methods
+    function _depositFromNotional(
+        address account,
+        uint256 deposit,
+        uint256 maturity,
+        bytes calldata data
+    ) internal virtual returns (uint256 strategyTokensMinted);
+
+    function _redeemFromNotional(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity,
+        bytes calldata data
+    ) internal virtual returns (uint256 tokensFromRedeem);
+
+    // This can be overridden if the vault borrows in a secondary currency, but reverts by default.
+    function _repaySecondaryBorrowCallback(
+        address token,  uint256 underlyingRequired, bytes calldata data
+    ) internal virtual returns (bytes memory returnData) {
+        revert();
+    }
+
+    /**************************************************************************/
+    /* Default External Method Implementations                                */
+    /**************************************************************************/
+    function depositFromNotional(
+        address account,
+        uint256 deposit,
+        uint256 maturity,
+        bytes calldata data
+    ) external payable onlyNotional returns (uint256 strategyTokensMinted) {
+        return _depositFromNotional(account, deposit, maturity, data);
+    }
+
+    function redeemFromNotional(
+        address account,
+        address receiver,
+        uint256 strategyTokens,
+        uint256 maturity,
+        uint256 underlyingToRepayDebt,
+        bytes calldata data
+    ) external onlyNotional returns (uint256 transferToReceiver) {
+        uint256 borrowedCurrencyAmount = _redeemFromNotional(account, strategyTokens, maturity, data);
+
+        uint256 transferToNotional;
+        if (account == address(this) || borrowedCurrencyAmount <= underlyingToRepayDebt) {
+            // It may be the case that insufficient tokens were redeemed to repay the debt. If this
+            // happens the Notional will attempt to recover the shortfall from the account directly.
+            // This can happen if an account wants to reduce their leverage by paying off debt but
+            // does not want to sell strategy tokens to do so.
+            // The other situation would be that the vault is calling redemption to deleverage or
+            // settle. In that case all tokens go back to Notional.
+            transferToNotional = borrowedCurrencyAmount;
+        } else {
+            transferToNotional = underlyingToRepayDebt;
+            unchecked { transferToReceiver = borrowedCurrencyAmount - underlyingToRepayDebt; }
+        }
+
+        if (_UNDERLYING_IS_ETH) {
+            if (transferToReceiver > 0) payable(receiver).transfer(transferToReceiver);
+            if (transferToNotional > 0) payable(address(NOTIONAL)).transfer(transferToNotional);
+        } else {
+            if (transferToReceiver > 0) _UNDERLYING_TOKEN.checkTransfer(receiver, transferToReceiver);
+            if (transferToNotional > 0) _UNDERLYING_TOKEN.checkTransfer(address(NOTIONAL), transferToNotional);
+        }
+    }
+
+    function repaySecondaryBorrowCallback(
+        address token, uint256 underlyingRequired, bytes calldata data
+    ) external onlyNotional returns (bytes memory returnData) {
+        return _repaySecondaryBorrowCallback(token, underlyingRequired, data);
+    }
+
+    // Storage gap for future potential upgrades
+    uint256[45] private __gap;
+}
+// ===== END SOURCE FILE: contracts/vaults/BaseStrategyVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/Boosted3TokenAuraVault.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {Errors} from "../global/Errors.sol";
+import {Deployments} from "../global/Deployments.sol";
+import {
+    DepositParams,
+    RedeemParams,
+    AuraVaultDeploymentParams,
+    InitParams,
+    ReinvestRewardParams,
+    StrategyVaultSettings,
+    StrategyVaultState,
+    PoolContext,
+    ThreeTokenPoolContext,
+    Boosted3TokenAuraStrategyContext,
+    StrategyContext
+} from "./balancer/BalancerVaultTypes.sol";
+import {BalancerStrategyBase} from "./balancer/BalancerStrategyBase.sol";
+import {Boosted3TokenPoolMixin} from "./balancer/mixins/Boosted3TokenPoolMixin.sol";
+import {AuraStakingMixin} from "./balancer/mixins/AuraStakingMixin.sol";
+import {NotionalProxy} from "../../interfaces/notional/NotionalProxy.sol";
+import {BalancerVaultStorage} from "./balancer/internal/BalancerVaultStorage.sol";
+import {StrategyUtils} from "./balancer/internal/strategy/StrategyUtils.sol";
+import {SettlementUtils} from "./balancer/internal/settlement/SettlementUtils.sol";
+import {Boosted3TokenPoolUtils} from "./balancer/internal/pool/Boosted3TokenPoolUtils.sol";
+import {Boosted3TokenAuraHelper} from "./balancer/external/Boosted3TokenAuraHelper.sol";
+
+contract Boosted3TokenAuraVault is Boosted3TokenPoolMixin {
+    using Boosted3TokenPoolUtils for ThreeTokenPoolContext;
+    using StrategyUtils for StrategyContext;
+    using BalancerVaultStorage for StrategyVaultState;
+
+    constructor(NotionalProxy notional_, AuraVaultDeploymentParams memory params) 
+        Boosted3TokenPoolMixin(notional_, params)
+    {}
+
+    function strategy() external override view returns (bytes4) {
+        return bytes4(keccak256("Boosted3TokenAuraVault"));
+    }
+
+    function initialize(InitParams calldata params)
+        external
+        initializer
+        onlyNotionalOwner
+    {
+        __INIT_VAULT(params.name, params.borrowCurrencyId);
+        // 3 token vaults do not use the Balancer oracle
+        BalancerVaultStorage.setStrategyVaultSettings(
+            params.settings, 
+            0, // Max Balancer oracle window size
+            0  // Balancer oracle weight
+        );
+
+        (
+            /* address[] memory tokens */,
+            uint256[] memory balances,
+            /* uint256 lastChangeBlock */
+        ) = Deployments.BALANCER_VAULT.getPoolTokens(BALANCER_POOL_ID);
+
+        _threeTokenPoolContext(balances)._approveBalancerTokens(address(_auraStakingContext().auraBooster));
+    }
+
+    function _depositFromNotional(
+        address /* account */,
+        uint256 deposit,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 strategyTokensMinted) {
+        // Entering the vault is not allowed within the settlement window
+        DepositParams memory params = abi.decode(data, (DepositParams));
+        Boosted3TokenAuraStrategyContext memory context = _strategyContext();
+
+        strategyTokensMinted = context.poolContext._deposit({
+            strategyContext: context.baseStrategy,
+            stakingContext: context.stakingContext,
+            oracleContext: context.oracleContext, 
+            deposit: deposit,
+            minBPT: params.minBPT
+        });
+    }
+
+    function _redeemFromNotional(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 finalPrimaryBalance) {
+        RedeemParams memory params = abi.decode(data, (RedeemParams));
+        Boosted3TokenAuraStrategyContext memory context = _strategyContext();
+
+        finalPrimaryBalance = context.poolContext._redeem({
+            strategyContext: context.baseStrategy,
+            stakingContext: context.stakingContext,
+            strategyTokens: strategyTokens,
+            minPrimary: params.minPrimary
+        });
+    }
+
+    function settleVaultNormal(
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata data
+    ) external {
+        if (maturity <= block.timestamp) {
+            revert Errors.PostMaturitySettlement();
+        }
+        if (block.timestamp < maturity - SETTLEMENT_PERIOD_IN_SECONDS) {
+            revert Errors.NotInSettlementWindow();
+        }
+        Boosted3TokenAuraStrategyContext memory context = _strategyContext();
+        SettlementUtils._validateCoolDown(
+            context.baseStrategy.vaultState.lastSettlementTimestamp,
+            context.baseStrategy.vaultSettings.settlementCoolDownInMinutes
+        );
+        RedeemParams memory params = SettlementUtils._decodeParamsAndValidate(
+            context.baseStrategy.vaultSettings.settlementSlippageLimitPercent,
+            data
+        );
+        Boosted3TokenAuraHelper.settleVault(
+            context, maturity, strategyTokensToRedeem, params
+        );
+        context.baseStrategy.vaultState.lastSettlementTimestamp = uint32(block.timestamp);
+        context.baseStrategy.vaultState.setStrategyVaultState();
+    }
+
+    function settleVaultPostMaturity(
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata data
+    ) external onlyNotionalOwner {
+        if (block.timestamp < maturity) {
+            revert Errors.HasNotMatured();
+        }
+        Boosted3TokenAuraStrategyContext memory context = _strategyContext();
+        SettlementUtils._validateCoolDown(
+            context.baseStrategy.vaultState.lastPostMaturitySettlementTimestamp,
+            context.baseStrategy.vaultSettings.postMaturitySettlementCoolDownInMinutes
+        );
+        RedeemParams memory params = SettlementUtils._decodeParamsAndValidate(
+            context.baseStrategy.vaultSettings.postMaturitySettlementSlippageLimitPercent,
+            data
+        );
+        Boosted3TokenAuraHelper.settleVault(
+            context, maturity, strategyTokensToRedeem, params
+        );
+        context.baseStrategy.vaultState.lastPostMaturitySettlementTimestamp = uint32(block.timestamp);    
+        context.baseStrategy.vaultState.setStrategyVaultState();  
+    }
+
+    function settleVaultEmergency(uint256 maturity, bytes calldata data) external {
+        // No need for emergency settlement during the settlement window
+        _revertInSettlementWindow(maturity);
+        Boosted3TokenAuraHelper.settleVaultEmergency(
+            _strategyContext(), maturity, data
+        );
+    }
+
+    function reinvestReward(ReinvestRewardParams calldata params) external {
+        Boosted3TokenAuraHelper.reinvestReward(_strategyContext(), params);
+    }
+
+    function convertStrategyToUnderlying(
+        address account,
+        uint256 strategyTokenAmount,
+        uint256 maturity
+    ) public view virtual override returns (int256 underlyingValue) {
+        Boosted3TokenAuraStrategyContext memory context = _strategyContext();
+        underlyingValue = context.poolContext._convertStrategyToUnderlying({
+            strategyContext: context.baseStrategy,
+            oracleContext: context.oracleContext,
+            strategyTokenAmount: strategyTokenAmount
+        });
+    }
+
+    /// @notice Updates the vault settings
+    /// @param settings vault settings
+    function setStrategyVaultSettings(StrategyVaultSettings calldata settings)
+        external
+        onlyNotionalOwner
+    {
+        // 3 token vaults do not use the Balancer oracle
+        BalancerVaultStorage.setStrategyVaultSettings(
+            settings, 
+            0, // Max Balancer oracle window size
+            0  // Balancer oracle weight
+        );
+    }
+
+    function _strategyContext() private view returns (Boosted3TokenAuraStrategyContext memory) {
+        (
+            /* address[] memory tokens */,
+            uint256[] memory balances,
+            /* uint256 lastChangeBlock */
+        ) = Deployments.BALANCER_VAULT.getPoolTokens(BALANCER_POOL_ID);
+
+        return Boosted3TokenAuraStrategyContext({
+            poolContext: _threeTokenPoolContext(balances),
+            oracleContext: _boostedOracleContext(balances),
+            stakingContext: _auraStakingContext(),
+            baseStrategy: _baseStrategyContext()
+        });
+    }
+    
+    function getStrategyContext() external view returns (Boosted3TokenAuraStrategyContext memory) {
+        return _strategyContext();
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/Boosted3TokenAuraVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/CrossCurrencyfCashVault.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import {NotionalProxy} from "../../interfaces/notional/NotionalProxy.sol";
+import {IWrappedfCashFactory} from "../../interfaces/notional/IWrappedfCashFactory.sol";
+import {WETH9} from "../../interfaces/WETH9.sol";
+import {IWrappedfCashComplete as IWrappedfCash} from "../../interfaces/notional/IWrappedfCash.sol";
+import {BaseStrategyVault} from "./BaseStrategyVault.sol";
+import {IERC20} from "../utils/TokenUtils.sol";
+import {
+    AccountContext,
+    BalanceActionWithTrades,
+    DepositActionType,
+    TradeActionType,
+    BatchLend,
+    Token,
+    TokenType,
+    VaultState
+} from "../global/Types.sol";
+import {Constants} from "../global/Constants.sol";
+import {DateTime} from "../global/DateTime.sol";
+import {TypeConvert} from "../global/TypeConvert.sol";
+import {ITradingModule, DexId, TradeType, Trade} from "../../interfaces/trading/ITradingModule.sol";
+import {TradeHandler} from "../trading/TradeHandler.sol";
+
+/**
+ * @notice This vault borrows in one currency, trades it to a different currency
+ * and lends on Notional in that currency. It will be paired with another vault
+ * that lends and borrows in the opposite direction.
+ */
+contract CrossCurrencyfCashVault is BaseStrategyVault {
+    using TypeConvert for uint256;
+    using TypeConvert for int256;
+
+    uint256 public constant SETTLEMENT_SLIPPAGE_PRECISION = 1e18;
+
+    struct DepositParams {
+        // Minimum purchase amount of the lend underlying token, this is
+        // based on the deposit + borrowed amount and must be set to a non-zero
+        // value to establish a slippage limit.
+        uint256 minPurchaseAmount;
+        // Minimum annualized lending rate, can be set to zero for no slippage limit
+        uint32 minLendRate;
+        // ID of the desired DEX to trade on, _depositFromNotional will always trade
+        // using an EXACT_IN_SINGLE trade which is supported by all DEXes
+        uint16 dexId;
+        // Exchange data depending on the selected dexId
+        bytes exchangeData;
+    }
+
+    struct RedeemParams {
+        // Minimum purchase amount of the borrow underlying token, this is
+        // based on the amount of lend underlying received and must be set to a non-zero
+        // value to establish a slippage limit.
+        uint256 minPurchaseAmount;
+        // Maximum annualized borrow rate, can be set to zero for no slippage limit
+        uint32 maxBorrowRate;
+        // ID of the desired DEX to trade on, _depositFromNotional will always trade
+        // using an EXACT_IN_SINGLE trade which is supported by all DEXes
+        uint16 dexId;
+        // Exchange data depending on the selected dexId
+        bytes exchangeData;
+    }
+
+    uint16 public LEND_CURRENCY_ID;
+    IERC20 public LEND_UNDERLYING_TOKEN;
+    /// @notice a maximum slippage limit in 1e18 precision, uint64 is sufficient to hold the maximum value which
+    /// is 1e18
+    uint64 public settlementSlippageLimit;
+    // NOTE: 2 bytes left in first storage slot here
+
+    constructor(NotionalProxy notional_, ITradingModule tradingModule_)
+        BaseStrategyVault(notional_, tradingModule_) {}
+
+    function strategy() external override view returns (bytes4) {
+        return bytes4(keccak256("CrossCurrencyfCash"));
+    }
+    function initialize(
+        string memory name_,
+        uint16 borrowCurrencyId_,
+        uint16 lendCurrencyId_,
+        uint64 settlementSlippageLimit_
+    ) external initializer {
+        __INIT_VAULT(name_, borrowCurrencyId_);
+
+        LEND_CURRENCY_ID = lendCurrencyId_;
+        (
+            Token memory assetToken,
+            Token memory underlyingToken,
+            /* ETHRate memory ethRate */,
+            /* AssetRateParameters memory assetRate */
+        ) = NOTIONAL.getCurrencyAndRates(lendCurrencyId_);
+
+        IERC20 tokenAddress = assetToken.tokenType == TokenType.NonMintable ?
+            IERC20(assetToken.tokenAddress) : IERC20(underlyingToken.tokenAddress);
+        LEND_UNDERLYING_TOKEN = tokenAddress;
+
+        // Allow Notional to pull the lend underlying currency
+        tokenAddress.approve(address(NOTIONAL), type(uint256).max);
+
+        // This value cannot be greater than 1e18
+        require(settlementSlippageLimit_ < SETTLEMENT_SLIPPAGE_PRECISION);
+        settlementSlippageLimit = settlementSlippageLimit_;
+    }
+
+    function updateSettlementSlippageLimit(uint64 newSlippageLimit) external {
+        require(msg.sender == NOTIONAL.owner());
+        require(newSlippageLimit < SETTLEMENT_SLIPPAGE_PRECISION);
+        settlementSlippageLimit = newSlippageLimit;
+    }
+
+    /**
+     * @notice During settlement all of the fCash balance in the lend currency will be redeemed to the
+     * underlying token and traded back to the borrow currency. All of the borrow currency will be deposited
+     * into the Notional contract as asset tokens and held for accounts to withdraw. Settlement can only
+     * be called after maturity.
+     * @param maturity the maturity to settle
+     * @param settlementTrade details for the settlement trade
+     */
+    function settleVault(uint256 maturity, uint256 strategyTokens, bytes calldata settlementTrade) external {
+        require(maturity <= block.timestamp, "Cannot Settle");
+        VaultState memory vaultState = NOTIONAL.getVaultState(address(this), maturity);
+        require(vaultState.isSettled == false);
+        require(vaultState.totalStrategyTokens >= strategyTokens);
+
+        RedeemParams memory params = abi.decode(settlementTrade, (RedeemParams));
+    
+        // The only way for underlying value to be negative would be if the vault has somehow ended up with a borrowing
+        // position in the lend underlying currency. This is explicitly prevented during redemption.
+        uint256 underlyingValue = convertStrategyToUnderlying(
+            address(0), vaultState.totalStrategyTokens, maturity
+        ).toUint();
+
+        // Authenticate the minimum purchase amount, all tokens will be sold given this slippage limit.
+        uint256 minAllowedPurchaseAmount = (underlyingValue * settlementSlippageLimit) / SETTLEMENT_SLIPPAGE_PRECISION;
+        require(params.minPurchaseAmount >= minAllowedPurchaseAmount, "Purchase Limit");
+
+        NOTIONAL.redeemStrategyTokensToCash(maturity, strategyTokens, settlementTrade);
+
+        // If there are no more strategy tokens left, then mark the vault as settled
+        vaultState = NOTIONAL.getVaultState(address(this), maturity);
+        if (vaultState.totalStrategyTokens == 0) {
+            NOTIONAL.settleVault(address(this), maturity);
+        }
+    }
+
+    /**
+     * @notice Converts the amount of fCash the vault holds into underlying denomination for the
+     * borrow currency.
+     * @param strategyTokens each strategy token is equivalent to 1 unit of fCash
+     * @param maturity the maturity of the fCash
+     * @return underlyingValue the value of the lent fCash in terms of the borrowed currency
+     */
+    function convertStrategyToUnderlying(
+        address /* account */,
+        uint256 strategyTokens,
+        uint256 maturity
+    ) public override view returns (int256 underlyingValue) {
+        int256 pvInternal;
+        if (maturity <= block.timestamp) {
+            // After maturity, strategy tokens no longer have a present value
+            pvInternal = strategyTokens.toInt();
+        } else {
+            // This is the non-risk adjusted oracle price for fCash, present value is used in case
+            // liquidation is required. The liquidator may need to exit the fCash position in order
+            // to repay a flash loan.
+            pvInternal = NOTIONAL.getPresentfCashValue(
+                LEND_CURRENCY_ID, maturity, strategyTokens.toInt(), block.timestamp, false
+            );
+        }
+
+        IERC20 underlyingToken = _underlyingToken();
+        (int256 rate, int256 rateDecimals) = TRADING_MODULE.getOraclePrice(
+            address(LEND_UNDERLYING_TOKEN), address(underlyingToken)
+        );
+        int256 borrowTokenDecimals = int256(10**underlyingToken.decimals());
+
+        // Convert this back to the borrow currency, external precision
+        // (pv (8 decimals) * borrowTokenDecimals * rate) / (rateDecimals * 8 decimals)
+        return (pvInternal * borrowTokenDecimals * rate) /
+            (rateDecimals * int256(Constants.INTERNAL_TOKEN_PRECISION));
+    }
+
+    /**
+     * @notice Will receive a deposit from Notional in underlying tokens of the borrowed currency.
+     * Needs to first trade that deposit into the lend currency and then lend it to fCash on the
+     * corresponding maturity.
+     * @param depositUnderlyingExternal amount of tokens deposited in the borrow currency
+     * @param maturity the maturity that was borrowed at, will also be the maturity that is lent to
+     * @param data DepositParams
+     * @return lendfCashMinted the amount of strategy tokens (fCash lent) generated
+     */
+    function _depositFromNotional(
+        address /* account */,
+        uint256 depositUnderlyingExternal,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 lendfCashMinted) {
+        DepositParams memory params = abi.decode(data, (DepositParams));
+        Trade memory trade = Trade({
+            tradeType: TradeType.EXACT_IN_SINGLE,
+            sellToken: address(_underlyingToken()),
+            buyToken: address(LEND_UNDERLYING_TOKEN),
+            amount: depositUnderlyingExternal,
+            limit: params.minPurchaseAmount,
+            deadline: block.timestamp,
+            exchangeData: params.exchangeData
+        });
+
+        (/* */, uint256 lendUnderlyingTokens) = _executeTrade(params.dexId, trade);
+
+        // Now we lend the underlying amount
+        (uint256 fCashAmount, /* */, bytes32 encodedTrade) = NOTIONAL.getfCashLendFromDeposit(
+            LEND_CURRENCY_ID,
+            lendUnderlyingTokens,
+            maturity,
+            params.minLendRate,
+            block.timestamp,
+            true // useUnderlying is true
+        );
+
+        BatchLend[] memory action = new BatchLend[](1);
+        action[0].currencyId = LEND_CURRENCY_ID;
+        action[0].depositUnderlying = true;
+        action[0].trades = new bytes32[](1);
+        action[0].trades[0] = encodedTrade;
+        NOTIONAL.batchLend(address(this), action);
+
+        // fCash is the strategy token in this case, batchLend will always mint exactly fCashAmount
+        return fCashAmount;
+    }
+
+    /**
+     * @notice Withdraws lent fCash from Notional (by selling it prior to maturity or withdrawing post maturity),
+     * and trades it all back to the borrowed currency.
+     * @param account the account that is doing the redemption
+     * @param strategyTokens the amount of fCash to redeem
+     * @param maturity the maturity of the fCash
+     * @param data RedeemParams
+     * @return borrowedCurrencyAmount the amount of borrowed currency raised by the redemption
+     */
+    function _redeemFromNotional(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 borrowedCurrencyAmount) {
+        uint256 balanceBefore = LEND_UNDERLYING_TOKEN.balanceOf(address(this));
+        RedeemParams memory params = abi.decode(data, (RedeemParams));
+
+        if (maturity <= block.timestamp) {
+            // Only allow the vault to redeem past maturity to settle all positions
+            require(account == address(this));
+            NOTIONAL.settleAccount(address(this));
+            (int256 cashBalance, /* */, /* */) = NOTIONAL.getAccountBalance(LEND_CURRENCY_ID, address(this));
+
+            // It should never be possible that this contract has a negative cash balance
+            require(0 <= cashBalance && cashBalance <= int256(uint256(type(uint88).max)));
+
+            // Withdraws all cash to underlying
+            NOTIONAL.withdraw(LEND_CURRENCY_ID, uint88(uint256(cashBalance)), true);
+        } else {
+            // Sells fCash on Notional AMM (via borrowing)
+            BalanceActionWithTrades[] memory action = _encodeBorrowTrade(
+                maturity,
+                strategyTokens,
+                params.maxBorrowRate
+            );
+            NOTIONAL.batchBalanceAndTradeAction(address(this), action);
+
+            // Check that we have not somehow borrowed into a negative fCash position, vault borrows
+            // are not included in account context
+            AccountContext memory accountContext = NOTIONAL.getAccountContext(address(this));
+            require(accountContext.hasDebt == 0x00);
+        }
+
+        uint256 balanceAfter = LEND_UNDERLYING_TOKEN.balanceOf(address(this));
+        
+        // Trade back to borrow currency for repayment
+        Trade memory trade = Trade({
+            tradeType: TradeType.EXACT_IN_SINGLE,
+            sellToken: address(LEND_UNDERLYING_TOKEN),
+            buyToken: address(_underlyingToken()),
+            amount: balanceAfter - balanceBefore,
+            limit: params.minPurchaseAmount,
+            deadline: block.timestamp,
+            exchangeData: params.exchangeData
+        });
+
+        (/* */, borrowedCurrencyAmount) = _executeTrade(params.dexId, trade);
+    }
+
+    function _encodeBorrowTrade(
+        uint256 maturity,
+        uint256 fCashAmount,
+        uint32 maxImpliedRate
+    ) private view returns (BalanceActionWithTrades[] memory action) {
+        (uint256 marketIndex, bool isIdiosyncratic) = DateTime.getMarketIndex(
+            Constants.MAX_TRADED_MARKET_INDEX,
+            maturity,
+            block.timestamp
+        );
+        require(!isIdiosyncratic);
+        require(fCashAmount <= uint256(type(uint88).max));
+
+        action = new BalanceActionWithTrades[](1);
+        action[0].actionType = DepositActionType.None;
+        action[0].currencyId = LEND_CURRENCY_ID;
+        action[0].withdrawEntireCashBalance = true;
+        action[0].redeemToUnderlying = true;
+        action[0].trades = new bytes32[](1);
+        action[0].trades[0] = bytes32(
+            (uint256(uint8(TradeActionType.Borrow)) << 248) |
+            (uint256(marketIndex) << 240) |
+            (uint256(fCashAmount) << 152) |
+            (uint256(maxImpliedRate) << 120)
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/CrossCurrencyfCashVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vaults/MetaStable2TokenAuraVault.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.15;
+
+import {BalancerConstants} from "./balancer/internal/BalancerConstants.sol";
+import {Errors} from "../global/Errors.sol";
+import {
+    DepositParams,
+    RedeemParams,
+    AuraVaultDeploymentParams,
+    InitParams,
+    ReinvestRewardParams,
+    StrategyVaultSettings,
+    StrategyVaultState,
+    PoolContext,
+    TwoTokenPoolContext,
+    StableOracleContext,
+    MetaStable2TokenAuraStrategyContext,
+    StrategyContext
+} from "./balancer/BalancerVaultTypes.sol";
+import {BalancerStrategyBase} from "./balancer/BalancerStrategyBase.sol";
+import {MetaStable2TokenVaultMixin} from "./balancer/mixins/MetaStable2TokenVaultMixin.sol";
+import {AuraStakingMixin} from "./balancer/mixins/AuraStakingMixin.sol";
+import {NotionalProxy} from "../../interfaces/notional/NotionalProxy.sol";
+import {BalancerVaultStorage} from "./balancer/internal/BalancerVaultStorage.sol";
+import {StrategyUtils} from "./balancer/internal/strategy/StrategyUtils.sol";
+import {SettlementUtils} from "./balancer/internal/settlement/SettlementUtils.sol";
+import {TwoTokenPoolUtils} from "./balancer/internal/pool/TwoTokenPoolUtils.sol";
+import {MetaStable2TokenAuraHelper} from "./balancer/external/MetaStable2TokenAuraHelper.sol";
+
+contract MetaStable2TokenAuraVault is MetaStable2TokenVaultMixin {
+    using BalancerVaultStorage for StrategyVaultSettings;
+    using BalancerVaultStorage for StrategyVaultState;
+    using StrategyUtils for StrategyContext;
+    using TwoTokenPoolUtils for TwoTokenPoolContext;
+    
+    constructor(NotionalProxy notional_, AuraVaultDeploymentParams memory params) 
+        MetaStable2TokenVaultMixin(notional_, params)
+    {}
+
+    function strategy() external override view returns (bytes4) {
+        return bytes4(keccak256("MetaStable2TokenAura"));
+    }
+
+    function initialize(InitParams calldata params)
+        external
+        initializer
+        onlyNotionalOwner
+    {
+        __INIT_VAULT(params.name, params.borrowCurrencyId);
+        BalancerVaultStorage.setStrategyVaultSettings(
+            params.settings, MAX_ORACLE_QUERY_WINDOW, BalancerConstants.VAULT_PERCENT_BASIS
+        );
+        _twoTokenPoolContext()._approveBalancerTokens(address(_auraStakingContext().auraBooster));
+    }
+
+    function _depositFromNotional(
+        address account,
+        uint256 deposit,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 strategyTokensMinted) {
+        DepositParams memory params = abi.decode(data, (DepositParams));
+        MetaStable2TokenAuraStrategyContext memory context = _strategyContext();
+
+        strategyTokensMinted = context.poolContext._deposit({
+            strategyContext: context.baseStrategy,
+            stakingContext: context.stakingContext,
+            deposit: deposit,
+            params: params
+        });
+    }
+
+    function _redeemFromNotional(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity,
+        bytes calldata data
+    ) internal override returns (uint256 finalPrimaryBalance) {    
+        RedeemParams memory params = abi.decode(data, (RedeemParams));
+        MetaStable2TokenAuraStrategyContext memory context = _strategyContext();
+
+        finalPrimaryBalance = context.poolContext._redeem({
+            strategyContext: context.baseStrategy,
+            stakingContext: context.stakingContext,
+            account: account,
+            strategyTokens: strategyTokens,
+            maturity: maturity,
+            params: params
+        });
+    }
+
+    function convertStrategyToUnderlying(
+        address account,
+        uint256 strategyTokenAmount,
+        uint256 maturity
+    ) public view virtual override returns (int256 underlyingValue) {
+        MetaStable2TokenAuraStrategyContext memory context = _strategyContext();
+        underlyingValue = context.poolContext._convertStrategyToUnderlying({
+            strategyContext: context.baseStrategy,
+            oracleContext: context.oracleContext.baseOracle,
+            strategyTokenAmount: strategyTokenAmount
+        });
+    }
+
+    function settleVaultNormal(
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata data
+    ) external {
+        if (maturity <= block.timestamp) {
+            revert Errors.PostMaturitySettlement();
+        }
+        if (block.timestamp < maturity - SETTLEMENT_PERIOD_IN_SECONDS) {
+            revert Errors.NotInSettlementWindow();
+        }
+        MetaStable2TokenAuraStrategyContext memory context = _strategyContext();
+        SettlementUtils._validateCoolDown(
+            context.baseStrategy.vaultState.lastSettlementTimestamp,
+            context.baseStrategy.vaultSettings.settlementCoolDownInMinutes
+        );
+        RedeemParams memory params = SettlementUtils._decodeParamsAndValidate(
+            context.baseStrategy.vaultSettings.settlementSlippageLimitPercent,
+            data
+        );
+        MetaStable2TokenAuraHelper.settleVault(
+            context, maturity, strategyTokensToRedeem, params
+        );
+        context.baseStrategy.vaultState.lastSettlementTimestamp = uint32(block.timestamp);
+        context.baseStrategy.vaultState.setStrategyVaultState();
+    }
+
+    function settleVaultPostMaturity(
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata data
+    ) external onlyNotionalOwner {
+        if (block.timestamp < maturity) {
+            revert Errors.HasNotMatured();
+        }
+        MetaStable2TokenAuraStrategyContext memory context = _strategyContext();
+        SettlementUtils._validateCoolDown(
+            context.baseStrategy.vaultState.lastPostMaturitySettlementTimestamp,
+            context.baseStrategy.vaultSettings.postMaturitySettlementCoolDownInMinutes
+        );
+        RedeemParams memory params = SettlementUtils._decodeParamsAndValidate(
+            context.baseStrategy.vaultSettings.postMaturitySettlementSlippageLimitPercent,
+            data
+        );
+        MetaStable2TokenAuraHelper.settleVault(
+            context, maturity, strategyTokensToRedeem, params
+        );
+        context.baseStrategy.vaultState.lastPostMaturitySettlementTimestamp = uint32(block.timestamp);    
+        context.baseStrategy.vaultState.setStrategyVaultState();  
+    }
+
+    function settleVaultEmergency(uint256 maturity, bytes calldata data) external {
+        // No need for emergency settlement during the settlement window
+        _revertInSettlementWindow(maturity);
+        MetaStable2TokenAuraHelper.settleVaultEmergency(
+            _strategyContext(), maturity, data
+        );
+    }
+
+    function reinvestReward(ReinvestRewardParams calldata params) external {
+        MetaStable2TokenAuraHelper.reinvestReward(_strategyContext(), params);
+    }
+
+    /// @notice Updates the vault settings
+    /// @param settings vault settings
+    function setStrategyVaultSettings(StrategyVaultSettings calldata settings)
+        external
+        onlyNotionalOwner
+    {
+        BalancerVaultStorage.setStrategyVaultSettings(
+            settings, MAX_ORACLE_QUERY_WINDOW, BalancerConstants.VAULT_PERCENT_BASIS
+        );
+    }
+
+    function _strategyContext() private view returns (MetaStable2TokenAuraStrategyContext memory) {
+        return MetaStable2TokenAuraStrategyContext({
+            poolContext: _twoTokenPoolContext(),
+            oracleContext: _stableOracleContext(),
+            stakingContext: _auraStakingContext(),
+            baseStrategy: _baseStrategyContext()
+        });
+    }
+    
+    function getStrategyContext() external view returns (MetaStable2TokenAuraStrategyContext memory) {
+        return _strategyContext();
+    }
+}
+// ===== END SOURCE FILE: contracts/vaults/MetaStable2TokenAuraVault.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/aave/ILendingPool.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+struct LendingPoolStorage {
+  ILendingPool lendingPool;
+}
+
+interface ILendingPool {
+
+  /**
+   * @dev Deposits an `amount` of underlying asset into the reserve, receiving in return overlying aTokens.
+   * - E.g. User deposits 100 USDC and gets in return 100 aUSDC
+   * @param asset The address of the underlying asset to deposit
+   * @param amount The amount to be deposited
+   * @param onBehalfOf The address that will receive the aTokens, same as msg.sender if the user
+   *   wants to receive them on his own wallet, or a different address if the beneficiary of aTokens
+   *   is a different wallet
+   * @param referralCode Code used to register the integrator originating the operation, for potential rewards.
+   *   0 if the action is executed directly by the user, without any middle-man
+   **/
+  function deposit(
+    address asset,
+    uint256 amount,
+    address onBehalfOf,
+    uint16 referralCode
+  ) external;
+
+  /**
+   * @dev Withdraws an `amount` of underlying asset from the reserve, burning the equivalent aTokens owned
+   * E.g. User has 100 aUSDC, calls withdraw() and receives 100 USDC, burning the 100 aUSDC
+   * @param asset The address of the underlying asset to withdraw
+   * @param amount The underlying amount to be withdrawn
+   *   - Send the value type(uint256).max in order to withdraw the whole aToken balance
+   * @param to Address that will receive the underlying, same as msg.sender if the user
+   *   wants to receive it on his own wallet, or a different address if the beneficiary is a
+   *   different wallet
+   * @return The final amount withdrawn
+   **/
+  function withdraw(
+    address asset,
+    uint256 amount,
+    address to
+  ) external returns (uint256);
+
+  /**
+   * @dev Returns the normalized income normalized income of the reserve
+   * @param asset The address of the underlying asset of the reserve
+   * @return The reserve's normalized income
+   */
+  function getReserveNormalizedIncome(address asset) external view returns (uint256);
+
+    /**
+   * @dev Returns the state and configuration of the reserve
+   * @param asset The address of the underlying asset of the reserve
+   * @return The state of the reserve
+   **/
+  function getReserveData(address asset) external view returns (ReserveData memory);
+
+  // refer to the whitepaper, section 1.1 basic concepts for a formal description of these properties.
+  struct ReserveData {
+    //stores the reserve configuration
+    ReserveConfigurationMap configuration;
+    //the liquidity index. Expressed in ray
+    uint128 liquidityIndex;
+    //variable borrow index. Expressed in ray
+    uint128 variableBorrowIndex;
+    //the current supply rate. Expressed in ray
+    uint128 currentLiquidityRate;
+    //the current variable borrow rate. Expressed in ray
+    uint128 currentVariableBorrowRate;
+    //the current stable borrow rate. Expressed in ray
+    uint128 currentStableBorrowRate;
+    uint40 lastUpdateTimestamp;
+    //tokens addresses
+    address aTokenAddress;
+    address stableDebtTokenAddress;
+    address variableDebtTokenAddress;
+    //address of the interest rate strategy
+    address interestRateStrategyAddress;
+    //the id of the reserve. Represents the position in the list of the active reserves
+    uint8 id;
+  }
+
+  struct ReserveConfigurationMap {
+    //bit 0-15: LTV
+    //bit 16-31: Liq. threshold
+    //bit 32-47: Liq. bonus
+    //bit 48-55: Decimals
+    //bit 56: Reserve is active
+    //bit 57: reserve is frozen
+    //bit 58: borrowing is enabled
+    //bit 59: stable rate borrowing enabled
+    //bit 60-63: reserved
+    //bit 64-79: reserve factor
+    uint256 data;
+  }
+
+  struct UserConfigurationMap {
+    uint256 data;
+  }
+
+  enum InterestRateMode {NONE, STABLE, VARIABLE}
+}
+// ===== END SOURCE FILE: interfaces/aave/ILendingPool.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/aura/IAuraBooster.sol =====
+
+pragma solidity 0.8.15;
+
+interface IAuraBooster {
+    function deposit(uint256 _pid, uint256 _amount, bool _stake) external returns(bool);
+    function stakerRewards() external view returns(address);
+}
+// ===== END SOURCE FILE: interfaces/aura/IAuraBooster.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/aura/IAuraRewardPool.sol =====
+
+pragma solidity 0.8.15;
+
+interface IAuraRewardPool {
+    function withdrawAndUnwrap(uint256 amount, bool claim) external returns(bool);
+    function getReward(address _account, bool _claimExtras) external returns(bool);
+    function balanceOf(address _account) external view returns(uint256);
+    function pid() external view returns(uint256);
+    function operator() external view returns(address);
+}
+// ===== END SOURCE FILE: interfaces/aura/IAuraRewardPool.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/aura/IAuraStakingProxy.sol =====
+
+pragma solidity 0.8.15;
+
+interface IAuraStakingProxy {
+    function crv() external view returns(address);
+    function cvx() external view returns(address);
+}
+// ===== END SOURCE FILE: interfaces/aura/IAuraStakingProxy.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/IBalancerMinter.sol =====
+
+pragma solidity 0.8.15;
+
+interface IBalancerMinter {
+    function mint(address gauge) external;
+    function getBalancerToken() external returns (address);
+}
+// ===== END SOURCE FILE: interfaces/balancer/IBalancerMinter.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/IBalancerPool.sol =====
+pragma solidity 0.8.15;
+
+import {IERC20} from "../IERC20.sol";
+
+interface IBoostedPool {
+    function getMainToken() external view returns (address);   
+    function getWrappedToken() external view returns (address);   
+    function getPoolId() external view returns (bytes32); 
+    function getAmplificationParameter() external view returns (
+        uint256 value,
+        bool isUpdating,
+        uint256 precision
+    );
+    function getDueProtocolFeeBptAmount() external view returns (uint256);
+    function getCachedProtocolSwapFeePercentage() external view returns (uint256);
+}
+
+interface IMetaStablePool is IERC20 {
+    function getOracleMiscData() external view returns (
+        int256 logInvariant, 
+        int256 logTotalSupply, 
+        uint256 oracleSampleCreationTimestamp, 
+        int256 oracleIndex, 
+        bool oracleEnabled
+    );
+
+    function getAmplificationParameter() external view returns (
+        uint256 value,
+        bool isUpdating,
+        uint256 precision
+    );
+}
+
+interface IWeightedPool is IERC20 {
+    function getNormalizedWeights() external view returns (uint256[] memory);
+
+    function getMiscData() external view returns (
+        int256 logInvariant,
+        int256 logTotalSupply,
+        uint256 oracleSampleCreationTimestamp,
+        uint256 oracleIndex,
+        bool oracleEnabled,
+        uint256 swapFeePercentage
+    );
+}
+// ===== END SOURCE FILE: interfaces/balancer/IBalancerPool.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/IBalancerVault.sol =====
+pragma solidity 0.8.15;
+
+interface IAsset {
+    // solhint-disable-previous-line no-empty-blocks
+}
+
+interface IBalancerVault {
+    enum PoolSpecialization {
+        GENERAL,
+        MINIMAL_SWAP_INFO,
+        TWO_TOKEN
+    }
+    enum JoinKind {
+        INIT,
+        EXACT_TOKENS_IN_FOR_BPT_OUT,
+        TOKEN_IN_FOR_EXACT_BPT_OUT,
+        ALL_TOKENS_IN_FOR_EXACT_BPT_OUT
+    }
+    enum ExitKind {
+        EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
+        EXACT_BPT_IN_FOR_TOKENS_OUT,
+        BPT_IN_FOR_EXACT_TOKENS_OUT,
+        MANAGEMENT_FEE_TOKENS_OUT // for ManagedPool
+    }
+
+    /**
+     * @dev Returns a Pool's contract address and specialization setting.
+     */
+    function getPool(bytes32 poolId)
+        external
+        view
+        returns (address, PoolSpecialization);
+
+    function joinPool(
+        bytes32 poolId,
+        address sender,
+        address recipient,
+        JoinPoolRequest memory request
+    ) external payable;
+
+    struct JoinPoolRequest {
+        IAsset[] assets;
+        uint256[] maxAmountsIn;
+        bytes userData;
+        bool fromInternalBalance;
+    }
+
+    function exitPool(
+        bytes32 poolId,
+        address sender,
+        address payable recipient,
+        ExitPoolRequest memory request
+    ) external;
+
+    struct ExitPoolRequest {
+        IAsset[] assets;
+        uint256[] minAmountsOut;
+        bytes userData;
+        bool toInternalBalance;
+    }
+
+    enum SwapKind {
+        GIVEN_IN,
+        GIVEN_OUT
+    }
+
+    struct SingleSwap {
+        bytes32 poolId;
+        SwapKind kind;
+        IAsset assetIn;
+        IAsset assetOut;
+        uint256 amount;
+        bytes userData;
+    }
+
+    struct FundManagement {
+        address sender;
+        bool fromInternalBalance;
+        address payable recipient;
+        bool toInternalBalance;
+    }
+
+    function swap(
+        SingleSwap memory singleSwap,
+        FundManagement memory funds,
+        uint256 limit,
+        uint256 deadline
+    ) external payable returns (uint256);
+
+    struct BatchSwapStep {
+        bytes32 poolId;
+        uint256 assetInIndex;
+        uint256 assetOutIndex;
+        uint256 amount;
+        bytes userData;
+    }
+
+    function batchSwap(
+        SwapKind kind,
+        BatchSwapStep[] memory swaps,
+        IAsset[] memory assets,
+        FundManagement memory funds,
+        int256[] memory limits,
+        uint256 deadline
+    ) external payable returns (int256[] memory);
+
+    function getPoolTokens(bytes32 poolId)
+        external
+        view
+        returns (
+            address[] memory tokens,
+            uint256[] memory balances,
+            uint256 lastChangeBlock
+        );
+}
+// ===== END SOURCE FILE: interfaces/balancer/IBalancerVault.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/ILiquidityGauge.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface ILiquidityGauge is IERC20 {
+    function deposit(uint256 value) external;
+
+    function deposit(uint256 _value, address _addr, bool _claim_rewards) external;
+
+    function withdraw(uint256 value, bool claim_rewards) external;
+
+    function claim_rewards() external;
+
+    function balanceOf(address) external view returns (uint256);
+
+    // curve & balancer use lp_token()
+    function lp_token() external view returns (address);
+
+    // angle use staking_token()
+    function staking_token() external view returns (address);
+
+    function reward_tokens(uint256 i) external view returns (address token);
+
+    function reward_count() external view returns (uint256 nTokens);
+
+    function user_checkpoint(address addr) external returns (bool);
+}
+// ===== END SOURCE FILE: interfaces/balancer/ILiquidityGauge.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/IPriceOracle.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+pragma solidity 0.8.15;
+pragma abicoder v2;
+
+/**
+ * @dev Interface for querying historical data from a Pool that can be used as a Price Oracle.
+ *
+ * This lets third parties retrieve average prices of tokens held by a Pool over a given period of time, as well as the
+ * price of the Pool share token (BPT) and invariant. Since the invariant is a sensible measure of Pool liquidity, it
+ * can be used to compare two different price sources, and choose the most liquid one.
+ *
+ * Once the oracle is fully initialized, all queries are guaranteed to succeed as long as they require no data that
+ * is not older than the largest safe query window.
+ */
+interface IPriceOracle {
+    // The three values that can be queried:
+    //
+    // - PAIR_PRICE: the price of the tokens in the Pool, expressed as the price of the second token in units of the
+    //   first token. For example, if token A is worth $2, and token B is worth $4, the pair price will be 2.0.
+    //   Note that the price is computed *including* the tokens decimals. This means that the pair price of a Pool with
+    //   DAI and USDC will be close to 1.0, despite DAI having 18 decimals and USDC 6.
+    //
+    // - BPT_PRICE: the price of the Pool share token (BPT), in units of the first token.
+    //   Note that the price is computed *including* the tokens decimals. This means that the BPT price of a Pool with
+    //   USDC in which BPT is worth $5 will be 5.0, despite the BPT having 18 decimals and USDC 6.
+    //
+    // - INVARIANT: the value of the Pool's invariant, which serves as a measure of its liquidity.
+    enum Variable { PAIR_PRICE, BPT_PRICE, INVARIANT }
+
+    /**
+     * @dev Returns the time average weighted price corresponding to each of `queries`. Prices are represented as 18
+     * decimal fixed point values.
+     */
+    function getTimeWeightedAverage(OracleAverageQuery[] memory queries)
+        external
+        view
+        returns (uint256[] memory results);
+
+    /**
+     * @dev Returns latest sample of `variable`. Prices are represented as 18 decimal fixed point values.
+     */
+    function getLatest(Variable variable) external view returns (uint256);
+
+    /**
+     * @dev Information for a Time Weighted Average query.
+     *
+     * Each query computes the average over a window of duration `secs` seconds that ended `ago` seconds ago. For
+     * example, the average over the past 30 minutes is computed by settings secs to 1800 and ago to 0. If secs is 1800
+     * and ago is 1800 as well, the average between 60 and 30 minutes ago is computed instead.
+     */
+    struct OracleAverageQuery {
+        Variable variable;
+        uint256 secs;
+        uint256 ago;
+    }
+
+    /**
+     * @dev Returns largest time window that can be safely queried, where 'safely' means the Oracle is guaranteed to be
+     * able to produce a result and not revert.
+     *
+     * If a query has a non-zero `ago` value, then `secs + ago` (the oldest point in time) must be smaller than this
+     * value for 'safe' queries.
+     */
+    function getLargestSafeQueryWindow() external view returns (uint256);
+
+    /**
+     * @dev Returns the accumulators corresponding to each of `queries`.
+     */
+    function getPastAccumulators(OracleAccumulatorQuery[] memory queries)
+        external
+        view
+        returns (int256[] memory results);
+
+    /**
+     * @dev Information for an Accumulator query.
+     *
+     * Each query estimates the accumulator at a time `ago` seconds ago.
+     */
+    struct OracleAccumulatorQuery {
+        Variable variable;
+        uint256 ago;
+    }
+}
+// ===== END SOURCE FILE: interfaces/balancer/IPriceOracle.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/balancer/ISmartWalletChecker.sol =====
+pragma solidity 0.8.15;
+
+interface ISmartWalletChecker {
+    function allowlistAddress(address contractAddress) external;
+}
+// ===== END SOURCE FILE: interfaces/balancer/ISmartWalletChecker.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorInterface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+interface AggregatorInterface {
+  function latestAnswer() external view returns (int256);
+  function latestTimestamp() external view returns (uint256);
+  function latestRound() external view returns (uint256);
+  function getAnswer(uint256 roundId) external view returns (int256);
+  function getTimestamp(uint256 roundId) external view returns (uint256);
+
+  event AnswerUpdated(int256 indexed current, uint256 indexed roundId, uint256 updatedAt);
+  event NewRound(uint256 indexed roundId, address indexed startedBy, uint256 startedAt);
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorV2V3Interface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+import "./AggregatorInterface.sol";
+import "./AggregatorV3Interface.sol";
+
+interface AggregatorV2V3Interface is AggregatorInterface, AggregatorV3Interface
+{
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorV2V3Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorV3Interface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+interface AggregatorV3Interface {
+
+  function decimals() external view returns (uint8);
+  function description() external view returns (string memory);
+  function version() external view returns (uint256);
+
+  // getRoundData and latestRoundData should both raise "No data present"
+  // if they do not have data to report, instead of returning unset values
+  // which could be misinterpreted as actual reported values.
+  function getRoundData(uint80 _roundId)
+    external
+    view
+    returns (
+      uint80 roundId,
+      int256 answer,
+      uint256 startedAt,
+      uint256 updatedAt,
+      uint80 answeredInRound
+    );
+
+  function latestRoundData()
+    external
+    view
+    returns (
+      uint80 roundId,
+      int256 answer,
+      uint256 startedAt,
+      uint256 updatedAt,
+      uint80 answeredInRound
+    );
+
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorV3Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CErc20Interface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity >=0.7.6;
+
+import "./CTokenInterface.sol";
+
+interface CErc20Interface {
+
+    /*** User Interface ***/
+
+    function mint(uint mintAmount) external returns (uint);
+    function redeem(uint redeemTokens) external returns (uint);
+    function redeemUnderlying(uint redeemAmount) external returns (uint);
+    function borrow(uint borrowAmount) external returns (uint);
+    function repayBorrow(uint repayAmount) external returns (uint);
+    function repayBorrowBehalf(address borrower, uint repayAmount) external returns (uint);
+    function liquidateBorrow(address borrower, uint repayAmount, CTokenInterface cTokenCollateral) external returns (uint);
+}
+// ===== END SOURCE FILE: interfaces/compound/CErc20Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CEtherInterface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity >=0.7.6;
+
+interface CEtherInterface {
+    function mint() external payable;
+}
+// ===== END SOURCE FILE: interfaces/compound/CEtherInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CTokenInterface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity >=0.7.6;
+
+interface CTokenInterface {
+
+    /*** User Interface ***/
+
+    function underlying() external view returns (address);
+    function transfer(address dst, uint amount) external returns (bool);
+    function transferFrom(address src, address dst, uint amount) external returns (bool);
+    function approve(address spender, uint amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint);
+    function balanceOf(address owner) external view returns (uint);
+    function balanceOfUnderlying(address owner) external returns (uint);
+    function getAccountSnapshot(address account) external view returns (uint, uint, uint, uint);
+    function borrowRatePerBlock() external view returns (uint);
+    function supplyRatePerBlock() external view returns (uint);
+    function totalBorrowsCurrent() external returns (uint);
+    function borrowBalanceCurrent(address account) external returns (uint);
+    function borrowBalanceStored(address account) external view returns (uint);
+    function exchangeRateCurrent() external returns (uint);
+    function exchangeRateStored() external view returns (uint);
+    function getCash() external view returns (uint);
+    function accrueInterest() external returns (uint);
+    function seize(address liquidator, address borrower, uint seizeTokens) external returns (uint);
+}
+// ===== END SOURCE FILE: interfaces/compound/CTokenInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/curve/ICurvePool.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.15;
+
+interface ICurvePool {
+    function coins(uint256 idx) external view returns (address);
+
+    // @notice Perform an exchange between two coins
+    // @dev Index values can be found via the `coins` public getter method
+    // @dev see: https://etherscan.io/address/0xDC24316b9AE028F1497c275EB9192a3Ea0f67022#readContract
+    // @param i Index value for the stEth to send -- 1
+    // @param j Index value of the Eth to recieve -- 0
+    // @param dx Amount of `i` (stEth) being exchanged
+    // @param minDy Minimum amount of `j` (Eth) to receive
+    // @return Actual amount of `j` (Eth) received
+    function exchange(
+        int128 i,
+        int128 j,
+        uint256 dx,
+        uint256 minDy
+    ) external payable returns (uint256);
+}
+// ===== END SOURCE FILE: interfaces/curve/ICurvePool.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/curve/ICurveRegistry.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.15;
+
+interface ICurveRegistry {
+    function find_pool_for_coins(address _from, address _to)
+        external
+        view
+        returns (address);
+}
+// ===== END SOURCE FILE: interfaces/curve/ICurveRegistry.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/curve/ICurveRegistryProvider.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.15;
+
+interface ICurveRegistryProvider {
+    function get_registry() external view returns (address);
+}
+// ===== END SOURCE FILE: interfaces/curve/ICurveRegistryProvider.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/curve/ICurveRouter.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity 0.8.15;
+
+interface ICurveRouter {
+    function exchange(
+        uint256 _amount,
+        address[6] calldata _route,
+        uint256[8] calldata _indices,
+        uint256 _min_received
+    ) external payable;
+
+    function get_exchange_routing(
+        address _initial,
+        address _target,
+        uint256 _amount
+    ) external view returns (
+        address[6] memory route,
+        uint256[8] memory indexes,
+        uint256 expectedOutputAmount
+    );
+
+    function can_route(address _initial, address _target) external view returns (bool);
+}
+// ===== END SOURCE FILE: interfaces/curve/ICurveRouter.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/IEIP20NonStandard.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+
+/**
+ * @title EIP20NonStandardInterface
+ * @dev Version of ERC20 with no return values for `transfer` and `transferFrom`
+ *  See https://medium.com/coinmonks/missing-return-value-bug-at-least-130-tokens-affected-d67bf08521ca
+ */
+interface IEIP20NonStandard {
+
+    /**
+     * @notice Get the total number of tokens in circulation
+     * @return The supply of tokens
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @notice Gets the balance of the specified address
+     * @param owner The address from which the balance will be retrieved
+     * @return balance
+     */
+    function balanceOf(address owner) external view returns (uint256 balance);
+
+    ///
+    /// !!!!!!!!!!!!!!
+    /// !!! NOTICE !!! `transfer` does not return a value, in violation of the ERC-20 specification
+    /// !!!!!!!!!!!!!!
+    ///
+
+    /**
+      * @notice Transfer `amount` tokens from `msg.sender` to `dst`
+      * @param dst The address of the destination account
+      * @param amount The number of tokens to transfer
+      */
+    function transfer(address dst, uint256 amount) external;
+
+    ///
+    /// !!!!!!!!!!!!!!
+    /// !!! NOTICE !!! `transferFrom` does not return a value, in violation of the ERC-20 specification
+    /// !!!!!!!!!!!!!!
+    ///
+
+    /**
+      * @notice Transfer `amount` tokens from `src` to `dst`
+      * @param src The address of the source account
+      * @param dst The address of the destination account
+      * @param amount The number of tokens to transfer
+      */
+    function transferFrom(address src, address dst, uint256 amount) external;
+
+    ///
+    /// !!!!!!!!!!!!!!
+    /// !!! NOTICE !!! `approve` does not return a value, in violation of the ERC-20 specification
+    /// !!!!!!!!!!!!!!
+    ///
+
+    /**
+      * @notice Approve `spender` to transfer up to `amount` from `src`
+      * @dev This will overwrite the approval amount for `spender`
+      *  and is subject to issues noted [here](https://eips.ethereum.org/EIPS/eip-20#approve)
+      * @param spender The address of the account which may transfer tokens
+      * @param amount The number of tokens that are approved
+      */
+    function approve(address spender, uint256 amount) external;
+
+    /**
+      * @notice Get the current allowance from `owner` for `spender`
+      * @param owner The address of the account which owns the tokens to be spent
+      * @param spender The address of the account which may transfer tokens
+      * @return remaining The number of tokens allowed to be spent
+      */
+    function allowance(address owner, address spender) external view returns (uint256 remaining);
+
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+    event Approval(address indexed owner, address indexed spender, uint256 amount);
+}
+// ===== END SOURCE FILE: interfaces/IEIP20NonStandard.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/IERC20.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.7.6;
+
+/**
+ * @dev Interface of the ERC20 standard as defined in the EIP.
+ */
+interface IERC20 {
+    function decimals() external view returns (uint8);
+
+    /**
+     * @dev Returns the amount of tokens in existence.
+     */
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @dev Returns the amount of tokens owned by `account`.
+     */
+    function balanceOf(address account) external view returns (uint256);
+
+    /**
+     * @dev Moves `amount` tokens from the caller's account to `recipient`.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transfer(address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Returns the remaining number of tokens that `spender` will be
+     * allowed to spend on behalf of `owner` through {transferFrom}. This is
+     * zero by default.
+     *
+     * This value changes when {approve} or {transferFrom} are called.
+     */
+    function allowance(address owner, address spender) external view returns (uint256);
+
+    /**
+     * @dev Sets `amount` as the allowance of `spender` over the caller's tokens.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * IMPORTANT: Beware that changing an allowance with this method brings the risk
+     * that someone may use both the old and the new allowance by unfortunate
+     * transaction ordering. One possible solution to mitigate this race
+     * condition is to first reduce the spender's allowance to 0 and set the
+     * desired value afterwards:
+     * https://github.com/ethereum/EIPs/issues/20#issuecomment-263524729
+     *
+     * Emits an {Approval} event.
+     */
+    function approve(address spender, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Moves `amount` tokens from `sender` to `recipient` using the
+     * allowance mechanism. `amount` is then deducted from the caller's
+     * allowance.
+     *
+     * Returns a boolean value indicating whether the operation succeeded.
+     *
+     * Emits a {Transfer} event.
+     */
+    function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
+
+    /**
+     * @dev Emitted when `value` tokens are moved from one account (`from`) to
+     * another (`to`).
+     *
+     * Note that `value` may be zero.
+     */
+    event Transfer(address indexed from, address indexed to, uint256 value);
+
+    /**
+     * @dev Emitted when the allowance of a `spender` for an `owner` is set by
+     * a call to {approve}. `value` is the new allowance.
+     */
+    event Approval(address indexed owner, address indexed spender, uint256 value);
+}
+// ===== END SOURCE FILE: interfaces/IERC20.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/IERC4626.sol =====
+pragma solidity ^0.8.0;
+
+interface IERC4626 {
+    event Deposit(address indexed caller, address indexed owner, uint256 assets, uint256 shares);
+
+    event Withdraw(
+        address indexed caller,
+        address indexed receiver,
+        address indexed owner,
+        uint256 assets,
+        uint256 shares
+    );
+
+    /**
+     * @dev Returns the address of the underlying token used for the Vault for accounting, depositing, and withdrawing.
+     *
+     * - MUST be an ERC-20 token contract.
+     * - MUST NOT revert.
+     */
+    function asset() external view returns (address assetTokenAddress);
+
+    /**
+     * @dev Returns the total amount of the underlying asset that is "managed" by Vault.
+     *
+     * - SHOULD include any compounding that occurs from yield.
+     * - MUST be inclusive of any fees that are charged against assets in the Vault.
+     * - MUST NOT revert.
+     */
+    function totalAssets() external view returns (uint256 totalManagedAssets);
+
+    /**
+     * @dev Returns the amount of shares that the Vault would exchange for the amount of assets provided, in an ideal
+     * scenario where all the conditions are met.
+     *
+     * - MUST NOT be inclusive of any fees that are charged against assets in the Vault.
+     * - MUST NOT show any variations depending on the caller.
+     * - MUST NOT reflect slippage or other on-chain conditions, when performing the actual exchange.
+     * - MUST NOT revert.
+     *
+     * NOTE: This calculation MAY NOT reflect the "per-user" price-per-share, and instead should reflect the
+     * "average-user's" price-per-share, meaning what the average user should expect to see when exchanging to and
+     * from.
+     */
+    function convertToShares(uint256 assets) external view returns (uint256 shares);
+
+    /**
+     * @dev Returns the amount of assets that the Vault would exchange for the amount of shares provided, in an ideal
+     * scenario where all the conditions are met.
+     *
+     * - MUST NOT be inclusive of any fees that are charged against assets in the Vault.
+     * - MUST NOT show any variations depending on the caller.
+     * - MUST NOT reflect slippage or other on-chain conditions, when performing the actual exchange.
+     * - MUST NOT revert.
+     *
+     * NOTE: This calculation MAY NOT reflect the "per-user" price-per-share, and instead should reflect the
+     * "average-user's" price-per-share, meaning what the average user should expect to see when exchanging to and
+     * from.
+     */
+    function convertToAssets(uint256 shares) external view returns (uint256 assets);
+
+    /**
+     * @dev Returns the maximum amount of the underlying asset that can be deposited into the Vault for the receiver,
+     * through a deposit call.
+     *
+     * - MUST return a limited value if receiver is subject to some deposit limit.
+     * - MUST return 2 ** 256 - 1 if there is no limit on the maximum amount of assets that may be deposited.
+     * - MUST NOT revert.
+     */
+    function maxDeposit(address receiver) external view returns (uint256 maxAssets);
+
+    /**
+     * @dev Allows an on-chain or off-chain user to simulate the effects of their deposit at the current block, given
+     * current on-chain conditions.
+     *
+     * - MUST return as close to and no more than the exact amount of Vault shares that would be minted in a deposit
+     *   call in the same transaction. I.e. deposit should return the same or more shares as previewDeposit if called
+     *   in the same transaction.
+     * - MUST NOT account for deposit limits like those returned from maxDeposit and should always act as though the
+     *   deposit would be accepted, regardless if the user has enough tokens approved, etc.
+     * - MUST be inclusive of deposit fees. Integrators should be aware of the existence of deposit fees.
+     * - MUST NOT revert.
+     *
+     * NOTE: any unfavorable discrepancy between convertToShares and previewDeposit SHOULD be considered slippage in
+     * share price or some other type of condition, meaning the depositor will lose assets by depositing.
+     */
+    function previewDeposit(uint256 assets) external view returns (uint256 shares);
+
+    /**
+     * @dev Mints shares Vault shares to receiver by depositing exactly amount of underlying tokens.
+     *
+     * - MUST emit the Deposit event.
+     * - MAY support an additional flow in which the underlying tokens are owned by the Vault contract before the
+     *   deposit execution, and are accounted for during deposit.
+     * - MUST revert if all of assets cannot be deposited (due to deposit limit being reached, slippage, the user not
+     *   approving enough underlying tokens to the Vault contract, etc).
+     *
+     * NOTE: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
+     */
+    function deposit(uint256 assets, address receiver) external returns (uint256 shares);
+
+    /**
+     * @dev Returns the maximum amount of the Vault shares that can be minted for the receiver, through a mint call.
+     * - MUST return a limited value if receiver is subject to some mint limit.
+     * - MUST return 2 ** 256 - 1 if there is no limit on the maximum amount of shares that may be minted.
+     * - MUST NOT revert.
+     */
+    function maxMint(address receiver) external view returns (uint256 maxShares);
+
+    /**
+     * @dev Allows an on-chain or off-chain user to simulate the effects of their mint at the current block, given
+     * current on-chain conditions.
+     *
+     * - MUST return as close to and no fewer than the exact amount of assets that would be deposited in a mint call
+     *   in the same transaction. I.e. mint should return the same or fewer assets as previewMint if called in the
+     *   same transaction.
+     * - MUST NOT account for mint limits like those returned from maxMint and should always act as though the mint
+     *   would be accepted, regardless if the user has enough tokens approved, etc.
+     * - MUST be inclusive of deposit fees. Integrators should be aware of the existence of deposit fees.
+     * - MUST NOT revert.
+     *
+     * NOTE: any unfavorable discrepancy between convertToAssets and previewMint SHOULD be considered slippage in
+     * share price or some other type of condition, meaning the depositor will lose assets by minting.
+     */
+    function previewMint(uint256 shares) external view returns (uint256 assets);
+
+    /**
+     * @dev Mints exactly shares Vault shares to receiver by depositing amount of underlying tokens.
+     *
+     * - MUST emit the Deposit event.
+     * - MAY support an additional flow in which the underlying tokens are owned by the Vault contract before the mint
+     *   execution, and are accounted for during mint.
+     * - MUST revert if all of shares cannot be minted (due to deposit limit being reached, slippage, the user not
+     *   approving enough underlying tokens to the Vault contract, etc).
+     *
+     * NOTE: most implementations will require pre-approval of the Vault with the Vault’s underlying asset token.
+     */
+    function mint(uint256 shares, address receiver) external returns (uint256 assets);
+
+    /**
+     * @dev Returns the maximum amount of the underlying asset that can be withdrawn from the owner balance in the
+     * Vault, through a withdraw call.
+     *
+     * - MUST return a limited value if owner is subject to some withdrawal limit or timelock.
+     * - MUST NOT revert.
+     */
+    function maxWithdraw(address owner) external view returns (uint256 maxAssets);
+
+    /**
+     * @dev Allows an on-chain or off-chain user to simulate the effects of their withdrawal at the current block,
+     * given current on-chain conditions.
+     *
+     * - MUST return as close to and no fewer than the exact amount of Vault shares that would be burned in a withdraw
+     *   call in the same transaction. I.e. withdraw should return the same or fewer shares as previewWithdraw if
+     *   called
+     *   in the same transaction.
+     * - MUST NOT account for withdrawal limits like those returned from maxWithdraw and should always act as though
+     *   the withdrawal would be accepted, regardless if the user has enough shares, etc.
+     * - MUST be inclusive of withdrawal fees. Integrators should be aware of the existence of withdrawal fees.
+     * - MUST NOT revert.
+     *
+     * NOTE: any unfavorable discrepancy between convertToShares and previewWithdraw SHOULD be considered slippage in
+     * share price or some other type of condition, meaning the depositor will lose assets by depositing.
+     */
+    function previewWithdraw(uint256 assets) external view returns (uint256 shares);
+
+    /**
+     * @dev Burns shares from owner and sends exactly assets of underlying tokens to receiver.
+     *
+     * - MUST emit the Withdraw event.
+     * - MAY support an additional flow in which the underlying tokens are owned by the Vault contract before the
+     *   withdraw execution, and are accounted for during withdraw.
+     * - MUST revert if all of assets cannot be withdrawn (due to withdrawal limit being reached, slippage, the owner
+     *   not having enough shares, etc).
+     *
+     * Note that some implementations will require pre-requesting to the Vault before a withdrawal may be performed.
+     * Those methods should be performed separately.
+     */
+    function withdraw(
+        uint256 assets,
+        address receiver,
+        address owner
+    ) external returns (uint256 shares);
+
+    /**
+     * @dev Returns the maximum amount of Vault shares that can be redeemed from the owner balance in the Vault,
+     * through a redeem call.
+     *
+     * - MUST return a limited value if owner is subject to some withdrawal limit or timelock.
+     * - MUST return balanceOf(owner) if owner is not subject to any withdrawal limit or timelock.
+     * - MUST NOT revert.
+     */
+    function maxRedeem(address owner) external view returns (uint256 maxShares);
+
+    /**
+     * @dev Allows an on-chain or off-chain user to simulate the effects of their redeemption at the current block,
+     * given current on-chain conditions.
+     *
+     * - MUST return as close to and no more than the exact amount of assets that would be withdrawn in a redeem call
+     *   in the same transaction. I.e. redeem should return the same or more assets as previewRedeem if called in the
+     *   same transaction.
+     * - MUST NOT account for redemption limits like those returned from maxRedeem and should always act as though the
+     *   redemption would be accepted, regardless if the user has enough shares, etc.
+     * - MUST be inclusive of withdrawal fees. Integrators should be aware of the existence of withdrawal fees.
+     * - MUST NOT revert.
+     *
+     * NOTE: any unfavorable discrepancy between convertToAssets and previewRedeem SHOULD be considered slippage in
+     * share price or some other type of condition, meaning the depositor will lose assets by redeeming.
+     */
+    function previewRedeem(uint256 shares) external view returns (uint256 assets);
+
+    /**
+     * @dev Burns exactly shares from owner and sends assets of underlying tokens to receiver.
+     *
+     * - MUST emit the Withdraw event.
+     * - MAY support an additional flow in which the underlying tokens are owned by the Vault contract before the
+     *   redeem execution, and are accounted for during redeem.
+     * - MUST revert if all of shares cannot be redeemed (due to withdrawal limit being reached, slippage, the owner
+     *   not having enough shares, etc).
+     *
+     * NOTE: some implementations will require pre-requesting to the Vault before a withdrawal may be performed.
+     * Those methods should be performed separately.
+     */
+    function redeem(
+        uint256 shares,
+        address receiver,
+        address owner
+    ) external returns (uint256 assets);
+}
+// ===== END SOURCE FILE: interfaces/IERC4626.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/IWstETH.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.7.6;
+
+import {IERC20} from "./IERC20.sol";
+
+interface IWstETH is IERC20 {
+    function unwrap(uint256 _wstETHAmount) external returns (uint256);
+    function wrap(uint256 _stETHAmount) external returns (uint256);
+    function getStETHByWstETH(uint256 _wstETHAmount) external view returns (uint256);
+    function stEthPerToken() external view returns (uint256);
+    function stETH() external view returns (address);
+}
+// ===== END SOURCE FILE: interfaces/IWstETH.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/AssetRateAdapter.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.0;
+
+/// @notice Used as a wrapper for tokens that are interest bearing for an
+/// underlying token. Follows the cToken interface, however, can be adapted
+/// for other interest bearing tokens.
+interface AssetRateAdapter {
+    function token() external view returns (address);
+
+    function decimals() external view returns (uint8);
+
+    function description() external view returns (string memory);
+
+    function version() external view returns (uint256);
+
+    function underlying() external view returns (address);
+
+    function getExchangeRateStateful() external returns (int256);
+
+    function getExchangeRateView() external view returns (int256);
+
+    function getAnnualizedSupplyRate() external view returns (uint256);
+}
+// ===== END SOURCE FILE: interfaces/notional/AssetRateAdapter.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IBoostController.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.6;
+
+import "./IVeBalDelegator.sol";
+import {ILiquidityGauge} from "../balancer/ILiquidityGauge.sol";
+
+interface IBoostController {
+    function VEBAL_DELEGATOR() external view returns (IVeBalDelegator);
+
+    function depositToken(address token, uint256 amount) external;
+
+    function withdrawToken(address token, uint256 amount) external;
+
+    function claimBAL(ILiquidityGauge liquidityGauge)
+        external
+        returns (uint256 claimAmount);
+
+    function claimGaugeTokens(ILiquidityGauge liquidityGauge)
+        external
+        returns (address[] memory tokens, uint256[] memory balancesTransferred);
+}
+// ===== END SOURCE FILE: interfaces/notional/IBoostController.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/INTokenAction.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+interface INTokenAction {
+    event nTokenApproveAll(address indexed owner, address indexed spender, uint256 amount);
+
+    function nTokenTotalSupply(address nTokenAddress) external view returns (uint256);
+
+    function nTokenTransferAllowance(
+        uint16 currencyId,
+        address owner,
+        address spender
+    ) external view returns (uint256);
+
+    function nTokenBalanceOf(uint16 currencyId, address account) external view returns (uint256);
+
+    function nTokenTransferApprove(
+        uint16 currencyId,
+        address owner,
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+
+    function nTokenTransfer(
+        uint16 currencyId,
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+
+    function nTokenTransferFrom(
+        uint16 currencyId,
+        address spender,
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+
+    function nTokenTransferApproveAll(address spender, uint256 amount) external returns (bool);
+
+    function nTokenClaimIncentives() external returns (uint256);
+
+    function nTokenPresentValueAssetDenominated(uint16 currencyId) external view returns (int256);
+
+    function nTokenPresentValueUnderlyingDenominated(uint16 currencyId)
+        external
+        view
+        returns (int256);
+
+    function nTokenPresentValueUnderlyingExternal(uint16 currencyId)
+        external
+        view
+        returns (uint256);
+
+    function nTokenRedeemViaProxy(uint16 currencyId, uint256 shares, address receiver, address owner)
+        external
+        returns (uint256);
+
+    function nTokenMintViaProxy(uint16 currencyId, uint256 assets, address receiver)
+        external payable returns (uint256);
+}
+// ===== END SOURCE FILE: interfaces/notional/INTokenAction.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IRewarder.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+
+interface IRewarder {
+    function claimRewards(
+        address account,
+        uint16 currencyId,
+        uint256 nTokenBalanceBefore,
+        uint256 nTokenBalanceAfter,
+        int256  netNTokenSupplyChange,
+        uint256 NOTETokensClaimed
+    ) external;
+}
+// ===== END SOURCE FILE: interfaces/notional/IRewarder.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IStrategyVault.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.6;
+
+interface IStrategyVault {
+
+    function decimals() external view returns (uint8);
+    function name() external view returns (string memory);
+    function strategy() external view returns (bytes4 strategyId);
+
+    // Tells a vault to deposit some amount of tokens from Notional and mint strategy tokens with it.
+    function depositFromNotional(
+        address account,
+        uint256 depositAmount,
+        uint256 maturity,
+        bytes calldata data
+    ) external payable returns (uint256 strategyTokensMinted);
+
+    // Tells a vault to redeem some amount of strategy tokens from Notional and transfer the resulting asset cash
+    function redeemFromNotional(
+        address account,
+        address receiver,
+        uint256 strategyTokens,
+        uint256 maturity,
+        uint256 underlyingToRepayDebt,
+        bytes calldata data
+    ) external returns (uint256 transferToReceiver);
+
+    function convertStrategyToUnderlying(
+        address account,
+        uint256 strategyTokens,
+        uint256 maturity
+    ) external view returns (int256 underlyingValue);
+
+    function repaySecondaryBorrowCallback(
+        address token,
+        uint256 underlyingRequired,
+        bytes calldata data
+    ) external returns (bytes memory returnData);
+}
+// ===== END SOURCE FILE: interfaces/notional/IStrategyVault.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IVaultController.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import {
+    VaultConfigStorage,
+    VaultConfig,
+    VaultState,
+    VaultAccount
+} from "../../contracts/global/Types.sol";
+
+interface IVaultAction {
+    /// @notice Emitted when a new vault is listed or updated
+    event VaultUpdated(address indexed vault, bool enabled, uint80 maxPrimaryBorrowCapacity);
+    /// @notice Emitted when a vault's status is updated
+    event VaultPauseStatus(address indexed vault, bool enabled);
+    /// @notice Emitted when a secondary currency borrow capacity is updated
+    event VaultUpdateSecondaryBorrowCapacity(address indexed vault, uint16 indexed currencyId, uint80 maxSecondaryBorrowCapacity);
+    /// @notice Emitted when a vault has a shortfall upon settlement
+    event VaultShortfall(address indexed vault, uint16 indexed currencyId, uint256 indexed maturity, int256 shortfall);
+    /// @notice Emitted when a vault has an insolvency that cannot be covered by the
+    /// cash reserve
+    event ProtocolInsolvency(address indexed vault, uint16 indexed currencyId, uint256 indexed maturity, int256 shortfall);
+    /// @notice Emitted when a vault fee is accrued via borrowing (denominated in asset cash)
+    event VaultFeeAccrued(address indexed vault, uint16 indexed currencyId, uint256 indexed maturity, int256 reserveFee, int256 nTokenFee);
+    /// @notice Emitted when the borrow capacity on a vault changes
+    event VaultBorrowCapacityChange(address indexed vault, uint16 indexed currencyId, uint256 totalUsedBorrowCapacity);
+
+    /// @notice Emitted when a vault executes a secondary borrow
+    event VaultSecondaryBorrow(
+        address indexed vault,
+        address indexed account,
+        uint16 indexed currencyId,
+        uint256 maturity,
+        uint256 debtSharesMinted,
+        uint256 fCashBorrowed
+    );
+
+    /// @notice Emitted when a vault repays a secondary borrow
+    event VaultRepaySecondaryBorrow(
+        address indexed vault,
+        address indexed account,
+        uint16 indexed currencyId,
+        uint256 maturity,
+        uint256 debtSharesRepaid,
+        uint256 fCashLent
+    );
+
+    /// @notice Emitted when secondary borrows are snapshot prior to settlement
+    event VaultSecondaryBorrowSnapshot(
+        address indexed vault,
+        uint16 indexed currencyId,
+        uint256 indexed maturity,
+        int256 totalfCashBorrowedInPrimarySnapshot,
+        int256 exchangeRate
+    );
+
+    /// @notice Emitted when a vault settles assets
+    event VaultSettledAssetsRemaining(
+        address indexed vault,
+        uint256 indexed maturity,
+        int256 remainingAssetCash,
+        uint256 remainingStrategyTokens
+    );
+
+    event VaultStateUpdate(
+        address indexed vault,
+        uint256 indexed maturity,
+        int256 totalfCash,
+        uint256 totalAssetCash,
+        uint256 totalStrategyTokens,
+        uint256 totalVaultShares
+    );
+
+    event VaultSettled(
+        address indexed vault,
+        uint256 indexed maturity,
+        int256 totalfCash,
+        uint256 totalAssetCash,
+        uint256 totalStrategyTokens,
+        uint256 totalVaultShares,
+        int256 strategyTokenValue
+    );
+    
+    event VaultRedeemStrategyToken(
+        address indexed vault,
+        uint256 indexed maturity,
+        int256 assetCashReceived,
+        uint256 strategyTokensRedeemed
+    );
+    
+    event VaultMintStrategyToken(
+        address indexed vault,
+        uint256 indexed maturity,
+        uint256 assetCashDeposited,
+        uint256 strategyTokensMinted
+    );
+
+    /** Vault Action Methods */
+
+    /// @notice Governance only method to whitelist a particular vault
+    function updateVault(
+        address vaultAddress,
+        VaultConfigStorage calldata vaultConfig,
+        uint80 maxPrimaryBorrowCapacity
+    ) external;
+
+    /// @notice Governance only method to pause a particular vault
+    function setVaultPauseStatus(
+        address vaultAddress,
+        bool enable
+    ) external;
+
+    /// @notice Governance only method to force a particular vault to deleverage
+    function reduceMaxBorrowCapacity(
+        address vaultAddress,
+        uint80 maxVaultBorrowCapacity,
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata vaultData
+    ) external;
+
+    /// @notice Governance only method to update a vault's secondary borrow capacity
+    function updateSecondaryBorrowCapacity(
+        address vaultAddress,
+        uint16 secondaryCurrencyId,
+        uint80 maxBorrowCapacity
+    ) external;
+
+    /// @notice Vault authenticated method that takes asset cash from the pool and mints strategy tokens
+    function depositVaultCashToStrategyTokens(
+        uint256 maturity,
+        uint256 assetCashToDepositExternal,
+        bytes calldata vaultData
+    ) external;
+
+    /// @notice Vault authenticated method that takes strategy tokens and mints asset cash to the pool
+    function redeemStrategyTokensToCash(
+        uint256 maturity,
+        uint256 strategyTokensToRedeem,
+        bytes calldata vaultData
+    ) external returns (
+        int256 assetCashRequiredToSettle,
+        int256 underlyingCashRequiredToSettle
+    );
+
+    function borrowSecondaryCurrencyToVault(
+        address account,
+        uint256 maturity,
+        uint256[2] calldata fCashToBorrow,
+        uint32[2] calldata maxBorrowRate,
+        uint32[2] calldata minRollLendRate
+    ) external returns (uint256[2] memory underlyingTokensTransferred);
+
+    function repaySecondaryCurrencyFromVault(
+        address account,
+        uint16 currencyId,
+        uint256 maturity,
+        uint256 fCashToRepay,
+        uint32 slippageLimit,
+        bytes calldata callbackData
+    ) external returns (bytes memory returnData);
+
+    function initiateSecondaryBorrowSettlement(uint256 maturity)
+        external returns (uint256[2] memory secondaryBorrowSnapshot);
+
+    /// @notice Non-authenticated method that will set settlement values for a vault so that
+    /// account holders can withdraw matured assets.
+    function settleVault(address vault, uint256 maturity) external;
+
+    /// @notice View method to get vault configuration
+    function getVaultConfig(address vault) external view returns (VaultConfig memory vaultConfig);
+
+    function getBorrowCapacity(address vault, uint16 currencyId)
+        external view returns (uint256 totalUsedBorrowCapacity, uint256 maxBorrowCapacity);
+
+    function getSecondaryBorrow(address vault, uint16 currencyId, uint256 maturity) 
+        external view returns (
+            uint256 totalfCashBorrowed,
+            uint256 totalAccountDebtShares,
+            uint256 totalfCashBorrowedInPrimarySnapshot
+        );
+
+    /// @notice View method to get vault state
+    function getVaultState(address vault, uint256 maturity) external view returns (VaultState memory vaultState);
+
+    /// @notice View method to get the current amount of cash remaining to settle the vault
+    function getCashRequiredToSettle(
+        address vault,
+        uint256 maturity
+    ) external view returns (
+        int256 assetCashRequiredToSettle,
+        int256 underlyingCashRequiredToSettle
+    );
+}
+
+interface IVaultAccountAction {
+
+    event VaultEnterPosition(
+        address indexed vault,
+        address indexed account,
+        uint256 indexed maturity,
+        uint256 fCashBorrowed
+    );
+
+    event VaultRollPosition(
+        address indexed vault,
+        address indexed account,
+        uint256 indexed newMaturity,
+        uint256 fCashBorrowed
+    );
+
+    event VaultExitPostMaturity(
+        address indexed vault,
+        address indexed account,
+        uint256 indexed maturity
+    );
+
+    event VaultExitPreMaturity(
+        address indexed vault,
+        address indexed account,
+        uint256 indexed maturity,
+        uint256 fCashToLend,
+        uint256 vaultSharesToRedeem
+    );
+
+    event VaultDeleverageAccount(
+        address indexed vault,
+        address indexed account,
+        uint256 vaultSharesToLiquidator,
+        int256 fCashRepaid
+    );
+
+    event VaultLiquidatorProfit(
+        address indexed vault,
+        address indexed account,
+        address indexed liquidator,
+        uint256 vaultSharesToLiquidator,
+        bool transferSharesToLiquidator
+    );
+
+    event VaultEnterMaturity(
+        address indexed vault,
+        uint256 indexed maturity,
+        address indexed account,
+        uint256 underlyingTokensTransferred,
+        uint256 strategyTokenDeposited,
+        uint256 vaultSharesMinted
+    );
+    
+    /**
+     * @notice Borrows a specified amount of fCash in the vault's borrow currency and deposits it
+     * all plus the depositAmountExternal into the vault to mint strategy tokens.
+     *
+     * @param account the address that will enter the vault
+     * @param vault the vault to enter
+     * @param depositAmountExternal some amount of additional collateral in the borrowed currency
+     * to be transferred to vault
+     * @param maturity the maturity to borrow at
+     * @param fCash amount to borrow
+     * @param maxBorrowRate maximum interest rate to borrow at
+     * @param vaultData additional data to pass to the vault contract
+     */
+    function enterVault(
+        address account,
+        address vault,
+        uint256 depositAmountExternal,
+        uint256 maturity,
+        uint256 fCash,
+        uint32 maxBorrowRate,
+        bytes calldata vaultData
+    ) external payable returns (uint256 strategyTokensAdded);
+
+    /**
+     * @notice Re-enters the vault at a longer dated maturity. The account's existing borrow
+     * position will be closed and a new borrow position at the specified maturity will be
+     * opened. All strategy token holdings will be rolled forward.
+     *
+     * @param account the address that will reenter the vault
+     * @param vault the vault to reenter
+     * @param fCashToBorrow amount of fCash to borrow in the next maturity
+     * @param maturity new maturity to borrow at
+     */
+    function rollVaultPosition(
+        address account,
+        address vault,
+        uint256 fCashToBorrow,
+        uint256 maturity,
+        uint32 minLendRate,
+        uint32 maxBorrowRate,
+        bytes calldata enterVaultData
+    ) external returns (uint256 strategyTokensAdded);
+
+    /**
+     * @notice Prior to maturity, allows an account to withdraw their position from the vault. Will
+     * redeem some number of vault shares to the borrow currency and close the borrow position by
+     * lending `fCashToLend`. Any shortfall in cash from lending will be transferred from the account,
+     * any excess profits will be transferred to the account.
+     *
+     * Post maturity, will net off the account's debt against vault cash balances and redeem all remaining
+     * strategy tokens back to the borrowed currency and transfer the profits to the account.
+     *
+     * @param account the address that will exit the vault
+     * @param vault the vault to enter
+     * @param vaultSharesToRedeem amount of vault tokens to exit, only relevant when exiting pre-maturity
+     * @param fCashToLend amount of fCash to lend
+     * @param minLendRate the minimum rate to lend at
+     * @param exitVaultData passed to the vault during exit
+     * @return underlyingToReceiver amount of underlying tokens returned to the receiver on exit
+     */
+    function exitVault(
+        address account,
+        address vault,
+        address receiver,
+        uint256 vaultSharesToRedeem,
+        uint256 fCashToLend,
+        uint32 minLendRate,
+        bytes calldata exitVaultData
+    ) external payable returns (uint256 underlyingToReceiver);
+
+    /**
+     * @notice If an account is below the minimum collateral ratio, this method wil deleverage (liquidate)
+     * that account. `depositAmountExternal` in the borrow currency will be transferred from the liquidator
+     * and used to offset the account's debt position. The liquidator will receive either vaultShares or
+     * cash depending on the vault's configuration.
+     * @param account the address that will exit the vault
+     * @param vault the vault to enter
+     * @param liquidator the address that will receive profits from liquidation
+     * @param depositAmountExternal amount of cash to deposit
+     * @param transferSharesToLiquidator transfers the shares to the liquidator instead of redeeming them
+     * @param redeemData calldata sent to the vault when redeeming liquidator profits
+     * @return profitFromLiquidation amount of vaultShares or cash received from liquidation
+     */
+    function deleverageAccount(
+        address account,
+        address vault,
+        address liquidator,
+        uint256 depositAmountExternal,
+        bool transferSharesToLiquidator,
+        bytes calldata redeemData
+    ) external returns (uint256 profitFromLiquidation);
+
+    function getVaultAccount(address account, address vault) external view returns (VaultAccount memory);
+    function getVaultAccountDebtShares(address account, address vault) external view returns (
+        uint256 debtSharesMaturity,
+        uint256[2] memory accountDebtShares,
+        uint256 accountStrategyTokens
+    );
+    function getVaultAccountCollateralRatio(address account, address vault) external view returns (
+        int256 collateralRatio,
+        int256 minCollateralRatio,
+        int256 maxLiquidatorDepositAssetCash
+    );
+}
+
+interface IVaultController is IVaultAccountAction, IVaultAction {}
+// ===== END SOURCE FILE: interfaces/notional/IVaultController.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IVeBalDelegator.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.6;
+
+interface IVeBalDelegator {
+    function BALANCER_MINTER() external view returns (address);
+
+    function depositToken(
+        address token,
+        address from,
+        uint256 amount
+    ) external;
+
+    function withdrawToken(
+        address token,
+        address to,
+        uint256 amount
+    ) external;
+
+    function getTokenBalance(address token, address from)
+        external
+        view
+        returns (uint256);
+
+    function claimBAL(address liquidityGauge, address to)
+        external
+        returns (uint256 claimAmount);
+
+    function claimGaugeTokens(address liquidityGauge, address to)
+        external
+        returns (address[] memory tokens, uint256[] memory balancesTransferred);
+
+    function getGaugeRewardTokens(address liquidityGauge)
+        external
+        view
+        returns (address[] memory tokens);
+}
+// ===== END SOURCE FILE: interfaces/notional/IVeBalDelegator.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IWrappedfCash.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity ^0.8.0;
+
+import {TokenType} from "../../contracts/global/Types.sol";
+import "../IERC4626.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC777/IERC777.sol";
+
+interface IWrappedfCash {
+    struct RedeemOpts {
+        bool redeemToUnderlying;
+        bool transferfCash;
+        address receiver;
+        // Zero signifies no maximum slippage
+        uint32 maxImpliedRate;
+    }
+    function initialize(uint16 currencyId, uint40 maturity) external;
+
+    /// @notice Mints wrapped fCash ERC20 tokens
+    function mintViaAsset(
+        uint256 depositAmountExternal,
+        uint88 fCashAmount,
+        address receiver,
+        uint32 minImpliedRate
+    ) external;
+
+    function mintViaUnderlying(
+        uint256 depositAmountExternal,
+        uint88 fCashAmount,
+        address receiver,
+        uint32 minImpliedRate
+    ) external;
+
+    function redeem(uint256 amount, RedeemOpts memory data) external;
+    function redeemToAsset(uint256 amount, address receiver, uint32 maxImpliedRate) external;
+    function redeemToUnderlying(uint256 amount, address receiver, uint32 maxImpliedRate) external;
+
+    /// @notice Returns the underlying fCash ID of the token
+    function getfCashId() external view returns (uint256);
+
+    /// @notice Returns the underlying fCash maturity of the token
+    function getMaturity() external view returns (uint40 maturity);
+
+    /// @notice True if the fCash has matured, assets mature exactly on the block time
+    function hasMatured() external view returns (bool);
+
+    /// @notice Returns the underlying fCash currency
+    function getCurrencyId() external view returns (uint16 currencyId);
+
+    /// @notice Returns the components of the fCash idd
+    function getDecodedID() external view returns (uint16 currencyId, uint40 maturity);
+
+    /// @notice Returns the current market index for this fCash asset. If this returns
+    /// zero that means it is idiosyncratic and cannot be traded.
+    function getMarketIndex() external view returns (uint8);
+
+    /// @notice Returns the token and precision of the token that this token settles
+    /// to. For example, fUSDC will return the USDC token address and 1e6. The zero
+    /// address will represent ETH.
+    function getUnderlyingToken() external view returns (IERC20 underlyingToken, int256 underlyingPrecision);
+
+    /// @notice Returns the asset token which the fCash settles to. This will be an interest
+    /// bearing token like a cToken or aToken.
+    function getAssetToken() external view returns (IERC20 assetToken, int256 assetPrecision, TokenType tokenType);
+}
+
+
+interface IWrappedfCashComplete is IWrappedfCash, IERC777, IERC4626 {} 
+// ===== END SOURCE FILE: interfaces/notional/IWrappedfCash.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/IWrappedfCashFactory.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity ^0.8.0;
+
+interface IWrappedfCashFactory {
+    function deployWrapper(uint16 currencyId, uint40 maturity) external returns (address);
+    function computeAddress(uint16 currencyId, uint40 maturity) external view returns (address);
+}
+// ===== END SOURCE FILE: interfaces/notional/IWrappedfCashFactory.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/nERC1155Interface.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import "../../contracts/global/Types.sol";
+
+interface nERC1155Interface {
+    event TransferSingle(
+        address indexed operator,
+        address indexed from,
+        address indexed to,
+        uint256 id,
+        uint256 value
+    );
+    event TransferBatch(
+        address indexed operator,
+        address indexed from,
+        address indexed to,
+        uint256[] ids,
+        uint256[] values
+    );
+    event ApprovalForAll(address indexed account, address indexed operator, bool approved);
+    event URI(string value, uint256 indexed id);
+
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool);
+
+    function balanceOf(address account, uint256 id) external view returns (uint256);
+
+    function balanceOfBatch(address[] calldata accounts, uint256[] calldata ids)
+        external
+        view
+        returns (uint256[] memory);
+
+    function signedBalanceOf(address account, uint256 id) external view returns (int256);
+
+    function signedBalanceOfBatch(address[] calldata accounts, uint256[] calldata ids)
+        external
+        view
+        returns (int256[] memory);
+
+    function setApprovalForAll(address operator, bool approved) external;
+
+    function isApprovedForAll(address account, address operator) external view returns (bool);
+
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes calldata data
+    ) external payable;
+
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external payable;
+
+    function decodeToAssets(uint256[] calldata ids, uint256[] calldata amounts)
+        external
+        view
+        returns (PortfolioAsset[] memory);
+
+    function encodeToId(
+        uint16 currencyId,
+        uint40 maturity,
+        uint8 assetType
+    ) external pure returns (uint256 id);
+}
+// ===== END SOURCE FILE: interfaces/notional/nERC1155Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalCalculations.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import "../../contracts/global/Types.sol";
+
+interface NotionalCalculations {
+    function calculateNTokensToMint(uint16 currencyId, uint88 amountToDepositExternalPrecision)
+        external
+        view
+        returns (uint256);
+
+    function getfCashAmountGivenCashAmount(
+        uint16 currencyId,
+        int88 netCashToAccount,
+        uint256 marketIndex,
+        uint256 blockTime
+    ) external view returns (int256);
+
+    function getCashAmountGivenfCashAmount(
+        uint16 currencyId,
+        int88 fCashAmount,
+        uint256 marketIndex,
+        uint256 blockTime
+    ) external view returns (int256, int256);
+
+    function nTokenGetClaimableIncentives(address account, uint256 blockTime)
+        external
+        view
+        returns (uint256);
+
+    function getPresentfCashValue(
+        uint16 currencyId,
+        uint256 maturity,
+        int256 notional,
+        uint256 blockTime,
+        bool riskAdjusted
+    ) external view returns (int256 presentValue);
+
+    function getMarketIndex(
+        uint256 maturity,
+        uint256 blockTime
+    ) external pure returns (uint8 marketIndex);
+
+    function getfCashLendFromDeposit(
+        uint16 currencyId,
+        uint256 depositAmountExternal,
+        uint256 maturity,
+        uint32 minLendRate,
+        uint256 blockTime,
+        bool useUnderlying
+    ) external view returns (
+        uint88 fCashAmount,
+        uint8 marketIndex,
+        bytes32 encodedTrade
+    );
+
+    function getfCashBorrowFromPrincipal(
+        uint16 currencyId,
+        uint256 borrowedAmountExternal,
+        uint256 maturity,
+        uint32 maxBorrowRate,
+        uint256 blockTime,
+        bool useUnderlying
+    ) external view returns (
+        uint88 fCashDebt,
+        uint8 marketIndex,
+        bytes32 encodedTrade
+    );
+
+    function getDepositFromfCashLend(
+        uint16 currencyId,
+        uint256 fCashAmount,
+        uint256 maturity,
+        uint32 minLendRate,
+        uint256 blockTime
+    ) external view returns (
+        uint256 depositAmountUnderlying,
+        uint256 depositAmountAsset,
+        uint8 marketIndex,
+        bytes32 encodedTrade
+    );
+
+    function getPrincipalFromfCashBorrow(
+        uint16 currencyId,
+        uint256 fCashBorrow,
+        uint256 maturity,
+        uint32 maxBorrowRate,
+        uint256 blockTime
+    ) external view returns (
+        uint256 borrowAmountUnderlying,
+        uint256 borrowAmountAsset,
+        uint8 marketIndex,
+        bytes32 encodedTrade
+    );
+
+    function convertCashBalanceToExternal(
+        uint16 currencyId,
+        int256 cashBalanceInternal,
+        bool useUnderlying
+    ) external view returns (int256);
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalCalculations.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalGovernance.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import "../../contracts/global/Types.sol";
+import "../../interfaces/chainlink/AggregatorV2V3Interface.sol";
+import "../../interfaces/notional/NotionalGovernance.sol";
+import "../../interfaces/notional/IRewarder.sol";
+import "../../interfaces/aave/ILendingPool.sol";
+
+interface NotionalGovernance {
+    event ListCurrency(uint16 newCurrencyId);
+    event UpdateETHRate(uint16 currencyId);
+    event UpdateAssetRate(uint16 currencyId);
+    event UpdateCashGroup(uint16 currencyId);
+    event DeployNToken(uint16 currencyId, address nTokenAddress);
+    event UpdateDepositParameters(uint16 currencyId);
+    event UpdateInitializationParameters(uint16 currencyId);
+    event UpdateIncentiveEmissionRate(uint16 currencyId, uint32 newEmissionRate);
+    event UpdateTokenCollateralParameters(uint16 currencyId);
+    event UpdateGlobalTransferOperator(address operator, bool approved);
+    event UpdateAuthorizedCallbackContract(address operator, bool approved);
+    event UpdateMaxCollateralBalance(uint16 currencyId, uint72 maxCollateralBalance);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event PauseRouterAndGuardianUpdated(address indexed pauseRouter, address indexed pauseGuardian);
+    event UpdateSecondaryIncentiveRewarder(uint16 indexed currencyId, address rewarder);
+    event UpdateLendingPool(address pool);
+
+    function transferOwnership(address newOwner, bool direct) external;
+
+    function claimOwnership() external;
+
+    function upgradeNTokenBeacon(address newImplementation) external;
+
+    function setPauseRouterAndGuardian(address pauseRouter_, address pauseGuardian_) external;
+
+    function listCurrency(
+        TokenStorage calldata assetToken,
+        TokenStorage calldata underlyingToken,
+        AggregatorV2V3Interface rateOracle,
+        bool mustInvert,
+        uint8 buffer,
+        uint8 haircut,
+        uint8 liquidationDiscount
+    ) external returns (uint16 currencyId);
+
+    function updateMaxCollateralBalance(
+        uint16 currencyId,
+        uint72 maxCollateralBalanceInternalPrecision
+    ) external;
+
+    function enableCashGroup(
+        uint16 currencyId,
+        AssetRateAdapter assetRateOracle,
+        CashGroupSettings calldata cashGroup,
+        string calldata underlyingName,
+        string calldata underlyingSymbol
+    ) external;
+
+    function updateDepositParameters(
+        uint16 currencyId,
+        uint32[] calldata depositShares,
+        uint32[] calldata leverageThresholds
+    ) external;
+
+    function updateInitializationParameters(
+        uint16 currencyId,
+        uint32[] calldata annualizedAnchorRates,
+        uint32[] calldata proportions
+    ) external;
+
+    function updateIncentiveEmissionRate(uint16 currencyId, uint32 newEmissionRate) external;
+
+    function updateTokenCollateralParameters(
+        uint16 currencyId,
+        uint8 residualPurchaseIncentive10BPS,
+        uint8 pvHaircutPercentage,
+        uint8 residualPurchaseTimeBufferHours,
+        uint8 cashWithholdingBuffer10BPS,
+        uint8 liquidationHaircutPercentage
+    ) external;
+
+    function updateCashGroup(uint16 currencyId, CashGroupSettings calldata cashGroup) external;
+
+    function updateAssetRate(uint16 currencyId, AssetRateAdapter rateOracle) external;
+
+    function updateETHRate(
+        uint16 currencyId,
+        AggregatorV2V3Interface rateOracle,
+        bool mustInvert,
+        uint8 buffer,
+        uint8 haircut,
+        uint8 liquidationDiscount
+    ) external;
+
+    function updateGlobalTransferOperator(address operator, bool approved) external;
+
+    function updateAuthorizedCallbackContract(address operator, bool approved) external;
+
+    function setLendingPool(ILendingPool pool) external;
+
+    function setSecondaryIncentiveRewarder(uint16 currencyId, IRewarder rewarder) external;
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalGovernance.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalProxy.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import "../../contracts/global/Types.sol";
+import "./INTokenAction.sol";
+import "./nERC1155Interface.sol";
+import "./NotionalGovernance.sol";
+import "./NotionalCalculations.sol";
+import "./NotionalViews.sol";
+import "./NotionalTreasury.sol";
+import {IVaultController} from "./IVaultController.sol";
+
+interface NotionalProxy is
+    INTokenAction,
+    nERC1155Interface,
+    NotionalGovernance,
+    NotionalTreasury,
+    NotionalCalculations,
+    NotionalViews,
+    IVaultController
+{
+    /** User trading events */
+    event CashBalanceChange(
+        address indexed account,
+        uint16 indexed currencyId,
+        int256 netCashChange
+    );
+    event nTokenSupplyChange(
+        address indexed account,
+        uint16 indexed currencyId,
+        int256 tokenSupplyChange
+    );
+    event MarketsInitialized(uint16 currencyId);
+    event SweepCashIntoMarkets(uint16 currencyId, int256 cashIntoMarkets);
+    event SettledCashDebt(
+        address indexed settledAccount,
+        uint16 indexed currencyId,
+        address indexed settler,
+        int256 amountToSettleAsset,
+        int256 fCashAmount
+    );
+    event nTokenResidualPurchase(
+        uint16 indexed currencyId,
+        uint40 indexed maturity,
+        address indexed purchaser,
+        int256 fCashAmountToPurchase,
+        int256 netAssetCashNToken
+    );
+    event LendBorrowTrade(
+        address indexed account,
+        uint16 indexed currencyId,
+        uint40 maturity,
+        int256 netAssetCash,
+        int256 netfCash
+    );
+    event AddRemoveLiquidity(
+        address indexed account,
+        uint16 indexed currencyId,
+        uint40 maturity,
+        int256 netAssetCash,
+        int256 netfCash,
+        int256 netLiquidityTokens
+    );
+
+    /// @notice Emitted once when incentives are migrated
+    event IncentivesMigrated(
+        uint16 currencyId,
+        uint256 migrationEmissionRate,
+        uint256 finalIntegralTotalSupply,
+        uint256 migrationTime
+    );
+
+    /// @notice Emitted when reserve fees are accrued
+    event ReserveFeeAccrued(uint16 indexed currencyId, int256 fee);
+    /// @notice Emitted whenever an account context has updated
+    event AccountContextUpdate(address indexed account);
+    /// @notice Emitted when an account has assets that are settled
+    event AccountSettled(address indexed account);
+    /// @notice Emitted when an asset rate is settled
+    event SetSettlementRate(uint256 indexed currencyId, uint256 indexed maturity, uint128 rate);
+
+    /* Liquidation Events */
+    event LiquidateLocalCurrency(
+        address indexed liquidated,
+        address indexed liquidator,
+        uint16 localCurrencyId,
+        int256 netLocalFromLiquidator
+    );
+
+    event LiquidateCollateralCurrency(
+        address indexed liquidated,
+        address indexed liquidator,
+        uint16 localCurrencyId,
+        uint16 collateralCurrencyId,
+        int256 netLocalFromLiquidator,
+        int256 netCollateralTransfer,
+        int256 netNTokenTransfer
+    );
+
+    event LiquidatefCashEvent(
+        address indexed liquidated,
+        address indexed liquidator,
+        uint16 localCurrencyId,
+        uint16 fCashCurrency,
+        int256 netLocalFromLiquidator,
+        uint256[] fCashMaturities,
+        int256[] fCashNotionalTransfer
+    );
+
+    /** UUPS Upgradeable contract calls */
+    function upgradeTo(address newImplementation) external;
+
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable;
+
+    function getImplementation() external view returns (address);
+
+    function owner() external view returns (address);
+
+    function pauseRouter() external view returns (address);
+
+    function pauseGuardian() external view returns (address);
+
+    /** Initialize Markets Action */
+    function initializeMarkets(uint16 currencyId, bool isFirstInit) external;
+
+    function sweepCashIntoMarkets(uint16 currencyId) external;
+
+    /** Redeem nToken Action */
+    function nTokenRedeem(
+        address redeemer,
+        uint16 currencyId,
+        uint96 tokensToRedeem_,
+        bool sellTokenAssets,
+        bool acceptResidualAssets
+    ) external returns (int256);
+
+    /** Account Action */
+    function enableBitmapCurrency(uint16 currencyId) external;
+
+    function settleAccount(address account) external;
+
+    function depositUnderlyingToken(
+        address account,
+        uint16 currencyId,
+        uint256 amountExternalPrecision
+    ) external payable returns (uint256);
+
+    function depositAssetToken(
+        address account,
+        uint16 currencyId,
+        uint256 amountExternalPrecision
+    ) external returns (uint256);
+
+    function withdraw(
+        uint16 currencyId,
+        uint88 amountInternalPrecision,
+        bool redeemToUnderlying
+    ) external returns (uint256);
+
+    /** Batch Action */
+    function batchBalanceAction(address account, BalanceAction[] calldata actions) external payable;
+
+    function batchBalanceAndTradeAction(address account, BalanceActionWithTrades[] calldata actions)
+        external
+        payable;
+
+    function batchBalanceAndTradeActionWithCallback(
+        address account,
+        BalanceActionWithTrades[] calldata actions,
+        bytes calldata callbackData
+    ) external payable;
+
+    function batchLend(address account, BatchLend[] calldata actions) external;
+
+    /** Liquidation Action */
+    function calculateLocalCurrencyLiquidation(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint96 maxNTokenLiquidation
+    ) external returns (int256, int256);
+
+    function liquidateLocalCurrency(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint96 maxNTokenLiquidation
+    ) external returns (int256, int256);
+
+    function calculateCollateralCurrencyLiquidation(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint16 collateralCurrency,
+        uint128 maxCollateralLiquidation,
+        uint96 maxNTokenLiquidation
+    )
+        external
+        returns (
+            int256,
+            int256,
+            int256
+        );
+
+    function liquidateCollateralCurrency(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint16 collateralCurrency,
+        uint128 maxCollateralLiquidation,
+        uint96 maxNTokenLiquidation,
+        bool withdrawCollateral,
+        bool redeemToUnderlying
+    )
+        external
+        returns (
+            int256,
+            int256,
+            int256
+        );
+
+    function calculatefCashLocalLiquidation(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function liquidatefCashLocal(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function calculatefCashCrossCurrencyLiquidation(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint16 fCashCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function liquidatefCashCrossCurrency(
+        address liquidateAccount,
+        uint16 localCurrency,
+        uint16 fCashCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalProxy.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalTreasury.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+interface NotionalTreasury {
+
+    /// @notice Emitted when reserve balance is updated
+    event ReserveBalanceUpdated(uint16 indexed currencyId, int256 newBalance);
+    /// @notice Emitted when reserve balance is harvested
+    event ExcessReserveBalanceHarvested(uint16 indexed currencyId, int256 harvestAmount);
+    /// @dev Emitted when treasury manager is updated
+    event TreasuryManagerChanged(address indexed previousManager, address indexed newManager);
+    /// @dev Emitted when reserve buffer value is updated
+    event ReserveBufferUpdated(uint16 currencyId, uint256 bufferAmount);
+
+    function claimCOMPAndTransfer(address[] calldata ctokens) external returns (uint256);
+
+    function transferReserveToTreasury(uint16[] calldata currencies)
+        external
+        returns (uint256[] memory);
+
+    function setTreasuryManager(address manager) external;
+
+    function setReserveBuffer(uint16 currencyId, uint256 amount) external;
+
+    function setReserveCashBalance(uint16 currencyId, int256 reserveBalance) external;
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalTreasury.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalViews.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >=0.7.6;
+pragma abicoder v2;
+
+import "../../contracts/global/Types.sol";
+
+interface NotionalViews {
+    function getMaxCurrencyId() external view returns (uint16);
+
+    function getCurrencyId(address tokenAddress) external view returns (uint16 currencyId);
+
+    function getCurrency(uint16 currencyId)
+        external
+        view
+        returns (Token memory assetToken, Token memory underlyingToken);
+
+    function getRateStorage(uint16 currencyId)
+        external
+        view
+        returns (ETHRateStorage memory ethRate, AssetRateStorage memory assetRate);
+
+    function getCurrencyAndRates(uint16 currencyId)
+        external
+        view
+        returns (
+            Token memory assetToken,
+            Token memory underlyingToken,
+            ETHRate memory ethRate,
+            AssetRateParameters memory assetRate
+        );
+
+    function getCashGroup(uint16 currencyId) external view returns (CashGroupSettings memory);
+
+    function getCashGroupAndAssetRate(uint16 currencyId)
+        external
+        view
+        returns (CashGroupSettings memory cashGroup, AssetRateParameters memory assetRate);
+
+    function getInitializationParameters(uint16 currencyId)
+        external
+        view
+        returns (int256[] memory annualizedAnchorRates, int256[] memory proportions);
+
+    function getDepositParameters(uint16 currencyId)
+        external
+        view
+        returns (int256[] memory depositShares, int256[] memory leverageThresholds);
+
+    function nTokenAddress(uint16 currencyId) external view returns (address);
+
+    function getNoteToken() external view returns (address);
+
+    function getOwnershipStatus() external view returns (address owner, address pendingOwner);
+
+    function getGlobalTransferOperatorStatus(address operator)
+        external
+        view
+        returns (bool isAuthorized);
+
+    function getAuthorizedCallbackContractStatus(address callback)
+        external
+        view
+        returns (bool isAuthorized);
+
+    function getSecondaryIncentiveRewarder(uint16 currencyId)
+        external
+        view
+        returns (address incentiveRewarder);
+
+    function getSettlementRate(uint16 currencyId, uint40 maturity)
+        external
+        view
+        returns (AssetRateParameters memory);
+
+    function getMarket(
+        uint16 currencyId,
+        uint256 maturity,
+        uint256 settlementDate
+    ) external view returns (MarketParameters memory);
+
+    function getActiveMarkets(uint16 currencyId) external view returns (MarketParameters[] memory);
+
+    function getActiveMarketsAtBlockTime(uint16 currencyId, uint32 blockTime)
+        external
+        view
+        returns (MarketParameters[] memory);
+
+    function getReserveBalance(uint16 currencyId) external view returns (int256 reserveBalance);
+
+    function getNTokenPortfolio(address tokenAddress)
+        external
+        view
+        returns (PortfolioAsset[] memory liquidityTokens, PortfolioAsset[] memory netfCashAssets);
+
+    function getNTokenAccount(address tokenAddress)
+        external
+        view
+        returns (
+            uint16 currencyId,
+            uint256 totalSupply,
+            uint256 incentiveAnnualEmissionRate,
+            uint256 lastInitializedTime,
+            bytes5 nTokenParameters,
+            int256 cashBalance,
+            uint256 accumulatedNOTEPerNToken,
+            uint256 lastAccumulatedTime
+        );
+
+    function getAccount(address account)
+        external
+        view
+        returns (
+            AccountContext memory accountContext,
+            AccountBalance[] memory accountBalances,
+            PortfolioAsset[] memory portfolio
+        );
+
+    function getAccountContext(address account) external view returns (AccountContext memory);
+
+    function getAccountBalance(uint16 currencyId, address account)
+        external
+        view
+        returns (
+            int256 cashBalance,
+            int256 nTokenBalance,
+            uint256 lastClaimTime
+        );
+
+    function getAccountPortfolio(address account) external view returns (PortfolioAsset[] memory);
+
+    function getfCashNotional(
+        address account,
+        uint16 currencyId,
+        uint256 maturity
+    ) external view returns (int256);
+
+    function getAssetsBitmap(address account, uint16 currencyId) external view returns (bytes32);
+
+    function getFreeCollateral(address account) external view returns (int256, int256[] memory);
+
+    function getTreasuryManager() external view returns (address);
+
+    function getReserveBuffer(uint16 currencyId) external view returns (uint256);
+
+    function getLendingPool() external view returns (address);
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalViews.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/trading/ITradingModule.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.15;
+
+import "../chainlink/AggregatorV2V3Interface.sol";
+
+enum DexId {
+    _UNUSED,
+    UNISWAP_V2,
+    UNISWAP_V3,
+    ZERO_EX,
+    BALANCER_V2,
+    CURVE,
+    NOTIONAL_VAULT
+}
+
+enum TradeType {
+    EXACT_IN_SINGLE,
+    EXACT_OUT_SINGLE,
+    EXACT_IN_BATCH,
+    EXACT_OUT_BATCH
+}
+
+struct Trade {
+    TradeType tradeType;
+    address sellToken;
+    address buyToken;
+    uint256 amount;
+    /// minBuyAmount or maxSellAmount
+    uint256 limit;
+    uint256 deadline;
+    bytes exchangeData;
+}
+
+error InvalidTrade();
+
+interface ITradingModule {
+    event TradeExecuted(
+        address indexed sellToken,
+        address indexed buyToken,
+        uint256 sellAmount,
+        uint256 buyAmount
+    );
+
+    event PriceOracleUpdated(address token, address oracle);
+    event MaxOracleFreshnessUpdated(uint32 currentValue, uint32 newValue);
+
+    function getExecutionData(uint16 dexId, address from, Trade calldata trade)
+        external view returns (
+            address spender,
+            address target,
+            uint256 value,
+            bytes memory params
+        );
+
+    function setPriceOracle(address token, AggregatorV2V3Interface oracle) external;
+
+    function getOraclePrice(address inToken, address outToken)
+        external view returns (int256 answer, int256 decimals);
+
+    function executeTrade(
+        uint16 dexId,
+        Trade calldata trade
+    ) external returns (uint256 amountSold, uint256 amountBought);
+
+    function executeTradeWithDynamicSlippage(
+        uint16 dexId,
+        Trade memory trade,
+        uint32 dynamicSlippageLimit
+    ) external returns (uint256 amountSold, uint256 amountBought);
+
+    function getLimitAmount(
+        TradeType tradeType,
+        address sellToken,
+        address buyToken,
+        uint256 amount,
+        uint32 slippageLimit
+    ) external view returns (uint256 limitAmount);
+}
+// ===== END SOURCE FILE: interfaces/trading/ITradingModule.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/trading/IVaultExchange.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.15;
+
+import "./ITradingModule.sol";
+
+struct VaultExchange {
+    TradeType tradeType;
+    address sellToken;
+    address buyToken;
+    uint256 amount;
+    uint256 limit;
+}
+
+interface IVaultExchangeCallback {
+    function exchangeCallback(address token, uint256 amount) external;
+}
+
+interface IVaultExchange {
+    function executeTrade(uint16 dexId, Trade calldata trade)
+        external
+        returns (uint256 amountSold, uint256 amountBought);
+
+    function exchange(VaultExchange calldata request)
+        external
+        returns (uint256 amountSold, uint256 amountBought);
+}
+// ===== END SOURCE FILE: interfaces/trading/IVaultExchange.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/uniswap/v2/IUniV2Router2.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity 0.8.15;
+pragma abicoder v2;
+
+interface IUniV2Router2 {
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapTokensForExactTokens(
+        uint256 amountOut,
+        uint256 amountInMax,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+}
+// ===== END SOURCE FILE: interfaces/uniswap/v2/IUniV2Router2.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/uniswap/v3/ISwapRouter.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity 0.8.15;
+pragma abicoder v2;
+
+import './IUniswapV3SwapCallback.sol';
+
+/// @title Router token swapping functionality
+/// @notice Functions for swapping tokens via Uniswap V3
+interface ISwapRouter is IUniswapV3SwapCallback {
+    struct ExactInputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    /// @notice Swaps `amountIn` of one token for as much as possible of another token
+    /// @param params The parameters necessary for the swap, encoded as `ExactInputSingleParams` in calldata
+    /// @return amountOut The amount of the received token
+    function exactInputSingle(ExactInputSingleParams calldata params) external payable returns (uint256 amountOut);
+
+    struct ExactInputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+    }
+
+    /// @notice Swaps `amountIn` of one token for as much as possible of another along the specified path
+    /// @param params The parameters necessary for the multi-hop swap, encoded as `ExactInputParams` in calldata
+    /// @return amountOut The amount of the received token
+    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
+
+    struct ExactOutputSingleParams {
+        address tokenIn;
+        address tokenOut;
+        uint24 fee;
+        address recipient;
+        uint256 deadline;
+        uint256 amountOut;
+        uint256 amountInMaximum;
+        uint160 sqrtPriceLimitX96;
+    }
+
+    /// @notice Swaps as little as possible of one token for `amountOut` of another token
+    /// @param params The parameters necessary for the swap, encoded as `ExactOutputSingleParams` in calldata
+    /// @return amountIn The amount of the input token
+    function exactOutputSingle(ExactOutputSingleParams calldata params) external payable returns (uint256 amountIn);
+
+    struct ExactOutputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountOut;
+        uint256 amountInMaximum;
+    }
+
+    /// @notice Swaps as little as possible of one token for `amountOut` of another along the specified path (reversed)
+    /// @param params The parameters necessary for the multi-hop swap, encoded as `ExactOutputParams` in calldata
+    /// @return amountIn The amount of the input token
+    function exactOutput(ExactOutputParams calldata params) external payable returns (uint256 amountIn);
+}
+// ===== END SOURCE FILE: interfaces/uniswap/v3/ISwapRouter.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/uniswap/v3/IUniswapV3SwapCallback.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity 0.8.15;
+
+/// @title Callback for IUniswapV3PoolActions#swap
+/// @notice Any contract that calls IUniswapV3PoolActions#swap must implement this interface
+interface IUniswapV3SwapCallback {
+    /// @notice Called to `msg.sender` after executing a swap via IUniswapV3Pool#swap.
+    /// @dev In the implementation you must pay the pool tokens owed for the swap.
+    /// The caller of this method must be checked to be a UniswapV3Pool deployed by the canonical UniswapV3Factory.
+    /// amount0Delta and amount1Delta can both be 0 if no tokens were swapped.
+    /// @param amount0Delta The amount of token0 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token0 to the pool.
+    /// @param amount1Delta The amount of token1 that was sent (negative) or must be received (positive) by the pool by
+    /// the end of the swap. If positive, the callback must send that amount of token1 to the pool.
+    /// @param data Any data passed through by the caller via the IUniswapV3PoolActions#swap call
+    function uniswapV3SwapCallback(
+        int256 amount0Delta,
+        int256 amount1Delta,
+        bytes calldata data
+    ) external;
+}
+// ===== END SOURCE FILE: interfaces/uniswap/v3/IUniswapV3SwapCallback.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/WETH9.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.7.6;
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface WETH9 is IERC20 {
+    function deposit() external payable;
+
+    function withdraw(uint256 wad) external;
+}
+// ===== END SOURCE FILE: interfaces/WETH9.sol =====

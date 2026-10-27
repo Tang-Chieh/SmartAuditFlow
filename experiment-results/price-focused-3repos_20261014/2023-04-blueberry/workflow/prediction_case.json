@@ -1,0 +1,8 @@
+{
+  "repo_id": "2023-04-blueberry",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": []
+}

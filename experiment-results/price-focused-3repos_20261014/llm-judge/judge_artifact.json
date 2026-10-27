@@ -1,0 +1,130 @@
+{
+  "artifact_version": "0.3",
+  "judge_config": {
+    "threshold": 0.5,
+    "weight_profile": {
+      "I": 0.2,
+      "L": 0.2,
+      "M": 0.2,
+      "R": 0.4,
+      "profile_id": "end-to-end-v2"
+    }
+  },
+  "judge_metadata": {
+    "api": "responses",
+    "batch_size": 10,
+    "calls": [
+      {
+        "ground_truth_id": "H-3",
+        "prediction_ids": [
+          "SAF-001",
+          "SAF-002"
+        ],
+        "repo_id": "2023-06-real-wagmi",
+        "response_id": "resp_fb467209d72a48e48e4c62bf2e3ece08",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 2923,
+          "output_tokens": 1366,
+          "total_tokens": 4289
+        }
+      },
+      {
+        "ground_truth_id": "H-1",
+        "prediction_ids": [
+          "SAF-001",
+          "SAF-002",
+          "SAF-003"
+        ],
+        "repo_id": "2024-03-woofi-swap",
+        "response_id": "resp_7cf4fe10511844cfa9d7fe6542664dbf",
+        "returned_model": "openai-codex/gpt-5.6-luna",
+        "usage": {
+          "input_tokens": 3373,
+          "output_tokens": 1617,
+          "total_tokens": 4990
+        }
+      }
+    ],
+    "model": "openai-codex/gpt-5.6-luna",
+    "prompt_version": "benchmark-judge-v3",
+    "temperature": 0.0
+  },
+  "manifest_sha256": "347ab4a643c95f420f2320b38934cbd7a2373a47172c266ffda6c0a662a27123",
+  "repositories": [
+    {
+      "pairs": [],
+      "repo_id": "2023-04-blueberry"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-3",
+          "prediction_id": "SAF-001",
+          "rationale": "R: Correctly identifies the root cause: attacker-manipulable Uniswap V3 slot0 spot prices are used to value positions, optimize deposits, and calculate LP issuance without a manipulation-resistant reference. L: Correctly localizes deposit(), getSlots(), and _getReserves(), including the slot0 and LiquidityAmounts data flow. I: Correctly describes distorted deposit ratios and LP exchange rates, including fewer-than-intended LP tokens and value transfer involving existing LP holders. M: TWAP or an independent oracle, deviation checks, and consistent protected valuation directly prevent the slot0 manipulation; minLpAmount is an additional appropriate safeguard.",
+          "scores": {
+            "I": 4,
+            "L": 4,
+            "M": 4,
+            "R": 4
+          },
+          "weighted_score": 1.0
+        },
+        {
+          "ground_truth_id": "H-3",
+          "prediction_id": "SAF-002",
+          "rationale": "R: Identifies the related raw-slot0/manipulated-reserve mechanism, but applies it to a different Dispatcher fee-withdrawal conversion rather than the ground-truth deposit share-issuance path, and asserts a separate exploit chain. L: References relevant Multipool snapshot/getSlots/_getReserves reserve code, but omits the vulnerable deposit() path and focuses on Dispatcher.withdraw(), _estimateWithdrawalLp(), and _withdrawFee(). I: Describes an alleged excess redemption and loss to remaining Dispatcher users, not the ground-truth consequence of incorrect deposit LP minting and dilution of Multipool liquidity providers; only the broad economic-loss theme overlaps. M: TWAP/oracle pricing with freshness and deviation checks would address slot0 manipulation in principle, but the proposed mitigation is framed around withdrawal fee conversion and does not explicitly cover deposit valuation and issuance, so coverage is incomplete.",
+          "scores": {
+            "I": 1,
+            "L": 2,
+            "M": 2,
+            "R": 2
+          },
+          "weighted_score": 0.45
+        }
+      ],
+      "repo_id": "2023-06-real-wagmi"
+    },
+    {
+      "pairs": [
+        {
+          "ground_truth_id": "H-1",
+          "prediction_id": "SAF-001",
+          "rationale": "R: Identifies related attacker-controlled Wooracle state and notes persisted WooPPV2 post-trade prices and missing feasibility enforcement, but omits the ground-truth split-swap compounding mechanism, independent per-swap limits, and unanchored no-Chainlink condition. L: Primarily localizes WooCrossFee/WooPPV3 fee valuation rather than WooPPV2 _sellBase/_sellQuote and WooracleV2_2.price; only broadly references WooPPV2 swaps. I: Describes fee-revenue loss and changed fee outcomes, not draining base-token reserves through flash-loan-assisted swaps. M: Requiring an independent manipulation-resistant price and rejecting infeasible/unanchored oracle values would prevent the no-Chainlink vulnerability, although the proposed controls are broader and do not specifically address split-swap state compounding.",
+          "scores": {
+            "I": 0,
+            "L": 1,
+            "M": 3,
+            "R": 2
+          },
+          "weighted_score": 0.4
+        },
+        {
+          "ground_truth_id": "H-1",
+          "prediction_id": "SAF-002",
+          "rationale": "R: Correctly recognizes that _sellBase persists a manipulated Wooracle price and a later _sellQuote uses it, but it omits the key splitting of a flash-loaned sale into individually permitted swaps and the no-Chainlink feasibility weakness. L: Correctly identifies WooPPV2._sellBase and _sellQuote as the relevant vulnerable swap path, though it omits the calculation helpers and WooracleV2_2.price. I: Describes excess reward-token payout and loss to other rebate recipients, not extraction of pool base reserves and repayment of a flash loan. M: TWAP, independent pricing, and minimum-output checks protect rebate redemption, but the proposed redemption-specific controls would not remove the underlying pool-drain path.",
+          "scores": {
+            "I": 1,
+            "L": 3,
+            "M": 1,
+            "R": 2
+          },
+          "weighted_score": 0.45000000000000007
+        },
+        {
+          "ground_truth_id": "H-1",
+          "prediction_id": "SAF-003",
+          "rationale": "R: Correctly identifies persisted Wooracle spot-price manipulation followed by a later quote-to-reward swap, but omits the ground-truth per-swap limit bypass through split swaps and the missing Chainlink anchor. L: Correctly localizes WooPPV2._sellBase and _sellQuote as the manipulated price path, with the additional caller context of distributeAllReward; calculation helpers and WooracleV2_2.price are not identified. I: Focuses on vaults receiving fewer reward tokens and possible surrounding-trade benefit, rather than draining the pool's base-token reserves via a flash-loan-funded exploit. M: A minimum output or independent oracle bound would mitigate the stated vault conversion issue, but it does not fix the underlying WooPPV2 split-swap price-compounding pool-drain vulnerability.",
+          "scores": {
+            "I": 1,
+            "L": 3,
+            "M": 1,
+            "R": 2
+          },
+          "weighted_score": 0.45000000000000007
+        }
+      ],
+      "repo_id": "2024-03-woofi-swap"
+    }
+  ]
+}

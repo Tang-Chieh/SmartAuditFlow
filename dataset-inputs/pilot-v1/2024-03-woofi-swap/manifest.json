@@ -1,0 +1,1255 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2024-03-woofi-swap",
+  "working_directory": "WooPoolV2",
+  "source_root_relative_to_repo": "WooPoolV2",
+  "expected_resolved_commit": "65185691c91541e33f84b77d4c6290182f137092",
+  "actual_git_head": "65185691c91541e33f84b77d4c6290182f137092",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 81,
+  "excluded_solidity_file_count": 6,
+  "bundle_count": 3,
+  "estimated_total_bundle_tokens": 141213,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 49746,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/CrossChain/SgInfo.sol",
+          "sha256": "710d626beda6db33c4632e706adb3c278dc355fc816daa39f31d6e83a46cee65",
+          "source_bytes_utf8": 4222,
+          "source_line_count": 95,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../interfaces/CrossChain/ISgInfo.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 96
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossChainRouter.sol",
+          "sha256": "e4f73debd4d1bec3c010e4cca8da6f3533a7d71372da5e3060d4363cc98a9d95",
+          "source_bytes_utf8": 14452,
+          "source_line_count": 378,
+          "imports": [
+            "../interfaces/IWooRouterV2.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/Stargate/IStargateRouter.sol",
+            "../interfaces/Stargate/IStargateReceiver.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@openzeppelin/contracts/security/Pausable.sol"
+          ],
+          "bundle_marker_line": 98,
+          "bundle_source_start_line": 99,
+          "bundle_source_end_line": 476
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossChainRouterV2.sol",
+          "sha256": "280f06f7a433c7d08ea7ba505bbf50a5f973184794960f8636c961daea00f7c0",
+          "source_bytes_utf8": 24240,
+          "source_line_count": 623,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@layerzerolabs/solidity-examples/contracts/token/oft/v2/fee/IOFTWithFee.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/CrossChain/IWooCrossChainRouterV2.sol",
+            "../interfaces/IWooRouterV2.sol",
+            "../interfaces/Stargate/IStargateEthVault.sol",
+            "../interfaces/Stargate/IStargateRouter.sol",
+            "../interfaces/LayerZero/ILzApp.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 478,
+          "bundle_source_start_line": 479,
+          "bundle_source_end_line": 1101
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossChainRouterV3.sol",
+          "sha256": "b782405905a53b65608df145c76c7a70ed6e903ed6e1338e75ec22671f47d582",
+          "source_bytes_utf8": 23105,
+          "source_line_count": 597,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/CrossChain/IWooCrossChainRouterV3.sol",
+            "../interfaces/IWooRouterV2.sol",
+            "../interfaces/Stargate/IStargateEthVault.sol",
+            "../interfaces/Stargate/IStargateRouter.sol",
+            "../interfaces/LayerZero/ILzApp.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 1103,
+          "bundle_source_start_line": 1104,
+          "bundle_source_end_line": 1700
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossChainRouterV4.sol",
+          "sha256": "12711fccfe392cb532dc6160140a3ced1d76e61cb449678a7a6a1be10367456f",
+          "source_bytes_utf8": 19905,
+          "source_line_count": 538,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/CrossChain/IWooCrossChainRouterV3.sol",
+            "../interfaces/IWooRouterV2.sol",
+            "../interfaces/Stargate/IStargateEthVault.sol",
+            "../interfaces/Stargate/IStargateRouter.sol",
+            "../interfaces/LayerZero/ILzApp.sol",
+            "../interfaces/CrossChain/ISgInfo.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 1702,
+          "bundle_source_start_line": 1703,
+          "bundle_source_end_line": 2240
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossFee.sol",
+          "sha256": "46b735af5fbdc902566a0eb41aa36f416f2076c590b613f8d402a07477b3b9a9",
+          "source_bytes_utf8": 6370,
+          "source_line_count": 164,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/IWooPPV3.sol",
+            "../interfaces/CrossChain/IWooCrossFee.sol",
+            "../IntegrationHelper.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 2242,
+          "bundle_source_start_line": 2243,
+          "bundle_source_end_line": 2406
+        },
+        {
+          "file": "contracts/CrossChain/WooCrossRouterForWidget.sol",
+          "sha256": "4cb9b77707262050a57b2aa823283e2ad639551c01c2e7820e7ae0bd9d4adcc3",
+          "source_bytes_utf8": 7752,
+          "source_line_count": 188,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/CrossChain/IWooCrossRouterForWidget.sol",
+            "../interfaces/IWooRouterV2.sol",
+            "../interfaces/CrossChain/IWooCrossChainRouterV3.sol",
+            "../interfaces/CrossChain/ISgInfo.sol",
+            "../interfaces/WOOFiDex/INonceCounter.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 2408,
+          "bundle_source_start_line": 2409,
+          "bundle_source_end_line": 2596
+        },
+        {
+          "file": "contracts/earn/DataProvider.sol",
+          "sha256": "f58d300f420fc09bcaf519e722b3a61344e6b62e43388af79ae6a25be5888243",
+          "source_bytes_utf8": 5344,
+          "source_line_count": 148,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "../interfaces/IDataProvider.sol"
+          ],
+          "bundle_marker_line": 2598,
+          "bundle_source_start_line": 2599,
+          "bundle_source_end_line": 2746
+        },
+        {
+          "file": "contracts/earn/strategies/BaseStrategy.sol",
+          "sha256": "6268953c248f9888e4dcc21b0484ddfaef8f530fd7c565e3170080f0db43a0fe",
+          "source_bytes_utf8": 8317,
+          "source_line_count": 219,
+          "imports": [
+            "../../interfaces/IStrategy.sol",
+            "../../interfaces/IWETH.sol",
+            "../../interfaces/IWooAccessManager.sol",
+            "../../interfaces/IVaultV2.sol",
+            "../../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/security/Pausable.sol"
+          ],
+          "bundle_marker_line": 2748,
+          "bundle_source_start_line": 2749,
+          "bundle_source_end_line": 2967
+        },
+        {
+          "file": "contracts/earn/strategies/VoidStrategy.sol",
+          "sha256": "43e975dc9e9f2c3e60eaaacf76462a2318e658aa22b9fc500bf7e7f35cb9e676",
+          "source_bytes_utf8": 3862,
+          "source_line_count": 94,
+          "imports": [
+            "./BaseStrategy.sol",
+            "@openzeppelin/contracts/utils/Address.sol"
+          ],
+          "bundle_marker_line": 2969,
+          "bundle_source_start_line": 2970,
+          "bundle_source_end_line": 3063
+        },
+        {
+          "file": "contracts/earn/VaultV2.sol",
+          "sha256": "df27268a8e58c46a8ae5abe721080d0c14b5257c39395664e0752b20d5af455c",
+          "source_bytes_utf8": 9999,
+          "source_line_count": 254,
+          "imports": [
+            "../interfaces/IStrategy.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooAccessManager.sol",
+            "../interfaces/IVaultV2.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 3065,
+          "bundle_source_start_line": 3066,
+          "bundle_source_end_line": 3319
+        },
+        {
+          "file": "contracts/earn/WooLendingManager.sol",
+          "sha256": "4cdfbed487c565ea5946bcefcae2ecc206da614f9109054af43366cb9161eeff",
+          "source_bytes_utf8": 10402,
+          "source_line_count": 286,
+          "imports": [
+            "./WooSuperChargerVaultV2.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooAccessManager.sol",
+            "../interfaces/IWooPPV2.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 3321,
+          "bundle_source_start_line": 3322,
+          "bundle_source_end_line": 3607
+        },
+        {
+          "file": "contracts/earn/WooLendingManagerV1_2.sol",
+          "sha256": "3e08c0b7aa6119f6015cb69827373c5cb04f5edceb42694311ab51aeb3db7ee4",
+          "source_bytes_utf8": 12965,
+          "source_line_count": 346,
+          "imports": [
+            "./WooSuperChargerVaultV2.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooAccessManager.sol",
+            "../interfaces/IWooPPV2.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 3609,
+          "bundle_source_start_line": 3610,
+          "bundle_source_end_line": 3955
+        },
+        {
+          "file": "contracts/earn/WooSuperChargerVaultV2.sol",
+          "sha256": "2aa7a330629b95dc5f7d9f27002aff7b4990a4fbdb3b243f0af0c07623eaa0cc",
+          "source_bytes_utf8": 21423,
+          "source_line_count": 538,
+          "imports": [
+            "../interfaces/IStrategy.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooAccessManager.sol",
+            "../interfaces/IVaultV2.sol",
+            "../interfaces/IMasterChefWoo.sol",
+            "./WooWithdrawManagerV2.sol",
+            "./WooLendingManager.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 3957,
+          "bundle_source_start_line": 3958,
+          "bundle_source_end_line": 4495
+        },
+        {
+          "file": "contracts/earn/WooWithdrawManagerV2.sol",
+          "sha256": "3116e3f3f511dbfaca99274c98c4713051eba89666572191b9ecf1969ba66f87",
+          "source_bytes_utf8": 5327,
+          "source_line_count": 130,
+          "imports": [
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooAccessManager.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 4497,
+          "bundle_source_start_line": 4498,
+          "bundle_source_end_line": 4627
+        },
+        {
+          "file": "contracts/IntegrationHelper.sol",
+          "sha256": "8885b05e90c39779c6e9aabb1ab9e552de5624a5080a093cdceb209010d21640",
+          "source_bytes_utf8": 3724,
+          "source_line_count": 89,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 4629,
+          "bundle_source_start_line": 4630,
+          "bundle_source_end_line": 4718
+        },
+        {
+          "file": "contracts/interfaces/AggregatorV3Interface.sol",
+          "sha256": "fea8091be082ab0e4708a445ab7b3d8ccd8bd6c72af0bfad6e24df9c6629ad8d",
+          "source_bytes_utf8": 991,
+          "source_line_count": 35,
+          "imports": [],
+          "bundle_marker_line": 4720,
+          "bundle_source_start_line": 4721,
+          "bundle_source_end_line": 4755
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/ISgInfo.sol",
+          "sha256": "d33fa200fb0910580adcbcc606e8c30312ecdca61134d267b7915a43739c1a92",
+          "source_bytes_utf8": 2444,
+          "source_line_count": 48,
+          "imports": [],
+          "bundle_marker_line": 4757,
+          "bundle_source_start_line": 4758,
+          "bundle_source_end_line": 4805
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/IWooCrossChainRouterV2.sol",
+          "sha256": "6bcd711cf3d15b8164346084cf8c1c7cd0ea5b59205d9c0692bb637f064d9faa",
+          "source_bytes_utf8": 4560,
+          "source_line_count": 127,
+          "imports": [],
+          "bundle_marker_line": 4807,
+          "bundle_source_start_line": 4808,
+          "bundle_source_end_line": 4934
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/IWooCrossChainRouterV3.sol",
+          "sha256": "c542d571c9aa7fc85cabbc5541a6058326253a26e5a4b451ced0f0939e10708c",
+          "source_bytes_utf8": 4390,
+          "source_line_count": 129,
+          "imports": [],
+          "bundle_marker_line": 4936,
+          "bundle_source_start_line": 4937,
+          "bundle_source_end_line": 5065
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/IWooCrossFee.sol",
+          "sha256": "0f1658ae8186e64069e684d773df983206d823efc65af076d690ba07808a254f",
+          "source_bytes_utf8": 2718,
+          "source_line_count": 59,
+          "imports": [],
+          "bundle_marker_line": 5067,
+          "bundle_source_start_line": 5068,
+          "bundle_source_end_line": 5126
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/IWooCrossRouterForWidget.sol",
+          "sha256": "e51ceb0cd2640d829c81f55700850bf07e3f8a562bef26a35bb5464a8a8de641",
+          "source_bytes_utf8": 3446,
+          "source_line_count": 81,
+          "imports": [
+            "./IWooCrossChainRouterV3.sol"
+          ],
+          "bundle_marker_line": 5128,
+          "bundle_source_start_line": 5129,
+          "bundle_source_end_line": 5209
+        },
+        {
+          "file": "contracts/interfaces/CrossChain/IWooUsdOFTCrossRouter.sol",
+          "sha256": "5139b121a0fdd78ba5451a35661957b58bf8ecfa82ef24ba085b5f9d8dac6d9c",
+          "source_bytes_utf8": 3930,
+          "source_line_count": 108,
+          "imports": [],
+          "bundle_marker_line": 5211,
+          "bundle_source_start_line": 5212,
+          "bundle_source_end_line": 5319
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0002",
+      "path": "bundles/bundle-0002.txt",
+      "estimated_tokens": 49726,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/interfaces/IDataProvider.sol",
+          "sha256": "9cf8529f7de0c98ccd8db0dcc9328f3c46321a7fe0c75a02c4feadb9c4f1ec54",
+          "source_bytes_utf8": 3507,
+          "source_line_count": 116,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 117
+        },
+        {
+          "file": "contracts/interfaces/IMasterChefReward.sol",
+          "sha256": "53a3202b891337da0b089f81a6492d38026e8d4791012f4bab00bc16a409d52d",
+          "source_bytes_utf8": 2373,
+          "source_line_count": 79,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./IRewarder.sol"
+          ],
+          "bundle_marker_line": 119,
+          "bundle_source_start_line": 120,
+          "bundle_source_end_line": 198
+        },
+        {
+          "file": "contracts/interfaces/IMasterChefWoo.sol",
+          "sha256": "8ab64dbef726dbaed212fb6298d0bd20e2384d07e6eae013ac136641769b3096",
+          "source_bytes_utf8": 2294,
+          "source_line_count": 76,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./IRewarder.sol"
+          ],
+          "bundle_marker_line": 200,
+          "bundle_source_start_line": 201,
+          "bundle_source_end_line": 276
+        },
+        {
+          "file": "contracts/interfaces/IRewarder.sol",
+          "sha256": "cdca97bdb89c5d25412049bfd3e964f551884fa9c4dde60d1acd69956ce5406f",
+          "source_bytes_utf8": 611,
+          "source_line_count": 25,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 278,
+          "bundle_source_start_line": 279,
+          "bundle_source_end_line": 303
+        },
+        {
+          "file": "contracts/interfaces/IStrategy.sol",
+          "sha256": "e07b65d83399b9671831f4e003a4bae7536fd5b8ceb33a4dc1115d20490d4153",
+          "source_bytes_utf8": 2739,
+          "source_line_count": 64,
+          "imports": [],
+          "bundle_marker_line": 305,
+          "bundle_source_start_line": 306,
+          "bundle_source_end_line": 369
+        },
+        {
+          "file": "contracts/interfaces/IVaultV2.sol",
+          "sha256": "9ca4a3ed20765c88c903e2fffb5713f24b55b75ebe12d12a9bb4abcfbdf9b0ac",
+          "source_bytes_utf8": 510,
+          "source_line_count": 20,
+          "imports": [],
+          "bundle_marker_line": 371,
+          "bundle_source_start_line": 372,
+          "bundle_source_end_line": 391
+        },
+        {
+          "file": "contracts/interfaces/IWETH.sol",
+          "sha256": "30bb15815b8837ff7b1cf1bcbf0dcb07c16848e97732560ad3b8a377146db699",
+          "source_bytes_utf8": 508,
+          "source_line_count": 17,
+          "imports": [],
+          "bundle_marker_line": 393,
+          "bundle_source_start_line": 394,
+          "bundle_source_end_line": 410
+        },
+        {
+          "file": "contracts/interfaces/IWooAccessManager.sol",
+          "sha256": "9f84a8cef0f5b0932507d825351491aaaf904c666ea7792196ab0e1d29760f66",
+          "source_bytes_utf8": 3251,
+          "source_line_count": 73,
+          "imports": [],
+          "bundle_marker_line": 412,
+          "bundle_source_start_line": 413,
+          "bundle_source_end_line": 485
+        },
+        {
+          "file": "contracts/interfaces/IWooFeeManager.sol",
+          "sha256": "1954caae79b0561994e4b9e330a582b7f3ca3b8592b08097e129c29c8af9c0ab",
+          "source_bytes_utf8": 3585,
+          "source_line_count": 73,
+          "imports": [],
+          "bundle_marker_line": 487,
+          "bundle_source_start_line": 488,
+          "bundle_source_end_line": 560
+        },
+        {
+          "file": "contracts/interfaces/IWooLendingManager.sol",
+          "sha256": "75f9771aaf9a4af5e05cdcd1870cc0703595cba11a8e77cc61463b5528eaf113",
+          "source_bytes_utf8": 3074,
+          "source_line_count": 70,
+          "imports": [],
+          "bundle_marker_line": 562,
+          "bundle_source_start_line": 563,
+          "bundle_source_end_line": 632
+        },
+        {
+          "file": "contracts/interfaces/IWooPPV2.sol",
+          "sha256": "57f8bf6a2e6d0204a0f6a16fb202ceea590422092a00841a645b4306a489ab20",
+          "source_bytes_utf8": 5276,
+          "source_line_count": 118,
+          "imports": [],
+          "bundle_marker_line": 634,
+          "bundle_source_start_line": 635,
+          "bundle_source_end_line": 752
+        },
+        {
+          "file": "contracts/interfaces/IWooPPV2ForTest.sol",
+          "sha256": "dfe66b1c3ce5e3749ec155877e53ad7d8cda1a4c86d8110a5014f2b50b83a996",
+          "source_bytes_utf8": 2135,
+          "source_line_count": 39,
+          "imports": [],
+          "bundle_marker_line": 754,
+          "bundle_source_start_line": 755,
+          "bundle_source_end_line": 793
+        },
+        {
+          "file": "contracts/interfaces/IWooPPV3.sol",
+          "sha256": "7dd27744a0890004cfe06f0734ca699db92d6534ffbac0cc6de717cf0239fe90",
+          "source_bytes_utf8": 5809,
+          "source_line_count": 134,
+          "imports": [],
+          "bundle_marker_line": 795,
+          "bundle_source_start_line": 796,
+          "bundle_source_end_line": 929
+        },
+        {
+          "file": "contracts/interfaces/IWooracleV2.sol",
+          "sha256": "c6db38527c7ec7dbe6dc29158d3ac2c261365d41c17e209fc3d1a66d07a91ca8",
+          "source_bytes_utf8": 4254,
+          "source_line_count": 95,
+          "imports": [],
+          "bundle_marker_line": 931,
+          "bundle_source_start_line": 932,
+          "bundle_source_end_line": 1026
+        },
+        {
+          "file": "contracts/interfaces/IWooracleV3.sol",
+          "sha256": "3f943b65c579999d57e5497928aa948837d46e00af2bbe7690c26340a9bd1135",
+          "source_bytes_utf8": 4114,
+          "source_line_count": 92,
+          "imports": [],
+          "bundle_marker_line": 1028,
+          "bundle_source_start_line": 1029,
+          "bundle_source_end_line": 1120
+        },
+        {
+          "file": "contracts/interfaces/IWooRebateManager.sol",
+          "sha256": "6ea9b16e7ccfd0c77fabd216777b131156272ed32ef3d70dc63309ba85fc4d77",
+          "source_bytes_utf8": 3787,
+          "source_line_count": 75,
+          "imports": [],
+          "bundle_marker_line": 1122,
+          "bundle_source_start_line": 1123,
+          "bundle_source_end_line": 1197
+        },
+        {
+          "file": "contracts/interfaces/IWooRouterV2.sol",
+          "sha256": "1f2e099468840d4d61b1ebd27d6a019ae31d49905ec02d22a1dc117eb97abd0f",
+          "source_bytes_utf8": 5252,
+          "source_line_count": 134,
+          "imports": [
+            "../interfaces/IWooPPV2.sol"
+          ],
+          "bundle_marker_line": 1199,
+          "bundle_source_start_line": 1200,
+          "bundle_source_end_line": 1333
+        },
+        {
+          "file": "contracts/interfaces/IWooRouterV3.sol",
+          "sha256": "b5508bad3e79ebd015cffb0b9a3ce7182151d0a3675b1eacbe183cbe12a5a4fe",
+          "source_bytes_utf8": 5304,
+          "source_line_count": 136,
+          "imports": [
+            "../interfaces/IWooPPV3.sol"
+          ],
+          "bundle_marker_line": 1335,
+          "bundle_source_start_line": 1336,
+          "bundle_source_end_line": 1471
+        },
+        {
+          "file": "contracts/interfaces/IWooVaultManager.sol",
+          "sha256": "a2f899b30169af2f6d51042835d03bd92fd615e354c976ac58cccb75732cd55c",
+          "source_bytes_utf8": 3728,
+          "source_line_count": 76,
+          "imports": [],
+          "bundle_marker_line": 1473,
+          "bundle_source_start_line": 1474,
+          "bundle_source_end_line": 1549
+        },
+        {
+          "file": "contracts/interfaces/IXWoo.sol",
+          "sha256": "e85bcd22b3e7ee049a26c23bd671eff5ee97844b313afb5dbdc651c787f14e49",
+          "source_bytes_utf8": 147,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1551,
+          "bundle_source_start_line": 1552,
+          "bundle_source_end_line": 1558
+        },
+        {
+          "file": "contracts/interfaces/LayerZero/ILzApp.sol",
+          "sha256": "0fc329a0f9deb408fb34e45f81f0d1b2af140daefabd26c1b0e8d2d4f26255e2",
+          "source_bytes_utf8": 281,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 1560,
+          "bundle_source_start_line": 1561,
+          "bundle_source_end_line": 1569
+        },
+        {
+          "file": "contracts/interfaces/Stargate/IStargateEthVault.sol",
+          "sha256": "7f4311cfc462233fac8a68f96fd64f7bdac2a7e86527a48e1f51d74cac1e2fef",
+          "source_bytes_utf8": 441,
+          "source_line_count": 18,
+          "imports": [],
+          "bundle_marker_line": 1571,
+          "bundle_source_start_line": 1572,
+          "bundle_source_end_line": 1589
+        },
+        {
+          "file": "contracts/interfaces/Stargate/IStargateReceiver.sol",
+          "sha256": "4526b8b460508fce64addb6a9e976f838e2079b6d4e675711c7269ca1ecadad6",
+          "source_bytes_utf8": 291,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 1591,
+          "bundle_source_start_line": 1592,
+          "bundle_source_end_line": 1604
+        },
+        {
+          "file": "contracts/interfaces/Stargate/IStargateRouter.sol",
+          "sha256": "76a33d8b66c28cc44e3c2cb0dbadac68a272f9793a3cebca26f6f77af9e8f93a",
+          "source_bytes_utf8": 1777,
+          "source_line_count": 70,
+          "imports": [],
+          "bundle_marker_line": 1606,
+          "bundle_source_start_line": 1607,
+          "bundle_source_end_line": 1676
+        },
+        {
+          "file": "contracts/interfaces/WOOFiDex/INonceCounter.sol",
+          "sha256": "75fadce09cd087a07352357f3ecdc2d75c2afa3c58a7939ac1d88521c1ba219c",
+          "source_bytes_utf8": 384,
+          "source_line_count": 14,
+          "imports": [],
+          "bundle_marker_line": 1678,
+          "bundle_source_start_line": 1679,
+          "bundle_source_end_line": 1692
+        },
+        {
+          "file": "contracts/interfaces/WOOFiDex/IWOOFiDexCrossChainRouter.sol",
+          "sha256": "ef08d17e8f4ae2233262d9bbfaaf89291b2383ae6b43598fda1dca382ab22d58",
+          "source_bytes_utf8": 2987,
+          "source_line_count": 111,
+          "imports": [],
+          "bundle_marker_line": 1694,
+          "bundle_source_start_line": 1695,
+          "bundle_source_end_line": 1805
+        },
+        {
+          "file": "contracts/interfaces/WOOFiDex/IWOOFiDexDepositor.sol",
+          "sha256": "8304c3e2a80459cea163ec311414a5d4fa3cca2c7e3e6c89bfa8ae471bdf168e",
+          "source_bytes_utf8": 1046,
+          "source_line_count": 47,
+          "imports": [],
+          "bundle_marker_line": 1807,
+          "bundle_source_start_line": 1808,
+          "bundle_source_end_line": 1854
+        },
+        {
+          "file": "contracts/interfaces/WOOFiDex/IWOOFiDexVault.sol",
+          "sha256": "72a0abe8e86a0a4ca3730ff58c22a0c896da2c35bb25538ff077ad948706772a",
+          "source_bytes_utf8": 522,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 1856,
+          "bundle_source_start_line": 1857,
+          "bundle_source_end_line": 1877
+        },
+        {
+          "file": "contracts/libraries/TransferHelper.sol",
+          "sha256": "eee492b8e7f0b995c0a0eb2b51a03734457e51e8a3356b8b92d9c873e5857cfd",
+          "source_bytes_utf8": 2806,
+          "source_line_count": 63,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1879,
+          "bundle_source_start_line": 1880,
+          "bundle_source_end_line": 1942
+        },
+        {
+          "file": "contracts/MasterChefReward.sol",
+          "sha256": "a14df1edec82e715de4e0d33acf6917621ef4256e9d01a34f43160f9963bd609",
+          "source_bytes_utf8": 10768,
+          "source_line_count": 271,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "./interfaces/IMasterChefReward.sol",
+            "./libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 1944,
+          "bundle_source_start_line": 1945,
+          "bundle_source_end_line": 2215
+        },
+        {
+          "file": "contracts/MasterChefWoo.sol",
+          "sha256": "83e9e692a723082ef508334c9e0043033806b22df92ce4cde57248612d588db9",
+          "source_bytes_utf8": 10694,
+          "source_line_count": 271,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "./interfaces/IMasterChefWoo.sol",
+            "./interfaces/IXWoo.sol",
+            "./libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 2217,
+          "bundle_source_start_line": 2218,
+          "bundle_source_end_line": 2488
+        },
+        {
+          "file": "contracts/WooAccessManager.sol",
+          "sha256": "c2320b37857af08ea56b2224f3881406880a7eb0d8ebc33934a6c89c0adad35e",
+          "source_bytes_utf8": 4097,
+          "source_line_count": 89,
+          "imports": [
+            "./interfaces/IWooAccessManager.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/access/Ownable.sol"
+          ],
+          "bundle_marker_line": 2490,
+          "bundle_source_start_line": 2491,
+          "bundle_source_end_line": 2579
+        },
+        {
+          "file": "contracts/WooFeeManager.sol",
+          "sha256": "68900d46c694d171eac40314a6af7410ab3dcfeeedfc83877d8a08f2ca3fc8b7",
+          "source_bytes_utf8": 7614,
+          "source_line_count": 180,
+          "imports": [
+            "./interfaces/IWooRebateManager.sol",
+            "./interfaces/IWooFeeManager.sol",
+            "./interfaces/IWooVaultManager.sol",
+            "./interfaces/IWooAccessManager.sol",
+            "./libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 2581,
+          "bundle_source_start_line": 2582,
+          "bundle_source_end_line": 2761
+        },
+        {
+          "file": "contracts/WOOFiDex/NonceCounter.sol",
+          "sha256": "78976ff84b1b5bdecb2f82dba1cb50f36b8ab30f2ccb63e1cdea8746782f4b57",
+          "source_bytes_utf8": 976,
+          "source_line_count": 31,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../interfaces/WOOFiDex/INonceCounter.sol"
+          ],
+          "bundle_marker_line": 2763,
+          "bundle_source_start_line": 2764,
+          "bundle_source_end_line": 2794
+        },
+        {
+          "file": "contracts/WOOFiDex/WOOFiDexCrossChainRouter.sol",
+          "sha256": "77679af209b369263556e0c825ec6d1717e34fa769f768a6d4737d2a41a68052",
+          "source_bytes_utf8": 22960,
+          "source_line_count": 598,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "../interfaces/Stargate/IStargateRouter.sol",
+            "../interfaces/WOOFiDex/INonceCounter.sol",
+            "../interfaces/WOOFiDex/IWOOFiDexCrossChainRouter.sol",
+            "../interfaces/WOOFiDex/IWOOFiDexVault.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooRouterV2.sol"
+          ],
+          "bundle_marker_line": 2796,
+          "bundle_source_start_line": 2797,
+          "bundle_source_end_line": 3394
+        },
+        {
+          "file": "contracts/WOOFiDex/WOOFiDexDepositor.sol",
+          "sha256": "41b7cd218fcb3ae9edd5d01b4d97ae5f6077380d8d4e9ca272958a6dd2e6e91b",
+          "source_bytes_utf8": 5261,
+          "source_line_count": 146,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "../interfaces/WOOFiDex/IWOOFiDexDepositor.sol",
+            "../interfaces/WOOFiDex/IWOOFiDexVault.sol",
+            "../interfaces/IWooRouterV2.sol"
+          ],
+          "bundle_marker_line": 3396,
+          "bundle_source_start_line": 3397,
+          "bundle_source_end_line": 3542
+        },
+        {
+          "file": "contracts/WOOFiDex/WOOFiDexTestVault.sol",
+          "sha256": "8cd73954eee162767e47668ad41a036e13011e84ec778c87676128cb87c38453",
+          "source_bytes_utf8": 1746,
+          "source_line_count": 48,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "../interfaces/WOOFiDex/IWOOFiDexVault.sol"
+          ],
+          "bundle_marker_line": 3544,
+          "bundle_source_start_line": 3545,
+          "bundle_source_end_line": 3592
+        },
+        {
+          "file": "contracts/WooPPV2.sol",
+          "sha256": "8ce693e5b353c8c7385ba7abf4347db6b7e23ef9b638b668922c20235f426953",
+          "source_bytes_utf8": 25484,
+          "source_line_count": 657,
+          "imports": [
+            "./interfaces/IWooracleV2.sol",
+            "./interfaces/IWooPPV2.sol",
+            "./interfaces/AggregatorV3Interface.sol",
+            "./interfaces/IWooLendingManager.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol"
+          ],
+          "bundle_marker_line": 3594,
+          "bundle_source_start_line": 3595,
+          "bundle_source_end_line": 4251
+        },
+        {
+          "file": "contracts/WooPPV3/WooPPBase.sol",
+          "sha256": "ea5219327d9ffb49f2345968fea44e0415fe5ffc0dcaff54601aa024934a6f6f",
+          "source_bytes_utf8": 4924,
+          "source_line_count": 115,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "../libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 4253,
+          "bundle_source_start_line": 4254,
+          "bundle_source_end_line": 4368
+        },
+        {
+          "file": "contracts/WooPPV3/WooPPV3.sol",
+          "sha256": "055f8a582de5aae12b53d02a38932bd6b8c6d2ad6bd486b18bc65464d8b449e8",
+          "source_bytes_utf8": 23623,
+          "source_line_count": 592,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/IWooPPV3.sol",
+            "../interfaces/IWooPPV2ForTest.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "../interfaces/IWooLendingManager.sol",
+            "../libraries/TransferHelper.sol",
+            "./WooPPBase.sol",
+            "./WooUsdOFT.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol"
+          ],
+          "bundle_marker_line": 4370,
+          "bundle_source_start_line": 4371,
+          "bundle_source_end_line": 4962
+        },
+        {
+          "file": "contracts/WooPPV3/WooRouterV3.sol",
+          "sha256": "b530df700fcedd25af68ca4391b5652ac5184bb2a95fe15330163b9b4d73b5eb",
+          "source_bytes_utf8": 10830,
+          "source_line_count": 262,
+          "imports": [
+            "../interfaces/IWooPPV3.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/IWooRouterV3.sol",
+            "../libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 4964,
+          "bundle_source_start_line": 4965,
+          "bundle_source_end_line": 5226
+        },
+        {
+          "file": "contracts/WooPPV3/WooUsdOFT.sol",
+          "sha256": "b95151e6c9ac584c48023d2e9110aaf8d04e9cc344efdd47913ea4424b098789",
+          "source_bytes_utf8": 3494,
+          "source_line_count": 87,
+          "imports": [
+            "@layerzerolabs/solidity-examples/contracts/token/oft/v2/OFTV2.sol"
+          ],
+          "bundle_marker_line": 5228,
+          "bundle_source_start_line": 5229,
+          "bundle_source_end_line": 5315
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0003",
+      "path": "bundles/bundle-0003.txt",
+      "estimated_tokens": 41741,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/WooPPV3/WooUsdOFTCrossRouter.sol",
+          "sha256": "734872f9a15d43330cc722a4bbf6aaea7ed96656e0a9d506b58a07125da5429b",
+          "source_bytes_utf8": 11389,
+          "source_line_count": 317,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol",
+            "@layerzerolabs/solidity-examples/contracts/token/oft/v2/IOFTV2.sol",
+            "@openzeppelin/contracts/security/Pausable.sol",
+            "../interfaces/IWETH.sol",
+            "../interfaces/CrossChain/IWooUsdOFTCrossRouter.sol",
+            "../interfaces/IWooRouterV3.sol",
+            "../interfaces/LayerZero/ILzApp.sol",
+            "../interfaces/CrossChain/IWooCrossFee.sol",
+            "../libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 318
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2.sol",
+          "sha256": "70216802ff58e7691618b765f1be5891818e980c02a7c860c04322b0085b9fbb",
+          "source_bytes_utf8": 12324,
+          "source_line_count": 326,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 320,
+          "bundle_source_start_line": 321,
+          "bundle_source_end_line": 646
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2_1.sol",
+          "sha256": "8e992a14300b9f9c97092984a5fb341b36c8f378ab3ed55701299756f4ba0c4c",
+          "source_bytes_utf8": 12878,
+          "source_line_count": 343,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 648,
+          "bundle_source_start_line": 649,
+          "bundle_source_end_line": 991
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2_1_ZipInherit.sol",
+          "sha256": "cf84fca46807e6d59714a303995d75e7d6d7af8066dcac42d96432405ad73ecb",
+          "source_bytes_utf8": 6044,
+          "source_line_count": 143,
+          "imports": [
+            "./WooracleV2_1.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 993,
+          "bundle_source_start_line": 994,
+          "bundle_source_end_line": 1136
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2_1_ZKSync.sol",
+          "sha256": "809581ce4a88e0b70453ed681825ca2bdb75cbd53ea6186c8d65c589d0d7a7ac",
+          "source_bytes_utf8": 17125,
+          "source_line_count": 469,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 1138,
+          "bundle_source_start_line": 1139,
+          "bundle_source_end_line": 1607
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2_2.sol",
+          "sha256": "a0fe0f1f2f198c5eb4d26933d6d50b6f052f73f4145deb4f6150ad0a421107dc",
+          "source_bytes_utf8": 17191,
+          "source_line_count": 474,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 1609,
+          "bundle_source_start_line": 1610,
+          "bundle_source_end_line": 2083
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2Zip.sol",
+          "sha256": "e737827714bdc2f5a88be67d8c84eab97a16c8b9deafa11a1eba1f0efe90003a",
+          "source_bytes_utf8": 6232,
+          "source_line_count": 150,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../interfaces/IWooracleV2.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 2085,
+          "bundle_source_start_line": 2086,
+          "bundle_source_end_line": 2235
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2ZipInherit.sol",
+          "sha256": "890ed226991dcf69b54d199433744d678a578685ddffcaccce1c6b8be80cfebb",
+          "source_bytes_utf8": 5940,
+          "source_line_count": 142,
+          "imports": [
+            "./WooracleV2.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 2237,
+          "bundle_source_start_line": 2238,
+          "bundle_source_end_line": 2379
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2ZKSync.sol",
+          "sha256": "976655481fcba35bccb58fc6070c03bb0670e4c0b010f0d9a44f3d6dfd8ab1af",
+          "source_bytes_utf8": 16738,
+          "source_line_count": 459,
+          "imports": [
+            "../interfaces/IWooracleV2.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 2381,
+          "bundle_source_start_line": 2382,
+          "bundle_source_end_line": 2840
+        },
+        {
+          "file": "contracts/wooracle/WooracleV3.sol",
+          "sha256": "8eb85bf54c129410601561f257f5b5a710b01ef6ffe5bf2da83320d502a0a5db",
+          "source_bytes_utf8": 11735,
+          "source_line_count": 319,
+          "imports": [
+            "../interfaces/IWooracleV3.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 2842,
+          "bundle_source_start_line": 2843,
+          "bundle_source_end_line": 3161
+        },
+        {
+          "file": "contracts/wooracle/WooracleV3ZipInherit.sol",
+          "sha256": "765d4295f55aa23051c8e43403765c064c2f8a06124b535dcab186e4f86e06ad",
+          "source_bytes_utf8": 5954,
+          "source_line_count": 142,
+          "imports": [
+            "./WooracleV3.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 3163,
+          "bundle_source_start_line": 3164,
+          "bundle_source_end_line": 3305
+        },
+        {
+          "file": "contracts/wooracle/WooracleV3ZKSync.sol",
+          "sha256": "750b995f507cfbe7bfc96dc57978b4a6d8a46b06db80375df2e571c4b212bc40",
+          "source_bytes_utf8": 16040,
+          "source_line_count": 447,
+          "imports": [
+            "../interfaces/IWooracleV3.sol",
+            "../interfaces/AggregatorV3Interface.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 3307,
+          "bundle_source_start_line": 3308,
+          "bundle_source_end_line": 3754
+        },
+        {
+          "file": "contracts/WooRebateManager.sol",
+          "sha256": "1e7a07f16e3febd40a41f3d570de7f16c38222144327625839929f91309073bb",
+          "source_bytes_utf8": 7490,
+          "source_line_count": 180,
+          "imports": [
+            "./interfaces/IWooRebateManager.sol",
+            "./interfaces/IWooAccessManager.sol",
+            "./interfaces/IWooRouterV2.sol",
+            "./libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 3756,
+          "bundle_source_start_line": 3757,
+          "bundle_source_end_line": 3936
+        },
+        {
+          "file": "contracts/WooRouterV2.sol",
+          "sha256": "742c11287a3637509a1c23c8d7c6e6719e8a1934979d18b6f711e26aa6f96288",
+          "source_bytes_utf8": 11656,
+          "source_line_count": 278,
+          "imports": [
+            "./interfaces/IWooPPV2.sol",
+            "./interfaces/IWETH.sol",
+            "./interfaces/IWooRouterV2.sol",
+            "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol"
+          ],
+          "bundle_marker_line": 3938,
+          "bundle_source_start_line": 3939,
+          "bundle_source_end_line": 4216
+        },
+        {
+          "file": "contracts/WooSimpleRewarder.sol",
+          "sha256": "e4fb017b50bd9f819f603c3315bb26d0e3ef16427e80b465eaf4628c5f0c68f7",
+          "source_bytes_utf8": 7542,
+          "source_line_count": 176,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/Address.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "./interfaces/IRewarder.sol",
+            "./interfaces/IMasterChefWoo.sol",
+            "./libraries/TransferHelper.sol"
+          ],
+          "bundle_marker_line": 4218,
+          "bundle_source_start_line": 4219,
+          "bundle_source_end_line": 4394
+        },
+        {
+          "file": "contracts/WooVaultManager.sol",
+          "sha256": "1793f2c285a61c3fd2a4305115ef9fd440ea279c6a8f0aa1584ee8dcc36faf90",
+          "source_bytes_utf8": 6893,
+          "source_line_count": 167,
+          "imports": [
+            "./interfaces/IWooRouterV2.sol",
+            "./interfaces/IWooVaultManager.sol",
+            "./interfaces/IWooAccessManager.sol",
+            "./libraries/TransferHelper.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@openzeppelin/contracts/utils/structs/EnumerableSet.sol"
+          ],
+          "bundle_marker_line": 4396,
+          "bundle_source_start_line": 4397,
+          "bundle_source_end_line": 4563
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/test/TestChainLink.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/TestERC20Token.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/TestUsdtToken.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/WFTM.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/Greeter.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/TestHelpers.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ],
+  "source_repo_dir": "2024-03-woofi-swap"
+}

@@ -1,0 +1,268 @@
+{
+  "schema_version": "smartauditflow-input-bundles-v1",
+  "repo_scope_source": "ground_truth filenames only; ground-truth contents were not read",
+  "input_kind": "plain text Solidity bundles; not intended to compile as a single Solidity file",
+  "bundle_target_estimated_tokens": 750000,
+  "token_estimator": "ceil(character_count / 4); rough estimate, not GPT-5.6 Luna tokenizer output",
+  "source_policy": {
+    "included": "UTF-8 .sol files below metadata.source.working_directory, packed in sorted relative-path order",
+    "preserved": [
+      "source bodies",
+      "import lines",
+      "pragma lines",
+      "file boundaries",
+      "original source hashes"
+    ],
+    "excluded_directory_components": [
+      ".git",
+      "__mocks__",
+      "__tests__",
+      "artifacts",
+      "broadcast",
+      "build",
+      "cache",
+      "coverage",
+      "dist",
+      "fixture",
+      "fixtures",
+      "mock",
+      "mocks",
+      "node_modules",
+      "out",
+      "test",
+      "testing",
+      "tests",
+      "third-party",
+      "third_party",
+      "typechain-types",
+      "vendor",
+      "vendors"
+    ],
+    "excluded_file_rule": "*.t.sol",
+    "line_mapping": "bundle manifest records bundle and original source line ranges"
+  },
+  "repositories": [
+    {
+      "repo_id": "2021-04-marginswap",
+      "source_commit": "412d4ff61c9dfedb2f7d2fe957d911f7dc4ccfcb",
+      "included_solidity_file_count": 19,
+      "excluded_solidity_file_count": 0,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 34008,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2021-07-spartan",
+      "source_commit": "e2555aab44d9760fdd640df9095b7235b70f035e",
+      "included_solidity_file_count": 29,
+      "excluded_solidity_file_count": 0,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 37052,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2021-08-notional",
+      "source_commit": "774f07ef5cb61c85f3ea9cb77b42da380f9a313a",
+      "included_solidity_file_count": 72,
+      "excluded_solidity_file_count": 27,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 160297,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2021-11-malt",
+      "source_commit": "172cad76d6325d20cdeb3434662941d82f4a8e8b",
+      "included_solidity_file_count": 59,
+      "excluded_solidity_file_count": 0,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 59914,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2021-12-vader",
+      "source_commit": "fd2787013608438beae361ce1bb6d9ffba466c45",
+      "included_solidity_file_count": 81,
+      "excluded_solidity_file_count": 12,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 76946,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-01-behodler",
+      "source_commit": "ce1e7893bdbff8bd7b70474e902e990ac4aeafaf",
+      "included_solidity_file_count": 40,
+      "excluded_solidity_file_count": 33,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 34831,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-01-sandclock",
+      "source_commit": "a90ad3824955327597be00bb0bd183a9c228a4fb",
+      "included_solidity_file_count": 18,
+      "excluded_solidity_file_count": 7,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 14507,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-08-sentiment",
+      "source_commit": "96a28ee75fbdcd8726be78813c13d3b39306505a",
+      "included_solidity_file_count": 30,
+      "excluded_solidity_file_count": 0,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 22858,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-09-notional",
+      "source_commit": "0c729086ccba2816212e4a6046c8a581a622c117",
+      "included_solidity_file_count": 95,
+      "excluded_solidity_file_count": 5,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 87224,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-11-paraspace",
+      "source_commit": "c6820a279c64a299a783955749fdc977de8f0449",
+      "included_solidity_file_count": 351,
+      "excluded_solidity_file_count": 39,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 546771,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2022-11-telcoin",
+      "source_commit": "5baaefe0a29c2eccede8b8e1a390fd8931606684",
+      "included_solidity_file_count": 8,
+      "excluded_solidity_file_count": 6,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 9620,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-03-olympus",
+      "source_commit": "fae48b3a40f2a2f4ccf412fbee16aeea5b29c410",
+      "included_solidity_file_count": 21,
+      "excluded_solidity_file_count": 11,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 34808,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-04-blueberry",
+      "source_commit": "96eb1829571dc46e1a387985bd56989702c5e1dc",
+      "included_solidity_file_count": 80,
+      "excluded_solidity_file_count": 8,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 64947,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-05-ussd",
+      "source_commit": "6d7a9fdfb1f1ed838632c25b6e1b01748d0bafda",
+      "included_solidity_file_count": 12,
+      "excluded_solidity_file_count": 0,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 11087,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-06-lybra",
+      "source_commit": "4f7ee7b143d75faebfc9cceb21a0ac794d84978a",
+      "included_solidity_file_count": 49,
+      "excluded_solidity_file_count": 9,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 54414,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-06-real-wagmi",
+      "source_commit": "82a234a5c2c1fc1921c63265a9349b71d84675c4",
+      "included_solidity_file_count": 18,
+      "excluded_solidity_file_count": 1,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 23208,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-06-tokemak",
+      "source_commit": "5d8e902ce33981a6506b1b5fb979a084602c6c9a",
+      "included_solidity_file_count": 217,
+      "excluded_solidity_file_count": 96,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 180219,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2023-08-dopex",
+      "source_commit": "00601a3f4e3f662007b077bf1b201c9f5f00a8b6",
+      "included_solidity_file_count": 61,
+      "excluded_solidity_file_count": 18,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 80146,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2024-03-abracadabra-money",
+      "source_commit": "b2cfb84d2ae8914e557ede95c028d4dd74c2fb3e",
+      "included_solidity_file_count": 53,
+      "excluded_solidity_file_count": 13,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 66575,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2024-03-revert-lend",
+      "source_commit": "435b054f9ad2404173f36f0f74a5096c894b12b7",
+      "included_solidity_file_count": 18,
+      "excluded_solidity_file_count": 8,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 47520,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2024-03-woofi-swap",
+      "source_commit": "65185691c91541e33f84b77d4c6290182f137092",
+      "included_solidity_file_count": 81,
+      "excluded_solidity_file_count": 6,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 141212,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2024-04-panoptic",
+      "source_commit": "833312ebd600665b577fbd9c03ffa0daf250ed24",
+      "included_solidity_file_count": 23,
+      "excluded_solidity_file_count": 26,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 127905,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "2025-12-panoptic",
+      "source_commit": "fe557748210a529ae414d7c487b6514be0d9e220",
+      "included_solidity_file_count": 35,
+      "excluded_solidity_file_count": 57,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 197930,
+      "oversized_bundle_count": 0
+    },
+    {
+      "repo_id": "margintrading",
+      "source_commit": "ec6beb584386f9d72f4a236e3df7cfae90678e41",
+      "included_solidity_file_count": 17,
+      "excluded_solidity_file_count": 11,
+      "bundle_count": 1,
+      "estimated_total_bundle_tokens": 25520,
+      "oversized_bundle_count": 0
+    }
+  ],
+  "repo_count": 24,
+  "included_solidity_file_count": 1487,
+  "excluded_solidity_file_count": 393,
+  "bundle_count": 24,
+  "estimated_total_bundle_tokens": 2139519,
+  "oversized_bundle_count": 0
+}

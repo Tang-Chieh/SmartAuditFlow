@@ -1,0 +1,1386 @@
+// ===== BEGIN SOURCE FILE: contracts/RewardSystem/RewardThrottle.sol =====
+pragma solidity >=0.6.6;
+
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+import "@openzeppelin/contracts/math/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+
+import "../Permissions.sol";
+import "../interfaces/IDAO.sol";
+import "../interfaces/IOverflow.sol";
+import "../interfaces/IBonding.sol";
+import "../interfaces/IDistributor.sol";
+
+import "hardhat/console.sol";
+
+struct State {
+  uint256 profit;
+  uint256 rewarded;
+  uint256 bondedValue;
+  uint256 throttle;
+}
+
+/// @title Reward Throttle
+/// @author 0xScotch <scotch@malt.money>
+/// @notice The contract in charge of smoothing out rewards and attempting to find a steady APR
+/// @dev The use of smoothingPeriod has some flaws. At the very least the length should be longer
+contract RewardThrottle is Initializable, Permissions {
+  ERC20 public rewardToken;
+  IDAO public dao;
+  IBonding public bonding;
+  IOverflow public overflowPool;
+  IDistributor public distributor;
+
+  uint256 public throttle = 200; // 20%
+  uint256 public smoothingPeriod = 48; // 48 epochs = 24 hours
+
+  uint256 internal _activeEpoch;
+  mapping(uint256 => State) internal _state;
+
+  event RewardOverflow(uint256 epoch, uint256 overflow);
+  event HandleReward(uint256 epoch, uint256 amount);
+
+  function initialize(
+    address _timelock,
+    address initialAdmin,
+    address _dao,
+    address _overflowPool,
+    address _bonding,
+    address _distributor,
+    address _rewardToken
+  ) external initializer {
+    _adminSetup(_timelock);
+
+    _setupRole(ADMIN_ROLE, initialAdmin);
+
+    dao = IDAO(_dao);
+    overflowPool = IOverflow(_overflowPool);
+    bonding = IBonding(_bonding);
+    distributor = IDistributor(_distributor);
+    rewardToken = ERC20(_rewardToken);
+  }
+
+  function handleReward() public {
+    uint256 balance = rewardToken.balanceOf(address(this));
+
+    uint256 epoch = dao.epoch();
+
+    checkRewardUnderflow();
+
+    if (epoch > _activeEpoch) {
+      _activeEpoch = epoch;
+      _state[_activeEpoch].bondedValue = bonding.averageBondedValue(_activeEpoch); 
+      _state[_activeEpoch].profit = balance;
+      _state[_activeEpoch].rewarded = 0;
+      _state[_activeEpoch].throttle = throttle;
+    } else {
+      _state[_activeEpoch].profit = _state[_activeEpoch].profit.add(balance);
+      _state[_activeEpoch].throttle = throttle; 
+    }
+
+    // Fetch targetAPR before we update current epoch state
+    uint256 aprTarget = targetAPR();
+
+    // Distribute balance to the correct places
+    if (aprTarget > 0 && _epochAprGivenReward(epoch, balance) > aprTarget) {
+      uint256 remainder = _getRewardOverflow(balance, aprTarget);
+      emit RewardOverflow(_activeEpoch, remainder);
+
+      if (remainder > 0) {
+        rewardToken.safeTransfer(address(overflowPool), remainder);
+
+        if (balance > remainder) {
+          _sendToDistributor(balance - remainder, _activeEpoch);
+        }
+      }
+    } else {
+      _sendToDistributor(balance, _activeEpoch);
+    }
+
+    emit HandleReward(epoch, balance);
+  }
+
+  /*
+   * PUBLIC VIEW FUNCTIONS
+   */
+  function epochAPR(uint256 epoch) public view returns (uint256) {
+    // This returns an implied APR based on the distributed rewards and bonded LP at the given epoch
+    State memory epochState = _state[epoch];
+
+    uint256 bondedValue = epochState.bondedValue;
+    if (bondedValue == 0) {
+      bondedValue = bonding.averageBondedValue(epoch); 
+      if (bondedValue == 0) {
+        return 0;
+      }
+    }
+
+    // 10000 = 100%
+    return epochState.rewarded.mul(10000).mul(dao.epochsPerYear()).div(bondedValue);
+  }
+
+  function averageAPR(uint256 startEpoch, uint256 endEpoch) public view returns (uint256) {
+    require(startEpoch < endEpoch, "Start cannot be before the end");
+
+    uint256 totalAPR = 0;
+    for (uint256 i = startEpoch; i < endEpoch; i += 1) {
+      totalAPR = totalAPR.add(epochAPR(i));
+    }
+
+    return totalAPR / (endEpoch - startEpoch);
+  }
+
+  function targetAPR() public view returns (uint256) {
+    uint256 epoch = dao.epoch();
+    (uint256 target,) = getTargets(epoch, smoothingPeriod);
+    return target;
+  }
+
+  function targetEpochProfit() public view returns (uint256) {
+    uint256 epoch = dao.epoch();
+    (, uint256 epochProfitTarget) = getTargets(epoch, smoothingPeriod);
+    return epochProfitTarget;
+  }
+
+  function getTargets(uint256 epoch, uint256 smoothing) public view returns (uint256, uint256) {
+    // Average full APR over smoothingPeriod. Throttled by throttle
+    uint256 maxPeriod = Math.min(epoch, smoothing);
+
+    uint256 totalProfit = 0;
+    uint256 totalBondedValue = 0;
+
+    // Don't use the current epoch as part of the target calculations
+    for (uint256 i = 1; i <= maxPeriod; i = i + 1) {
+      totalProfit = totalProfit + _state[epoch - i].profit;
+      totalBondedValue = totalBondedValue + _state[epoch - i].bondedValue;
+    }
+
+    if (totalBondedValue == 0) {
+      return (0, 0);
+    }
+
+    totalProfit = totalProfit / maxPeriod;
+    totalBondedValue = totalBondedValue / maxPeriod;
+
+    // 10k is used here for more granularity on the APR %
+    uint256 fullAPR = totalProfit.mul(10000).mul(dao.epochsPerYear()).div(totalBondedValue);
+    // throttle is up to 1000. 1000 = 100%
+    uint256 aprTarget = fullAPR.mul(throttle).div(1000);
+
+    // (Target APR, Target profit per epoch)
+    return (aprTarget, _desiredProfit(aprTarget, _state[epoch].bondedValue));
+  }
+
+  function epochData(uint256 epoch) public view returns (
+    uint256 profit,
+    uint256 rewarded,
+    uint256 bondedValue,
+    uint256 throttleAmount
+  ) {
+    return (
+      _state[epoch].profit,
+      _state[epoch].rewarded,
+      _state[epoch].bondedValue,
+      _state[epoch].throttle
+    );
+  }
+
+  /*
+   * INTERNAL VIEW FUNCTIONS
+   */
+  function _desiredProfit(uint256 apr, uint256 bondedValue) internal view returns (uint256) {
+    return apr.mul(bondedValue).div(dao.epochsPerYear()).div(10000);
+  }
+
+  function _epochAprGivenReward(uint256 epoch, uint256 reward) internal view returns (uint256) {
+    // This returns an implied APR based on the distributed rewards and bonded LP at the given epoch
+    State memory epochState = _state[epoch];
+    
+    if (epochState.bondedValue == 0) {
+      return 0;
+    }
+
+    // 10000 = 100%
+    return (epochState.rewarded.add(reward)).mul(10000).mul(dao.epochsPerYear()).div(epochState.bondedValue);
+  }
+
+  function _getRewardOverflow(uint256 declaredReward, uint256 desiredAPR) internal view returns (uint256 remainder) {
+    State memory epochState = _state[_activeEpoch];
+
+    if (desiredAPR == 0) {
+      // If desired APR is zero then just allow all rewards through
+      return 0;
+    }
+
+    uint256 targetProfit = desiredAPR.mul(epochState.bondedValue).div(dao.epochsPerYear()).div(10000);
+
+    if (targetProfit <= epochState.rewarded) {
+      return declaredReward;
+    }
+
+    uint256 undeclaredReward = targetProfit - epochState.rewarded;
+
+    if (undeclaredReward >= declaredReward) {
+      // Declared reward doesn't make up for the difference yet
+      return 0;
+    }
+
+    remainder = declaredReward - undeclaredReward;
+  }
+
+  function _getRewardUnderflow(uint256 desiredAPR, uint256 epoch) internal view returns (uint256 amount) {
+    State memory epochState = _state[epoch];
+
+    uint256 targetProfit = desiredAPR.mul(epochState.bondedValue).div(dao.epochsPerYear()).div(10000);
+
+    if (targetProfit <= epochState.rewarded) {
+      // Rewarded more than target already. 0 underflow
+      return 0;
+    }
+
+    return targetProfit - epochState.rewarded;
+  }
+
+  /*
+   * INTERNAL FUNCTIONS
+   */
+  function _sendToDistributor(uint256 amount, uint256 epoch) internal {
+    if (amount == 0) {
+      return;
+    }
+    rewardToken.safeTransfer(address(distributor), amount);
+    distributor.declareReward(amount);
+
+    _state[epoch].rewarded = _state[epoch].rewarded.add(amount);
+    _state[epoch].bondedValue = bonding.averageBondedValue(epoch); 
+  }
+
+  function checkRewardUnderflow() public {
+    uint256 epoch = dao.epoch();
+
+    // Fill in gaps so APR target is correct
+    _fillInEpochGaps(epoch);
+
+    if (epoch > _activeEpoch) {
+      for (uint256 i = _activeEpoch; i < epoch; i = i + 1) {
+        (uint256 desiredAPR,) = getTargets(i, smoothingPeriod);
+
+        if (epochAPR(i) < desiredAPR) {
+          uint256 underflow = _getRewardUnderflow(desiredAPR, i);
+
+          if (underflow > 0) {
+            uint256 balance = overflowPool.requestCapital(underflow);
+
+            _sendToDistributor(balance, i);
+          }
+        } 
+      }
+    }
+  }
+
+  function _fillInEpochGaps(uint256 epoch) internal {
+    _state[_activeEpoch].bondedValue = bonding.averageBondedValue(_activeEpoch); 
+    // Avoid issues if gap between rewards is greater than one epoch
+    for (uint256 i = _activeEpoch + 1; i < epoch; i = i + 1) {
+      if (_state[i].rewarded == 0 && _state[i].bondedValue == 0) {
+        _state[i].bondedValue = bonding.averageBondedValue(i); 
+        _state[i].profit = 0;
+        _state[i].rewarded = 0;
+        _state[i].throttle = throttle;
+      }
+    }
+  }
+
+  /*
+   * PRIVILEDGED FUNCTIONS
+   */
+  function setDao(address _dao) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_dao != address(0), "Not address 0");
+    dao = IDAO(_dao);
+  }
+
+  function setBonding(address _bonding) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_bonding != address(0), "Not address 0");
+    bonding = IBonding(_bonding);
+  }
+
+  function setDistributor(address _distributor) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_distributor != address(0), "Not address 0");
+    distributor = IDistributor(_distributor);
+  }
+
+  function setOverflowPool(address _overflowPool) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_overflowPool != address(0), "Not address 0");
+    overflowPool = IOverflow(_overflowPool);
+  }
+
+  function setThrottle(uint256 _throttle) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_throttle <= 1000, "Cannot have throttle above 100%");
+    throttle = _throttle;
+  }
+
+  function setSmoothingPeriod(uint256 _smoothingPeriod) external onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_smoothingPeriod > 0, "No zero smoothing period");
+    smoothingPeriod = _smoothingPeriod;
+  }
+}
+// ===== END SOURCE FILE: contracts/RewardSystem/RewardThrottle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/StabilizerNode.sol =====
+pragma solidity >=0.6.6;
+
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+
+import "./Permissions.sol";
+import "./interfaces/IAuction.sol";
+import "./interfaces/IMaltDataLab.sol";
+import "./interfaces/IDAO.sol";
+import "./interfaces/IRewardThrottle.sol";
+import "./interfaces/IAuctionBurnReserveSkew.sol";
+import "./interfaces/ILiquidityExtension.sol";
+import "./interfaces/IImpliedCollateralService.sol";
+import "./interfaces/IDexHandler.sol";
+import "./interfaces/ISwingTrader.sol";
+import "./interfaces/IBurnMintableERC20.sol";
+import "./interfaces/ISupplyDistributionController.sol";
+import "./interfaces/IAuctionStartController.sol";
+
+
+/// @title Stabilizer Node
+/// @author 0xScotch <scotch@malt.money>
+/// @notice The backbone of the Malt stability system. In charge of triggering actions to stabilize price
+contract StabilizerNode is Initializable, Permissions {
+  using SafeMath for uint256;
+  using SafeERC20 for ERC20;
+
+  uint256 internal stabilizeWindowEnd;
+  uint256 public stabilizeBackoffPeriod = 5 * 60; // 5 minutes
+  uint256 public upperStabilityThreshold = (10**18) / 100; // 1%
+  uint256 public lowerStabilityThreshold = (10**18) / 100;
+  uint256 public maxContributionBps = 70;
+  uint256 public priceAveragePeriod = 5 minutes;
+  uint256 public fastAveragePeriod = 30; // 30 seconds
+  uint256 public overrideDistance = 20; // 2%
+
+  uint256 public expansionDampingFactor = 1;
+
+  uint256 public defaultIncentive = 100;
+
+  uint256 public daoRewardCut;
+  uint256 public lpRewardCut = 417;
+  uint256 public auctionPoolRewardCut = 113;
+  uint256 public swingTraderRewardCut = 417;
+  uint256 public treasuryRewardCut = 50;
+  uint256 public callerRewardCut = 3;
+
+  uint256 public lastStabilize;
+
+  ERC20 public rewardToken;
+  IBurnMintableERC20 public malt;
+  IAuction public auction;
+  IDexHandler public dexHandler;
+  IDAO public dao;
+  address public uniswapV2Factory;
+  ILiquidityExtension public liquidityExtension;
+  IMaltDataLab public maltDataLab;
+  IAuctionBurnReserveSkew public auctionBurnReserveSkew;
+  IRewardThrottle public rewardThrottle;
+  ISwingTrader public swingTrader;
+  IImpliedCollateralService public impliedCollateralService;
+
+  address payable public treasuryMultisig;
+  address public auctionPool;
+  address public supplyDistributionController;
+  address public auctionStartController;
+
+  event MintMalt(uint256 amount);
+  event Stabilize(uint256 timestamp, uint256 exchangeRate);
+  event RewardDistribution(uint256 rewarded);
+  event SetAnnualYield(uint256 yield);
+  event SetStabilizeBackoff(uint256 period);
+  event SetAuctionBurnSkew(address auctionBurnReserveSkew);
+  event SetRewardCut(uint256 daoCut, uint256 lpCut, uint256 callerCut, uint256 treasuryCut, uint256 auctionPoolCut, uint256 swingTraderCut);
+  event SetTreasury(address newTreasury);
+  event SetDefaultIncentive(uint256 incentive);
+  event SetExpansionDamping(uint256 amount);
+  event SetNewMaltDataLab(address dataLab);
+  event SetAuctionContract(address auction);
+  event SetDexHandler(address dexHandler);
+  event SetDao(address dao);
+  event SetLiquidityExtension(address liquidityExtension);
+  event SetRewardThrottle(address rewardThrottle);
+  event SetSwingTrader(address swingTrader);
+  event SetPriceAveragePeriod(uint256 period);
+  event SetOverrideDistance(uint256 distance);
+  event SetFastAveragePeriod(uint256 period);
+  event SetStabilityThresholds(uint256 upper, uint256 lower);
+  event SetAuctionPool(address auctionPool);
+  event SetMaxContribution(uint256 maxContribution);
+  event SetImpliedCollateralService(address impliedCollateralService);
+  event SetSupplyDistributionController(address _controller);
+  event SetAuctionStartController(address _controller);
+
+  function initialize(
+    address _timelock,
+    address initialAdmin,
+    address _rewardToken,
+    address _malt,
+    address _auction,
+    address _uniswapV2Factory,
+    address payable _treasuryMultisig,
+    address _auctionPool
+  ) external initializer {
+    _adminSetup(_timelock);
+
+    _setupRole(ADMIN_ROLE, initialAdmin);
+    _setupRole(AUCTION_ROLE, _auction);
+
+    rewardToken = ERC20(_rewardToken);
+    malt = IBurnMintableERC20(_malt);
+    auction = IAuction(_auction);
+
+    uniswapV2Factory = _uniswapV2Factory;
+    treasuryMultisig = _treasuryMultisig;
+    auctionPool = _auctionPool;
+
+    lastStabilize = block.timestamp;
+  }
+
+  function setupContracts(
+    address _dexHandler,
+    address _maltDataLab,
+    address _auctionBurnReserveSkew,
+    address _rewardThrottle,
+    address _dao,
+    address _swingTrader,
+    address _liquidityExtension,
+    address _impliedCollateralService
+  ) external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    dexHandler = IDexHandler(_dexHandler);
+    maltDataLab = IMaltDataLab(_maltDataLab);
+    auctionBurnReserveSkew = IAuctionBurnReserveSkew(_auctionBurnReserveSkew);
+    rewardThrottle = IRewardThrottle(_rewardThrottle);
+    dao = IDAO(_dao);
+    swingTrader = ISwingTrader(_swingTrader);
+    liquidityExtension = ILiquidityExtension(_liquidityExtension);
+    impliedCollateralService = IImpliedCollateralService(_impliedCollateralService);
+  }
+
+  function stabilize() external notSameBlock {
+    auction.checkAuctionFinalization();
+
+    require(
+      block.timestamp >= stabilizeWindowEnd || _stabilityWindowOverride(),
+      "Can't call stabilize"
+    );
+    stabilizeWindowEnd = block.timestamp + stabilizeBackoffPeriod;
+
+    rewardThrottle.checkRewardUnderflow();
+
+    uint256 exchangeRate = maltDataLab.maltPriceAverage(priceAveragePeriod);
+
+    if (!_shouldAdjustSupply(exchangeRate)) {
+      maltDataLab.trackReserveRatio();
+
+      lastStabilize = block.timestamp;
+      return;
+    }
+
+    emit Stabilize(block.timestamp, exchangeRate);
+
+    if (exchangeRate > maltDataLab.priceTarget()) {
+      _distributeSupply();
+    } else {
+      _startAuction();
+    }
+
+    lastStabilize = block.timestamp;
+  }
+
+  /*
+   * INTERNAL VIEW FUNCTIONS
+   */
+  function _stabilityWindowOverride() internal view returns (bool) {
+    if (hasRole(ADMIN_ROLE, _msgSender())) {
+      // Admin can always stabilize
+      return true;
+    }
+    // Must have elapsed at least one period of the moving average before we stabilize again
+    if (block.timestamp < lastStabilize + fastAveragePeriod) {
+      return false;
+    }
+
+    uint256 priceTarget = maltDataLab.priceTarget();
+    uint256 exchangeRate = maltDataLab.maltPriceAverage(fastAveragePeriod);
+
+    uint256 upperThreshold = priceTarget.mul(1000 + overrideDistance).div(1000);
+    uint256 lowerThreshold = priceTarget.mul(1000 - overrideDistance).div(1000);
+
+    return exchangeRate <= lowerThreshold || exchangeRate >= upperThreshold;
+  }
+
+  function _shouldAdjustSupply(uint256 exchangeRate) internal view returns (bool) {
+    uint256 decimals = rewardToken.decimals();
+    uint256 priceTarget = maltDataLab.priceTarget();
+
+    uint256 upperThreshold = priceTarget.mul(upperStabilityThreshold).div(10**decimals);
+    uint256 lowerThreshold = priceTarget.mul(lowerStabilityThreshold).div(10**decimals);
+
+    return (exchangeRate <= priceTarget.sub(lowerThreshold) && !auction.auctionActive(auction.currentAuctionId())) || exchangeRate >= priceTarget.add(upperThreshold);
+  }
+
+  /*
+   * INTERNAL FUNCTIONS
+   */
+  function _distributeSupply() internal {
+    if (supplyDistributionController != address(0)) {
+      bool success = ISupplyDistributionController(supplyDistributionController).check();
+      if (!success) {
+        return;
+      }
+    }
+
+    uint256 priceTarget = maltDataLab.priceTarget();
+    uint256 tradeSize = dexHandler.calculateMintingTradeSize(priceTarget).div(expansionDampingFactor);
+
+    if (tradeSize == 0) {
+      return;
+    }
+
+    uint256 swingAmount = swingTrader.sellMalt(tradeSize);
+
+    if (swingAmount >= tradeSize) {
+      return;
+    }
+
+    tradeSize = tradeSize - swingAmount;
+
+    malt.mint(address(dexHandler), tradeSize);
+    emit MintMalt(tradeSize);
+    uint256 rewards = dexHandler.sellMalt();
+
+    auctionBurnReserveSkew.addAbovePegObservation(tradeSize);
+
+    uint256 remaining = _replenishLiquidityExtension(rewards);
+
+    _distributeRewards(remaining);
+
+    maltDataLab.trackReserveRatio();
+    impliedCollateralService.claim();
+  }
+
+  function _distributeRewards(uint256 rewarded) internal {
+    if (rewarded == 0) {
+      return;
+    }
+    rewardToken.approve(address(auction), rewarded);
+    rewarded = auction.allocateArbRewards(rewarded);
+
+    if (rewarded == 0) {
+      return;
+    }
+
+    uint256 callerCut = rewarded.mul(callerRewardCut).div(1000);
+    uint256 lpCut = rewarded.mul(lpRewardCut).div(1000);
+    uint256 daoCut = rewarded.mul(daoRewardCut).div(1000);
+    uint256 auctionPoolCut = rewarded.mul(auctionPoolRewardCut).div(1000);
+    uint256 swingTraderCut = rewarded.mul(swingTraderRewardCut).div(1000);
+
+    // Treasury gets paid after everyone else
+    uint256 treasuryCut = rewarded - daoCut - lpCut - callerCut - auctionPoolCut - swingTraderCut;
+
+    assert(treasuryCut <= rewarded);
+
+    if (callerCut > 0) {
+      rewardToken.safeTransfer(msg.sender, callerCut);
+    }
+
+    if (auctionPoolCut > 0) {
+      rewardToken.safeTransfer(auctionPool, auctionPoolCut);
+    }
+
+    if (swingTraderCut > 0) {
+      rewardToken.safeTransfer(address(swingTrader), swingTraderCut);
+    }
+
+    if (treasuryCut > 0) {
+      rewardToken.safeTransfer(treasuryMultisig, treasuryCut);
+    }
+
+    if (daoCut > 0) {
+      rewardToken.safeTransfer(address(dao), daoCut);
+    }
+
+    if (lpCut > 0) {
+      rewardToken.safeTransfer(address(rewardThrottle), lpCut);
+      rewardThrottle.handleReward();
+    }
+
+    emit RewardDistribution(rewarded);
+  }
+
+  function _replenishLiquidityExtension(uint256 rewards) internal returns (uint256 remaining) {
+    if (liquidityExtension.hasMinimumReserves() || rewards == 0) {
+      return rewards;
+    }
+
+    (uint256 deficit,) = liquidityExtension.collateralDeficit();
+
+    uint256 maxContrib = rewards.mul(maxContributionBps).div(100);
+
+    if (deficit >= maxContrib) {
+      rewardToken.safeTransfer(address(liquidityExtension), maxContrib);
+      return rewards - maxContrib;
+    }
+
+    rewardToken.safeTransfer(address(liquidityExtension), deficit);
+
+    return rewards - deficit;
+  }
+
+  function _startAuction() internal {
+    if (auctionStartController != address(0)) {
+      bool success = IAuctionStartController(auctionStartController).checkForStart();
+      if (!success) {
+        return;
+      }
+    }
+
+    uint256 priceTarget = maltDataLab.priceTarget();
+    uint256 purchaseAmount = dexHandler.calculateBurningTradeSize(priceTarget);
+
+    if (purchaseAmount == 0) {
+      return;
+    }
+
+    uint256 decimals = rewardToken.decimals();
+
+    uint256 amountUsed = swingTrader.buyMalt(purchaseAmount);
+
+    purchaseAmount = purchaseAmount - amountUsed;
+
+    if (purchaseAmount < 10**decimals) {
+      return;
+    }
+
+    auction.triggerAuction(priceTarget, purchaseAmount);
+
+    malt.mint(msg.sender, defaultIncentive*10**18);
+    emit MintMalt(defaultIncentive*10**18);
+
+    auctionBurnReserveSkew.addBelowPegObservation(purchaseAmount);
+
+    maltDataLab.trackReserveRatio();
+  }
+
+  /*
+   * PRIVILEDGED FUNCTIONS
+   */
+  function setStabilizeBackoff(uint256 _period)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_period > 0, "Must be greater than 0");
+    stabilizeBackoffPeriod = _period;
+    emit SetStabilizeBackoff(_period);
+  }
+
+  function setAuctionBurnSkew(address _auctionBurnReserveSkew)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    auctionBurnReserveSkew = IAuctionBurnReserveSkew(_auctionBurnReserveSkew);
+    emit SetAuctionBurnSkew(_auctionBurnReserveSkew);
+  }
+
+  function setRewardCut(
+    uint256 _daoCut,
+    uint256 _lpCut,
+    uint256 _callerCut,
+    uint256 _auctionPoolCut,
+    uint256 _swingTraderCut
+  )
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    uint256 sum = _daoCut.add(_lpCut).add(_callerCut).add(_auctionPoolCut).add(_swingTraderCut);
+    require(sum <= 1000, "Reward cut must be <= 100%");
+    daoRewardCut = _daoCut;
+    lpRewardCut = _lpCut;
+    callerRewardCut = _callerCut;
+    auctionPoolRewardCut = _auctionPoolCut;
+    swingTraderRewardCut = _swingTraderCut;
+    treasuryRewardCut = 1000 - sum;
+
+    emit SetRewardCut(_daoCut, _lpCut, _callerCut, treasuryRewardCut, _auctionPoolCut, _swingTraderCut);
+  }
+
+  function setTreasury(address payable _newTreasury)
+    external
+    onlyRole(TIMELOCK_ROLE, "Must have timelock role")
+  {
+    treasuryMultisig = _newTreasury;
+    emit SetTreasury(_newTreasury);
+  }
+
+  function setDefaultIncentive(uint256 _incentive)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_incentive > 0, "No negative incentive");
+
+    defaultIncentive = _incentive;
+
+    emit SetDefaultIncentive(_incentive);
+  }
+
+  function setExpansionDamping(uint256 amount)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(amount > 0, "No negative damping");
+
+    expansionDampingFactor = amount;
+    emit SetExpansionDamping(amount);
+  }
+
+  function setNewDataLab(address _dataLab)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    maltDataLab = IMaltDataLab(_dataLab);
+    emit SetNewMaltDataLab(_dataLab);
+  }
+
+  function setAuctionContract(address _auction)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+
+    if (address(auction) != address(0)) {
+      revokeRole(AUCTION_ROLE, address(auction));
+    }
+
+    auction = IAuction(_auction);
+    _setupRole(AUCTION_ROLE, _auction);
+    emit SetAuctionContract(_auction);
+  }
+
+  function setStabilityThresholds(uint256 _upper, uint256 _lower)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_upper > 0 && _lower > 0, "Must be above 0");
+
+    upperStabilityThreshold = _upper;
+    lowerStabilityThreshold = _lower;
+    emit SetStabilityThresholds(_upper, _lower);
+  }
+
+  function setAuctionPool(address _auctionPool)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_auctionPool != address(0), "Not address 0");
+
+    auctionPool = _auctionPool;
+    emit SetAuctionPool(_auctionPool);
+  }
+
+  function setSupplyDistributionController(address _controller)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    // This is allowed to be set to address(0) as its checked before calling methods on it
+    supplyDistributionController = _controller;
+    emit SetSupplyDistributionController(_controller);
+  }
+
+  function setAuctionStartController(address _controller)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin privilege")
+  {
+    // This is allowed to be set to address(0) as its checked before calling methods on it
+    auctionStartController = _controller;
+    emit SetAuctionStartController(_controller);
+  }
+
+  function setMaxContribution(uint256 _maxContribution)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_maxContribution > 0 && _maxContribution <= 100, "Must be between 0 and 100");
+
+    maxContributionBps = _maxContribution;
+    emit SetMaxContribution(_maxContribution);
+  }
+
+  function setDexHandler(address _dexHandler)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_dexHandler != address(0), "Not address 0");
+    dexHandler = IDexHandler(_dexHandler);
+    emit SetDexHandler(_dexHandler);
+  }
+
+  function setDao(address _dao)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_dao != address(0), "Not address 0");
+    dao = IDAO(_dao);
+    emit SetDao(_dao);
+  }
+
+  function setLiquidityExtension(address _liquidityExtension)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_liquidityExtension != address(0), "Not address 0");
+    liquidityExtension = ILiquidityExtension(_liquidityExtension);
+    emit SetLiquidityExtension(_liquidityExtension);
+  }
+
+  function setRewardThrottle(address _rewardThrottle)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_rewardThrottle != address(0), "Not address 0");
+    rewardThrottle = IRewardThrottle(_rewardThrottle);
+    emit SetRewardThrottle(_rewardThrottle);
+  }
+
+  function setSwingTrader(address _swingTrader)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_swingTrader != address(0), "Not address 0");
+    swingTrader = ISwingTrader(_swingTrader);
+    emit SetSwingTrader(_swingTrader);
+  }
+
+  function setImpliedCollateralService(address _impliedCollateralService)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_impliedCollateralService != address(0), "Not address 0");
+    impliedCollateralService = IImpliedCollateralService(_impliedCollateralService);
+    emit SetImpliedCollateralService(_impliedCollateralService);
+  }
+
+  function setPriceAveragePeriod(uint256 _period)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_period > 0, "Cannot have 0 period");
+    priceAveragePeriod = _period;
+    emit SetPriceAveragePeriod(_period);
+  }
+
+  function setOverrideDistance(uint256 _distance)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_distance > 0 && _distance < 1000, "Override must be between 0-100%");
+    overrideDistance = _distance;
+    emit SetOverrideDistance(_distance);
+  }
+
+  function setFastAveragePeriod(uint256 _period)
+    external
+    onlyRole(ADMIN_ROLE, "Must have admin role")
+  {
+    require(_period > 0, "Cannot have 0 period");
+    fastAveragePeriod = _period;
+    emit SetFastAveragePeriod(_period);
+  }
+}
+// ===== END SOURCE FILE: contracts/StabilizerNode.sol =====
+// ===== BEGIN SOURCE FILE: contracts/SwingTrader.sol =====
+pragma solidity >=0.6.6;
+
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+
+import "./Permissions.sol";
+import "./interfaces/IAuction.sol";
+import "./interfaces/IRewardThrottle.sol";
+import "./interfaces/IDexHandler.sol";
+
+
+/// @title Swing Trader
+/// @author 0xScotch <scotch@malt.money>
+/// @notice The sole aim of this contract is to defend peg and try to profit in the process.
+/// @dev It does so from a privileged internal position where it is allowed to purchase on the AMM even in recovery mode
+contract SwingTrader is Initializable, Permissions {
+  using SafeMath for uint256;
+  using SafeERC20 for ERC20;
+
+  ERC20 public collateralToken;
+  ERC20 public malt;
+  IDexHandler public dexHandler;
+  IRewardThrottle public rewardThrottle;
+
+  uint256 internal deployedCapital;
+  uint256 public lpProfitCut = 500; // 50%
+
+  function initialize(
+    address _timelock,
+    address initialAdmin,
+    address _collateralToken,
+    address _malt,
+    address _dexHandler,
+    address _stabilizerNode,
+    address _rewardThrottle
+  ) external initializer {
+    _adminSetup(_timelock);
+
+    _setupRole(ADMIN_ROLE, initialAdmin);
+    _setupRole(STABILIZER_NODE_ROLE, _stabilizerNode);
+
+    collateralToken = ERC20(_collateralToken);
+    malt = ERC20(_malt);
+    dexHandler = IDexHandler(_dexHandler);
+    rewardThrottle = IRewardThrottle(_rewardThrottle);
+  }
+
+  function buyMalt(uint256 maxCapital)
+    external
+    onlyRole(STABILIZER_NODE_ROLE, "Must have stabilizer node privs")
+    returns (uint256 capitalUsed)
+  {
+    if (maxCapital == 0) {
+      return 0;
+    }
+
+    uint256 balance = collateralToken.balanceOf(address(this));
+
+    if (balance == 0) {
+      return 0;
+    }
+
+    if (maxCapital < balance) {
+      balance = maxCapital;
+    }
+
+    collateralToken.safeTransfer(address(dexHandler), balance);
+    dexHandler.buyMalt();
+
+    deployedCapital = deployedCapital + balance;
+
+    return balance;
+  }
+
+  function sellMalt(uint256 maxAmount)
+    external
+    onlyRole(STABILIZER_NODE_ROLE, "Must have stabilizer node privs")
+    returns (uint256 amountSold)
+  {
+    if (maxAmount == 0) {
+      return 0;
+    }
+
+    uint256 totalMaltBalance = malt.balanceOf(address(this));
+    uint256 balance = totalMaltBalance;
+
+    if (balance == 0) {
+      return 0;
+    }
+
+    (uint256 basis,) = costBasis();
+
+    if (maxAmount < totalMaltBalance) {
+      balance = maxAmount;
+    }
+
+    malt.safeTransfer(address(dexHandler), balance);
+    uint256 rewards = dexHandler.sellMalt();
+
+    if (rewards <= deployedCapital && maxAmount != totalMaltBalance) {
+      // If all malt is spent we want to reset deployed capital
+      deployedCapital = deployedCapital - rewards;
+    } else {
+      deployedCapital = 0;
+    }
+
+    uint256 maltDecimals = malt.decimals();
+    uint256 decimals = collateralToken.decimals();    
+
+    uint256 profit = 0;
+
+    if (maltDecimals == decimals) {
+      uint256 soldBasis = basis.mul(balance).div(10**decimals);
+
+      if (rewards > soldBasis) {
+        profit = rewards.sub(soldBasis);
+      }
+    } else if (maltDecimals > decimals) {
+      uint256 diff = maltDecimals - decimals;
+      uint256 soldBasis = basis.mul(balance.div(10**diff)).div(10**decimals);
+
+      if (rewards > soldBasis) {
+        profit = rewards.sub(soldBasis);
+      }
+    } else {
+      uint256 diff = decimals - maltDecimals;
+      uint256 soldBasis = basis.mul(balance.mul(10**diff)).div(10**decimals);
+
+      if (rewards > soldBasis) {
+        profit = rewards.sub(soldBasis);
+      }
+    }
+
+    if (profit > 0) {
+      uint256 lpCut = profit.mul(lpProfitCut).div(1000);
+
+      collateralToken.safeTransfer(address(rewardThrottle), lpCut);
+      rewardThrottle.handleReward();
+    }
+
+    return balance;
+  }
+
+  function costBasis() public view returns (uint256 cost, uint256 decimals) {
+    // Always returns using the decimals of the collateralToken as that is the 
+    // currency costBasis is calculated in
+    decimals = collateralToken.decimals();    
+    uint256 maltBalance = malt.balanceOf(address(this));
+
+    if (deployedCapital == 0 || maltBalance == 0) {
+      return (0, decimals);
+    }
+
+    uint256 maltDecimals = malt.decimals();    
+
+    if (maltDecimals == decimals) {
+      return (deployedCapital.mul(10**decimals).div(maltBalance), decimals);
+    } else if (maltDecimals > decimals) {
+      uint256 diff = maltDecimals - decimals;
+      return (deployedCapital.mul(10**decimals).div(maltBalance.div(10**diff)), decimals);
+    } else {
+      uint256 diff = decimals - maltDecimals;
+      return (deployedCapital.mul(10**decimals).div(maltBalance.mul(10**diff)), decimals);
+    }
+  }
+
+  function setLpProfitCut(uint256 _profitCut) public onlyRole(ADMIN_ROLE, "Must have admin privs") {
+    require(_profitCut >= 0 && _profitCut <= 1000, "Must be between 0 and 100%");
+    lpProfitCut = _profitCut;  
+  }
+}
+// ===== END SOURCE FILE: contracts/SwingTrader.sol =====
+// ===== BEGIN SOURCE FILE: contracts/Timelock.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.6;
+
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+import "./Permissions.sol";
+
+
+/// @title Timelock
+/// @author 0xScotch <scotch@malt.money>
+/// @notice Fairly basic timelock contract
+contract Timelock is Initializable, Permissions {
+  using SafeMath for uint256;
+
+  // The amount of delay after which a delay can a queued can be executed.
+  uint256 public delay = 2 days;
+  // The the period within which an queued proposal can be executed.
+  uint256 public gracePeriod = 7 days;
+
+  mapping(bytes32 => bool) public queuedTransactions;
+
+  event NewDelay(uint256 indexed newDelay_);
+  event NewGracePeriod(uint256 indexed newGracePerios_);
+  event NewGovernor(address newGovernor);
+  event CancelTransaction(
+    bytes32 indexed txHash_,
+    address indexed target_,
+    uint256 value_,
+    string signature_,
+    bytes data_,
+    uint256 eta_
+  );
+  event ExecuteTransaction(
+    bytes32 indexed txHash_,
+    address indexed target_,
+    uint256 value_,
+    string signature_,
+    bytes data_,
+    uint256 eta_
+  );
+  event QueueTransaction(
+    bytes32 indexed txHash_,
+    address indexed target_,
+    uint256 value_,
+    string signature_,
+    bytes data_,
+    uint256 eta_
+  );
+
+  address public governor;
+
+  function initialize(address _admin, address _governor) external initializer {
+    _adminSetup(_admin);
+    _setupRole(GOVERNOR_ROLE, address(this));
+    _setupRole(GOVERNOR_ROLE, _governor);
+    _setRoleAdmin(GOVERNOR_ROLE, TIMELOCK_ROLE);
+
+    governor = _governor;
+  }
+
+  receive() external payable {}
+
+  /**
+   * @notice Sets the amount of time after which a proposal that has been queued can be executed.
+   */
+  function setDelay(uint256 _delay)
+    public
+    onlyRole(GOVERNOR_ROLE, "Must have timelock role")
+  {
+    require(
+      _delay >= 0 && _delay < gracePeriod,
+      "Timelock::setDelay: Delay must not be greater equal to zero and less than gracePeriod"
+    );
+    delay = _delay;
+
+    emit NewDelay(delay);
+  }
+
+  /**
+   * @notice Sets the amount of time within which a queued proposal can be executed.
+   */
+  function setGracePeriod(uint256 _gracePeriod)
+    public
+    onlyRole(GOVERNOR_ROLE, "Must have timelock role")
+  {
+    require(
+      _gracePeriod > delay,
+      "Timelock::gracePeriod: Grace period must be greater than delay"
+    );
+    gracePeriod = _gracePeriod;
+
+    emit NewGracePeriod(gracePeriod);
+  }
+
+  /**
+   * @notice Sets the governor address that is allowed to make proposals
+   */
+  function setGovernor(address _governor)
+    public
+    onlyRole(GOVERNOR_ROLE, "Must have timelock role")
+  {
+    _swapRole(_governor, governor, GOVERNOR_ROLE);
+    governor = _governor;
+    emit NewGovernor(_governor);
+  }
+
+  function queueTransaction(
+    address target,
+    uint256 value,
+    string memory signature,
+    bytes memory data,
+    uint256 eta
+  )
+    public
+    onlyRole(GOVERNOR_ROLE, "Timelock::queueTransaction: Call must come from governor.")
+    returns (bytes32)
+  {
+    require(
+      eta >= block.timestamp.add(delay),
+      "Timelock::queueTransaction: Estimated execution block must satisfy delay."
+    );
+
+    bytes32 txHash = keccak256(
+      abi.encode(target, value, signature, data, eta)
+    );
+    queuedTransactions[txHash] = true;
+
+    emit QueueTransaction(txHash, target, value, signature, data, eta);
+    return txHash;
+  }
+
+  function cancelTransaction(
+    address target,
+    uint256 value,
+    string memory signature,
+    bytes memory data,
+    uint256 eta
+  )
+    public
+    onlyRole(GOVERNOR_ROLE, "Timelock::cancelTransaction: Call must come from governor.")
+  {
+    bytes32 txHash = keccak256(
+      abi.encode(target, value, signature, data, eta)
+    );
+    queuedTransactions[txHash] = false;
+
+    emit CancelTransaction(txHash, target, value, signature, data, eta);
+  }
+
+  function executeTransaction(
+    address target,
+    uint256 value,
+    string memory signature,
+    bytes memory data,
+    uint256 eta
+  )
+    public
+    payable
+    onlyRole(GOVERNOR_ROLE, "Timelock::executeTransaction: Call must come from governor.")
+    returns (bytes memory)
+  {
+    bytes32 txHash = keccak256(
+      abi.encode(target, value, signature, data, eta)
+    );
+    require(
+      queuedTransactions[txHash],
+      "Timelock::executeTransaction: Transaction hasn't been queued."
+    );
+    require(
+      block.timestamp >= eta,
+      "Timelock::executeTransaction: Transaction hasn't surpassed time lock."
+    );
+    require(
+      block.timestamp <= eta.add(gracePeriod),
+      "Timelock::executeTransaction: Transaction is stale."
+    );
+
+    queuedTransactions[txHash] = false;
+
+    bytes memory callData;
+
+    if (bytes(signature).length == 0) {
+      callData = data;
+    } else {
+      callData = abi.encodePacked(
+        bytes4(keccak256(bytes(signature))),
+        data
+      );
+    }
+
+    (bool success, bytes memory returnData) = target.call{value: value}(
+      callData
+    );
+
+    require(
+      success,
+      "Timelock::executeTransaction: Transaction execution reverted."
+    );
+
+    emit ExecuteTransaction(txHash, target, value, signature, data, eta);
+
+    return returnData;
+  }
+}
+// ===== END SOURCE FILE: contracts/Timelock.sol =====
+// ===== BEGIN SOURCE FILE: contracts/TransferService.sol =====
+pragma solidity >=0.6.6;
+
+import "@openzeppelin/upgrades/contracts/Initializable.sol";
+
+import "./interfaces/IMaltDataLab.sol";
+import "./Permissions.sol";
+
+import "./interfaces/ITransferVerification.sol";
+
+
+/// @title Transfer Service
+/// @author 0xScotch <scotch@malt.money>
+/// @notice A contract that acts like a traffic warden to ensure tranfer verification requests get routed correctly
+contract TransferService is Initializable, Permissions {
+  address[] public verifierList;
+  mapping(address => address) public verifiers;
+
+  event AddVerifier(address indexed source, address verifier);
+  event RemoveVerifier(address indexed source, address verifier);
+
+  function initialize(
+    address _timelock,
+    address initialAdmin
+  ) external initializer {
+    _adminSetup(_timelock);
+    _setupRole(ADMIN_ROLE, initialAdmin);
+  }
+
+  function verifyTransfer(address from, address to, uint256 amount) public view returns (bool, string memory) {
+    if (verifiers[from] != address(0)) {
+      (bool valid, string memory reason) = ITransferVerification(verifiers[from]).verifyTransfer(from, to, amount);
+      if (!valid) {
+        return (false, reason);
+      }
+    } 
+
+    if (verifiers[to] != address(0)) {
+      (bool valid, string memory reason) = ITransferVerification(verifiers[to]).verifyTransfer(from, to, amount);
+      if (!valid) {
+        return (false, reason);
+      }
+    } 
+
+    return (true, "");
+  }
+
+  function numberOfVerifiers() public view returns(uint256) {
+    return verifierList.length;
+  }
+
+  /*
+   * PRIVILEDGED METHODS
+   */
+  function addVerifier(address _address, address _verifier) 
+    public
+    onlyRole(ADMIN_ROLE, "Must have admin role") 
+  {
+    require(_verifier != address(0), "Cannot use address 0");
+    require(_address != address(0), "Cannot use address 0");
+
+    if (verifiers[_address] != address(0)) {
+      return;
+    }
+
+    verifiers[_address] = _verifier;
+    verifierList.push(_address);
+
+    emit AddVerifier(_address, _verifier);
+  }
+
+  function removeVerifier(address _address) 
+    public
+    onlyRole(ADMIN_ROLE, "Must have admin role")  
+  {
+    require(_address != address(0), "Cannot use address 0");
+
+    if (verifiers[_address] == address(0)) {
+      return;
+    }
+
+    address verifier = verifiers[_address];
+    verifiers[_address] = address(0);
+
+    emit RemoveVerifier(_address, verifier);
+
+    // Loop until the second last element
+    for (uint i = 0; i < verifierList.length - 1; i = i + 1) {
+      if (verifierList[i] == _address) {
+        // Replace the current item with the last and pop the last away.
+        verifierList[i] = verifierList[verifierList.length - 1];
+        verifierList.pop();
+        return;
+      }
+    }
+
+    // If we made it here then the verifierList being removed is the last item
+    verifierList.pop();
+  }
+}
+// ===== END SOURCE FILE: contracts/TransferService.sol =====

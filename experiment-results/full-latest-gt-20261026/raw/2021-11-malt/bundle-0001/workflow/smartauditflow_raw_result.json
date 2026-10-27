@@ -1,0 +1,253 @@
+{
+  "Findings": [
+    {
+      "Issue": "AMM spot manipulation controls stabilization sizing and execution",
+      "Severity": "High",
+      "Description": "StabilizerNode uses MaltDataLab moving averages only to decide whether stabilization is required. The subsequent trade-size calculations call UniswapHandler.calculateMintingTradeSize() or calculateBurningTradeSize(), which read the live Uniswap V2 reserves through getReserves(). These attacker-influenceable reserves directly determine the amount of Malt minted and sold, the amount of collateral used by SwingTrader, and the residual purchaseAmount assigned to a new auction as both fullRequirement and maxCommitments. The resulting protocol swaps in UniswapHandler.buyMalt() and sellMalt() use amountOutMin == 0, so the protocol accepts execution at an attacker-manipulated rate without an oracle-based price or slippage bound.",
+      "Impact": "An attacker can temporarily move the Malt/reward-token AMM reserves before a public stabilization operation and cause the protocol to calculate an incorrect expansion or contraction amount. The protocol may mint or sell an excessive amount of Malt, spend collateral for insufficient Malt, sell Malt for insufficient collateral, or create an incorrectly sized auction. The zero-output bounds allow the manipulated execution price to be accepted, transferring value from protocol-controlled balances or reducing stabilization effectiveness.",
+      "Location": "contracts/DexHandlers/UniswapHandler.sol — UniswapHandler._calculateTradeSize; contracts/DexHandlers/UniswapHandler.sol — UniswapHandler.buyMalt; contracts/DexHandlers/UniswapHandler.sol — UniswapHandler.sellMalt; contracts/StabilizerNode.sol — StabilizerNode._distributeSupply; contracts/StabilizerNode.sol — StabilizerNode._startAuction; contracts/Auction.sol — Auction._triggerAuction",
+      "Mitigation": "Derive stabilization trade sizes and expected swap outputs from a manipulation-resistant TWAP or independent oracle. Add freshness, minimum-liquidity, and maximum-deviation checks between the oracle and AMM state. Apply protocol-configured trade-size caps and pass a nonzero, oracle-derived amountOutMin to buyMalt() and sellMalt(). Revalidate the price immediately before execution and independently cap auction fullRequirement and maxCommitments.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Manipulable AMM spot price determines auction escape-hatch payouts",
+      "Severity": "Medium",
+      "Description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains currentPrice from dexHandler.maltMarketPrice(). UniswapHandler.maltMarketPrice() computes that value directly from current Uniswap V2 reserves, without a TWAP, independent oracle, freshness check, or deviation bound. The manipulated price determines fullReturn, the permitted early-exit profit, and the amount of newly minted Malt that is sold through the AMM. The resulting collateral amount is then transferred to the exiting account. The corresponding earlyExitReturn() view also exposes the same raw spot-price dependency.",
+      "Impact": "A participant or attacker who can influence the AMM reserves can cause the escape hatch to calculate an incorrect early-exit return and mint an incorrect amount of Malt for the payout. Depending on the manipulation direction and exit timing, this can permit an excessive collateral payout or otherwise distort auction participation accounting. The subsequent sale also uses amountOutMin == 0, so execution at the manipulated AMM rate is not rejected by protocol-controlled slippage protection.",
+      "Location": "contracts/AuctionEscapeHatch.sol — AuctionEscapeHatch._calculateMaltRequiredForExit; contracts/AuctionEscapeHatch.sol — AuctionEscapeHatch.exitEarly; contracts/AuctionEscapeHatch.sol — AuctionEscapeHatch.earlyExitReturn; contracts/DexHandlers/UniswapHandler.sol — UniswapHandler.maltMarketPrice; contracts/DexHandlers/UniswapHandler.sol — UniswapHandler.sellMalt",
+      "Mitigation": "Use a validated TWAP or independent oracle for early-exit valuation, with freshness and maximum-deviation checks. Calculate the permitted payout and required Malt from one validated price snapshot, enforce a protocol-controlled minimum output based on that price and bounded slippage, and reject exits when AMM liquidity or execution-price deviation is outside configured limits.",
+      "finding_id": "SAF-002"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "AMM spot manipulation controls stabilization sizing and execution",
+      "description": "StabilizerNode uses MaltDataLab moving averages only to decide whether stabilization is required. The subsequent trade-size calculations call UniswapHandler.calculateMintingTradeSize() or calculateBurningTradeSize(), which read the live Uniswap V2 reserves through getReserves(). These attacker-influenceable reserves directly determine the amount of Malt minted and sold, the amount of collateral used by SwingTrader, and the residual purchaseAmount assigned to a new auction as both fullRequirement and maxCommitments. The resulting protocol swaps in UniswapHandler.buyMalt() and sellMalt() use amountOutMin == 0, so the protocol accepts execution at an attacker-manipulated rate without an oracle-based price or slippage bound.",
+      "impact": "An attacker can temporarily move the Malt/reward-token AMM reserves before a public stabilization operation and cause the protocol to calculate an incorrect expansion or contraction amount. The protocol may mint or sell an excessive amount of Malt, spend collateral for insufficient Malt, sell Malt for insufficient collateral, or create an incorrectly sized auction. The zero-output bounds allow the manipulated execution price to be accepted, transferring value from protocol-controlled balances or reducing stabilization effectiveness.",
+      "mitigation": "Derive stabilization trade sizes and expected swap outputs from a manipulation-resistant TWAP or independent oracle. Add freshness, minimum-liquidity, and maximum-deviation checks between the oracle and AMM state. Apply protocol-configured trade-size caps and pass a nonzero, oracle-derived amountOutMin to buyMalt() and sellMalt(). Revalidate the price immediately before execution and independently cap auction fullRequirement and maxCommitments.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "_calculateTradeSize",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "buyMalt",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "sellMalt",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/StabilizerNode.sol",
+          "contract": "StabilizerNode",
+          "function": "_distributeSupply",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/StabilizerNode.sol",
+          "contract": "StabilizerNode",
+          "function": "_startAuction",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Auction.sol",
+          "contract": "Auction",
+          "function": "_triggerAuction",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Manipulable AMM spot price determines auction escape-hatch payouts",
+      "description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains currentPrice from dexHandler.maltMarketPrice(). UniswapHandler.maltMarketPrice() computes that value directly from current Uniswap V2 reserves, without a TWAP, independent oracle, freshness check, or deviation bound. The manipulated price determines fullReturn, the permitted early-exit profit, and the amount of newly minted Malt that is sold through the AMM. The resulting collateral amount is then transferred to the exiting account. The corresponding earlyExitReturn() view also exposes the same raw spot-price dependency.",
+      "impact": "A participant or attacker who can influence the AMM reserves can cause the escape hatch to calculate an incorrect early-exit return and mint an incorrect amount of Malt for the payout. Depending on the manipulation direction and exit timing, this can permit an excessive collateral payout or otherwise distort auction participation accounting. The subsequent sale also uses amountOutMin == 0, so execution at the manipulated AMM rate is not rejected by protocol-controlled slippage protection.",
+      "mitigation": "Use a validated TWAP or independent oracle for early-exit valuation, with freshness and maximum-deviation checks. Calculate the permitted payout and required Malt from one validated price snapshot, enforce a protocol-controlled minimum output based on that price and bounded slippage, and reject exits when AMM liquidity or execution-price deviation is outside configured limits.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/AuctionEscapeHatch.sol",
+          "contract": "AuctionEscapeHatch",
+          "function": "_calculateMaltRequiredForExit",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/AuctionEscapeHatch.sol",
+          "contract": "AuctionEscapeHatch",
+          "function": "exitEarly",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/AuctionEscapeHatch.sol",
+          "contract": "AuctionEscapeHatch",
+          "function": "earlyExitReturn",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "maltMarketPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "sellMalt",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 2,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"AMM spot manipulation controls stabilization sizing and execution\",\n    \"description\": \"StabilizerNode uses MaltDataLab moving averages only to decide whether stabilization is required. The subsequent trade-size calculations call UniswapHandler.calculateMintingTradeSize() or calculateBurningTradeSize(), which read the live Uniswap V2 reserves through getReserves(). These attacker-influenceable reserves directly determine the amount of Malt minted and sold, the amount of collateral used by SwingTrader, and the residual purchaseAmount assigned to a new auction as both fullRequirement and maxCommitments. The resulting protocol swaps in UniswapHandler.buyMalt() and sellMalt() use amountOutMin == 0, so the protocol accepts execution at an attacker-manipulated rate without an oracle-based price or slippage bound.\",\n    \"impact\": \"An attacker can temporarily move the Malt/reward-token AMM reserves before a public stabilization operation and cause the protocol to calculate an incorrect expansion or contraction amount. The protocol may mint or sell an excessive amount of Malt, spend collateral for insufficient Malt, sell Malt for insufficient collateral, or create an incorrectly sized auction. The zero-output bounds allow the manipulated execution price to be accepted, transferring value from protocol-controlled balances or reducing stabilization effectiveness.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/DexHandlers/UniswapHandler.sol\",\n        \"contract\": \"UniswapHandler\",\n        \"function\": \"_calculateTradeSize\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/DexHandlers/UniswapHandler.sol\",\n        \"contract\": \"UniswapHandler\",\n        \"function\": \"buyMalt\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/DexHandlers/UniswapHandler.sol\",\n        \"contract\": \"UniswapHandler\",\n        \"function\": \"sellMalt\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/StabilizerNode.sol\",\n        \"contract\": \"StabilizerNode\",\n        \"function\": \"_distributeSupply\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/StabilizerNode.sol\",\n        \"contract\": \"StabilizerNode\",\n        \"function\": \"_startAuction\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Auction.sol\",\n        \"contract\": \"Auction\",\n        \"function\": \"_triggerAuction\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Derive stabilization trade sizes and expected swap outputs from a manipulation-resistant TWAP or independent oracle. Add freshness, minimum-liquidity, and maximum-deviation checks between the oracle and AMM state. Apply protocol-configured trade-size caps and pass a nonzero, oracle-derived amountOutMin to buyMalt() and sellMalt(). Revalidate the price immediately before execution and independently cap auction fullRequirement and maxCommitments.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Manipulable AMM spot price determines auction escape-hatch payouts\",\n    \"description\": \"AuctionEscapeHatch._calculateMaltRequiredForExit() obtains currentPrice from dexHandler.maltMarketPrice(). UniswapHandler.maltMarketPrice() computes that value directly from current Uniswap V2 reserves, without a TWAP, independent oracle, freshness check, or deviation bound. The manipulated price determines fullReturn, the permitted early-exit profit, and the amount of newly minted Malt that is sold through the AMM. The resulting collateral amount is then transferred to the exiting account. The corresponding earlyExitReturn() view also exposes the same raw spot-price dependency.\",\n    \"impact\": \"A participant or attacker who can influence the AMM reserves can cause the escape hatch to calculate an incorrect early-exit return and mint an incorrect amount of Malt for the payout. Depending on the manipulation direction and exit timing, this can permit an excessive collateral payout or otherwise distort auction participation accounting. The subsequent sale also uses amountOutMin == 0, so execution at the manipulated AMM rate is not rejected by protocol-controlled slippage protection.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/AuctionEscapeHatch.sol\",\n        \"contract\": \"AuctionEscapeHatch\",\n        \"function\": \"_calculateMaltRequiredForExit\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/AuctionEscapeHatch.sol\",\n        \"contract\": \"AuctionEscapeHatch\",\n        \"function\": \"exitEarly\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/AuctionEscapeHatch.sol\",\n        \"contract\": \"AuctionEscapeHatch\",\n        \"function\": \"earlyExitReturn\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/DexHandlers/UniswapHandler.sol\",\n        \"contract\": \"UniswapHandler\",\n        \"function\": \"maltMarketPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/DexHandlers/UniswapHandler.sol\",\n        \"contract\": \"UniswapHandler\",\n        \"function\": \"sellMalt\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use a validated TWAP or independent oracle for early-exit valuation, with freshness and maximum-deviation checks. Calculate the permitted payout and required Malt from one validated price snapshot, enforce a protocol-controlled minimum output based on that price and bounded slippage, and reject exits when AMM liquidity or execution-price deviation is outside configured limits.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 1,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 343.7636420726776,
+    "session_id": "53c4d97a-0d23-4c4c-9b25-4c6a2bba2212"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2021-11-malt",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "AMM spot manipulation controls stabilization sizing and execution",
+        "description": "StabilizerNode uses MaltDataLab moving averages only to decide whether stabilization is required. The subsequent trade-size calculations call UniswapHandler.calculateMintingTradeSize() or calculateBurningTradeSize(), which read the live Uniswap V2 reserves through getReserves(). These attacker-influenceable reserves directly determine the amount of Malt minted and sold, the amount of collateral used by SwingTrader, and the residual purchaseAmount assigned to a new auction as both fullRequirement and maxCommitments. The resulting protocol swaps in UniswapHandler.buyMalt() and sellMalt() use amountOutMin == 0, so the protocol accepts execution at an attacker-manipulated rate without an oracle-based price or slippage bound.",
+        "impact": "An attacker can temporarily move the Malt/reward-token AMM reserves before a public stabilization operation and cause the protocol to calculate an incorrect expansion or contraction amount. The protocol may mint or sell an excessive amount of Malt, spend collateral for insufficient Malt, sell Malt for insufficient collateral, or create an incorrectly sized auction. The zero-output bounds allow the manipulated execution price to be accepted, transferring value from protocol-controlled balances or reducing stabilization effectiveness.",
+        "mitigation": "Derive stabilization trade sizes and expected swap outputs from a manipulation-resistant TWAP or independent oracle. Add freshness, minimum-liquidity, and maximum-deviation checks between the oracle and AMM state. Apply protocol-configured trade-size caps and pass a nonzero, oracle-derived amountOutMin to buyMalt() and sellMalt(). Revalidate the price immediately before execution and independently cap auction fullRequirement and maxCommitments.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/DexHandlers/UniswapHandler.sol",
+            "contract": "UniswapHandler",
+            "function": "_calculateTradeSize",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/DexHandlers/UniswapHandler.sol",
+            "contract": "UniswapHandler",
+            "function": "buyMalt",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/DexHandlers/UniswapHandler.sol",
+            "contract": "UniswapHandler",
+            "function": "sellMalt",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/StabilizerNode.sol",
+            "contract": "StabilizerNode",
+            "function": "_distributeSupply",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/StabilizerNode.sol",
+            "contract": "StabilizerNode",
+            "function": "_startAuction",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Auction.sol",
+            "contract": "Auction",
+            "function": "_triggerAuction",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Manipulable AMM spot price determines auction escape-hatch payouts",
+        "description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains currentPrice from dexHandler.maltMarketPrice(). UniswapHandler.maltMarketPrice() computes that value directly from current Uniswap V2 reserves, without a TWAP, independent oracle, freshness check, or deviation bound. The manipulated price determines fullReturn, the permitted early-exit profit, and the amount of newly minted Malt that is sold through the AMM. The resulting collateral amount is then transferred to the exiting account. The corresponding earlyExitReturn() view also exposes the same raw spot-price dependency.",
+        "impact": "A participant or attacker who can influence the AMM reserves can cause the escape hatch to calculate an incorrect early-exit return and mint an incorrect amount of Malt for the payout. Depending on the manipulation direction and exit timing, this can permit an excessive collateral payout or otherwise distort auction participation accounting. The subsequent sale also uses amountOutMin == 0, so execution at the manipulated AMM rate is not rejected by protocol-controlled slippage protection.",
+        "mitigation": "Use a validated TWAP or independent oracle for early-exit valuation, with freshness and maximum-deviation checks. Calculate the permitted payout and required Malt from one validated price snapshot, enforce a protocol-controlled minimum output based on that price and bounded slippage, and reject exits when AMM liquidity or execution-price deviation is outside configured limits.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/AuctionEscapeHatch.sol",
+            "contract": "AuctionEscapeHatch",
+            "function": "_calculateMaltRequiredForExit",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/AuctionEscapeHatch.sol",
+            "contract": "AuctionEscapeHatch",
+            "function": "exitEarly",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/AuctionEscapeHatch.sol",
+            "contract": "AuctionEscapeHatch",
+            "function": "earlyExitReturn",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/DexHandlers/UniswapHandler.sol",
+            "contract": "UniswapHandler",
+            "function": "maltMarketPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/DexHandlers/UniswapHandler.sol",
+            "contract": "UniswapHandler",
+            "function": "sellMalt",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

@@ -1,0 +1,2414 @@
+// ===== BEGIN SOURCE FILE: contracts/interfaces/ILiquidityPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
+
+interface ILiquidityPool {
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    /**
+     * @notice Sets the maximum pool capacity.
+     * @param newMaximumPoolCapacity The new maximum capacity of the pool.
+     */
+    function setMaximumPoolCapacity(uint newMaximumPoolCapacity) external;
+
+    /**
+     * @notice Sets the maximum borrow multiplier.
+     * @param newMaximumBorrowMultiplier The new maximum borrow multiplier.
+     */
+    function setMaximumBorrowMultiplier(uint newMaximumBorrowMultiplier) external;
+
+    /**
+     * @notice Sets the insurance pool address.
+     * @param newInsurancePool The new address of the insurance pool.
+     */        
+    function setInsurancePool(address newInsurancePool) external;
+
+    /**
+     * @notice Sets the insurance rate multiplier.
+     * @param newInsuranceRateMultiplier The new insurance rate multiplier.
+     */    
+    function setInsuranceRateMultiplier(uint newInsuranceRateMultiplier) external;
+
+    /**
+     * @notice Sets the interest rate.
+     * @param newInterestRate The new interest rate.
+     */    
+    function setInterestRate(uint newInterestRate) external;
+
+    // EXTERNAL FUNCTIONS //
+
+    /**
+     * @notice Adds liquidity to the current pool.
+     * @param amount The deposit amount expressed in poolToken.
+     */
+    function provide(uint amount) external;
+
+    /**
+     * @notice Removes liquidity from the current pool.
+     * @param amount The removing amount expressed in shareToken.
+     */
+    function withdraw(uint amount) external;
+
+    /**
+     * @notice Borrows from a liquidity pool.
+     * @param marginAccountID The number of the ERC-721 token, which is a margin account.
+     * @param amount The loan amount denominated in poolToken.
+     */    
+	function borrow(uint marginAccountID, uint amount) external;
+
+    /**
+     * @notice Returns the debt to the pool.
+     * @param marginAccountID The number of the ERC-721 token, which is a margin account.
+     * @param amount The loan amount denominated in poolToken.
+     */    
+	function repay(uint marginAccountID, uint amount) external;
+
+    // VIEW FUNCTIONS //
+
+    /**
+     * @notice Returns the amount of the debt, including interest, for a given time.
+     * @param marginAccountID The number of the ERC-721 token, which is a margin account.
+     * @param checkTime The future time in seconds.
+     * @return debtByPool The amount of debt including interest in poolToken.
+     */
+    function getDebtWithAccruedInterestOnTime(uint marginAccountID, uint checkTime) external view returns (uint debtByPool);
+
+    /**
+     * @notice Returns the amount of the debt, including interest.
+     * @param marginAccountID The number of the ERC-721 token, which is a margin account.
+     * @return debtByPool The amount of debt including interest in poolToken.
+     */    
+	function getDebtWithAccruedInterest(uint marginAccountID) external view returns (uint debtByPool);
+
+    /**
+     * @notice Returns the total amount of borrows, including interest.
+     * @return totalBorrows The amount of total borrows including interest in poolToken.
+     */    
+    function totalBorrows() external view returns (uint);
+
+    /**
+     * @notice Returns the total amount of tokens in the liquidity pool including current trade.
+     * @return value The total liquidity.
+     */    
+    function getTotalLiquidity() external view returns (uint);
+
+    // EVENTS //
+
+    /**
+     * @dev Emitted when the maximum pool capacity is updated.
+     * @param newMaximumPoolCapacity The new maximum pool capacity.
+     */
+    event UpdateMaximumPoolCapacity(
+        uint newMaximumPoolCapacity
+    );
+
+    /**
+     * @dev Emitted when the maximum borrow multiplier is updated.
+     * @param newMaximumBorrowMultiplier The new maximum borrow multiplier.
+     */
+    event UpdateMaximumBorrowMultiplier(
+        uint newMaximumBorrowMultiplier
+    );
+
+    /**
+     * @dev Emitted when the insurance pool address is updated.
+     * @param newInsurancePool The new address of the insurance pool.
+     */
+    event UpdateInsurancePool(
+        address newInsurancePool
+    );
+
+    /**
+     * @dev Emitted when the insurance rate multiplier is updated.
+     * @param newInsuranceRateMultiplier The new insurance rate multiplier.
+     */
+    event UpdateInsuranceRateMultiplier(
+        uint newInsuranceRateMultiplier
+    );
+
+    /**
+     * @dev Emitted when liquidity is provided to the pool.
+     * @param liquidityProvider The address of the liquidity provider.
+     * @param amountAddedShareTokens The amount of share tokens minted to the provider.
+     * @param amountDepositPoolTokens The amount of pool tokens deposited.
+     */
+    event Provide(
+        address indexed liquidityProvider,
+        uint amountAddedShareTokens,
+        uint amountDepositPoolTokens
+    );
+
+    /**
+     * @dev Emitted when liquidity is withdrawn from the pool.
+     * @param liquidityProvider The address of the liquidity provider.
+     * @param amountBurnedShareTokens The amount of share tokens burned from the provider.
+     * @param amountWithdrawPoolTokens The amount of pool tokens withdrawn.
+     */
+    event Withdraw(
+        address indexed liquidityProvider,
+        uint amountBurnedShareTokens,
+        uint amountWithdrawPoolTokens
+    );
+
+    /**
+     * @dev Emitted when the interest rate is updated.
+     * @param totalLiquidity The total liquidity in the pool.
+     * @param totalBorrows The total borrows including interest.
+     * @param interestRate The new interest rate.
+     */
+    event UpdateInterestRate(
+        uint totalLiquidity,
+        uint totalBorrows,
+        uint interestRate
+    );
+
+    /**
+     * @dev Emitted when a loan is borrowed from the pool.
+     * @param marginAccountID The ID of the margin account.
+     * @param amountDebtTokens The amount of debt tokens borrowed.
+     */
+    event Borrow(
+        uint indexed marginAccountID, 
+        uint amountDebtTokens);
+
+    /**
+     * @dev Emitted when a loan is repaid to the pool.
+     * @param marginAccountID The ID of the margin account.
+     * @param amountRepayDebtTokens The amount of debt tokens repaid.
+     * @param accruedInterest The accrued interest repaid.
+     */
+    event Repay(
+        uint indexed marginAccountID,
+        uint amountRepayDebtTokens,
+        uint accruedInterest
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/ILiquidityPool.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IMarginAccount.sol =====
+pragma solidity 0.8.20;
+
+import {IModularSwapRouter} from "./modularSwapRouter/IModularSwapRouter.sol";
+
+interface IMarginAccount {
+
+    // VIEW FUNCTIONS //
+    
+    /**
+     * @dev Returns an array of available ERC20 tokens.
+     * @return tokensArray The array of available ERC20 tokens.
+     */
+    function getAvailableErc20() external view returns (address[] memory tokensArray);
+
+    /**
+     * @dev Returns an array of available ERC721 tokens.
+     * @return tokensArray The array of available ERC721 tokens.
+     */
+    function getAvailableErc721() external view returns (address[] memory tokensArray);
+
+    /**
+     * @dev Returns an array of available tokens to liquidity pool.
+     * @return tokensArray The array of available tokens to liquidity pool.
+     */    
+    function getAvailableTokenToLiquidityPool() external view returns (address[] memory tokensArray);
+
+    /**
+     * @dev Returns the balance of a specific ERC20 token for a given margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param tokenAddress The address of the ERC20 token.
+     * @return The balance of the specified ERC20 token.
+     */    
+    function getErc20ByContract(uint marginAccountID, address tokenAddress) external view returns (uint);
+
+    /**
+     * @dev Returns the list of ERC721 token IDs for a given margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param tokenAddress The address of the ERC721 token.
+     * @return The list of ERC721 token IDs.
+     */    
+    function getErc721ByContract(uint marginAccountID, address tokenAddress) external view returns (uint[] memory);
+
+    /**
+     * @dev Checks if a specific ERC721 token ID is held by a given margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param value The token ID to check.
+     * @return hasERC721Id True if the token ID is held by the margin account, false otherwise.
+     */    
+    function checkERC721tokenID(uint marginAccountID, address token, uint value) external view returns(bool hasERC721Id);
+
+    /**
+     * @dev Checks if a margin account has a sufficient ERC20 token balance.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount to check.
+     * @return currectBalance True if the margin account has a sufficient balance, false otherwise.
+     */    
+    function checkERC20Amount(uint marginAccountID, address token, uint amount) external view returns(bool currectBalance);
+
+    /**
+     * @dev Checks if a margin account holds a specific ERC721 token ID.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param value The token ID to check.
+     * @return hasERC721Id True if the token ID is held by the margin account, false otherwise.
+     */    
+    function checkERC721Value(uint marginAccountID, address token, uint value) external view returns (bool hasERC721Id);
+
+    /**
+     * @dev Checks if a token has a corresponding liquidity pool.
+     * @param token The address of the token.
+     * @return isValid True if the token has a corresponding liquidity pool, false otherwise.
+     */    
+    function checkLiquidityPool(address token) external view returns (bool isValid);
+
+    /**
+     * @dev Prepares ERC20 and ERC721 token parameters for a given margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param baseToken The base token address.
+     * @return erc20Params The array of ERC20 position info.
+     * @return erc721Params The array of ERC721 position info.
+     */    
+    function preparationTokesParams(uint marginAccountID, address baseToken) external view returns (
+        IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+        IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+    );
+    
+    /**
+     * @dev Prepares ERC20 token parameters based on debt for a given margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param baseToken The base token address.
+     * @return erc20Params The array of ERC20 position info based on debt.
+     * @return erc721Params An empty array of ERC721 position info.
+     */    
+    function preparationTokesParamsByDebt(uint marginAccountID, address baseToken) external view returns (
+        IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+        IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+    );
+
+    /**
+     * @dev Checks if a specific ERC20 token is available.
+     * @param token The address of the ERC20 token.
+     * @return A boolean indicating if the ERC20 token is available.
+     */
+    function isAvailableErc20(address token) external view returns (bool); 
+
+    /**
+     * @dev Checks if a specific ERC721 token is available.
+     * @param token The address of the ERC721 token.
+     * @return A boolean indicating if the ERC721 token is available.
+     */
+    function isAvailableErc721(address token) external view returns (bool); 
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    /**
+     * @dev Sets the modular swap router.
+     * @param newModularSwapRouter The address of the new modular swap router.
+     */
+    function setModularSwapRouter(IModularSwapRouter newModularSwapRouter) external;
+
+    /**
+     * @dev Sets the liquidity pool address for a given token.
+     * @param token The address of the token.
+     * @param liquidityPoolAddress The address of the liquidity pool.
+     */    
+    function setTokenToLiquidityPool(address token, address liquidityPoolAddress) external;
+
+    /**
+     * @dev Sets the available tokens for the liquidity pool.
+     * @param _availableTokenToLiquidityPool An array of available token addresses.
+     */    
+    function setAvailableTokenToLiquidityPool(address[] memory _availableTokenToLiquidityPool) external;
+
+    /**
+     * @dev Sets the available ERC20 tokens.
+     * @param _availableErc20 An array of available ERC20 token addresses.
+     */    
+    function setAvailableErc20(address[] memory _availableErc20) external;
+
+    /**
+     * @dev Sets the availability status of a specific ERC20 token.
+     * @param token The address of the ERC20 token.
+     * @param value The availability status (true or false).
+     */    
+    function setIsAvailableErc20(address token, bool value) external;
+
+    /**
+     * @dev Sets the available ERC721 tokens.
+     * @param _availableErc721 An array of available ERC721 token addresses.
+     */    
+    function setAvailableErc721(address[] memory _availableErc721) external;
+    /**
+     * @dev Sets the availability status of a specific ERC721 token.
+     * @param token The address of the ERC721 token.
+     * @param value The availability status (true or false).
+     */    
+    function setIsAvailableErc721(address token, bool value) external;
+
+    /**
+     * @dev Approves a specific amount of ERC20 tokens for a given address.
+     * @param token The address of the ERC20 token.
+     * @param to The address to approve.
+     * @param amount The amount to approve.
+     */
+    function approveERC20(address token, address to, uint amount) external;
+
+    // ONLY MARGIN_TRADING_ROLE FUNCTIONS //
+
+    /**
+     * @dev Provides ERC20 tokens to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param txSender The address of the transaction sender.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to provide.
+     */
+    function provideERC20(uint marginAccountID, address txSender, address token, uint amount) external;
+
+    /**
+     * @dev Provides an ERC721 token to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param txSender The address of the transaction sender.
+     * @param token The address of the ERC721 token.
+     * @param collateralTokenID The ID of the collateral token.
+     * @param baseToken The base token address.
+     */    
+    function provideERC721(uint marginAccountID, address txSender, address token, uint collateralTokenID, address baseToken) external;
+
+    /**
+     * @dev Withdraws ERC20 tokens from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to withdraw.
+     * @param txSender The address of the transaction sender.
+     */    
+    function withdrawERC20(uint marginAccountID, address token, uint amount, address txSender) external;
+
+    /**
+     * @dev Withdraws an ERC721 token from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param value The ID of the token to withdraw.
+     * @param txSender The address of the transaction sender.
+     */    
+    function withdrawERC721(uint marginAccountID, address token, uint value, address txSender) external;
+
+    /**
+     * @dev Borrows ERC20 tokens from a liquidity pool.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to borrow.
+     */    
+    function borrow(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @dev Repays borrowed ERC20 tokens to a liquidity pool.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to repay.
+     */    
+    function repay(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @dev Liquidates the assets in a margin account. 
+     * @param marginAccountID The ID of the margin account to be liquidated.
+     * @param baseToken The address of the base ERC20 token used for liquidation.
+     * @param marginAccountOwner The address of the owner of the margin account.
+     */
+    function liquidate(uint marginAccountID, address baseToken, address marginAccountOwner) external;
+
+    /**
+     * @dev Swaps tokens using the modular swap router.
+     * @param marginAccountID The ID of the margin account.
+     * @param swapID The ID of the swap.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountIn The amount of input tokens.
+     * @param amountOutMinimum The minimum amount of output tokens expected.
+     */    
+    function swap(uint marginAccountID, uint swapID, address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) external;
+
+    /**
+     * @notice This function allows exercising a position for a given ERC721 token, converting it into the base token.
+     * @param marginAccountID The ID of the margin account.
+     * @param erc721Token The address of the ERC721 token to be exercised.
+     * @param baseToken The address of the base token to be received.
+     * @param id The ID of the ERC721 token to be exercised.
+     * @param sender The address to which the ERC721 token will be transferred after exercise.
+     */
+    function exercise(uint marginAccountID, address erc721Token, address baseToken, uint id, address sender) external;
+
+    // EVENTS //
+
+    /**
+     * @dev Emitted when the modular swap router is updated.
+     * @param newModularSwapRouter The address of the new modular swap router.
+     */
+    event UpdateModularSwapRouter(
+        address newModularSwapRouter
+    );
+
+    /**
+     * @dev Emitted when the token to liquidity pool mapping is updated.
+     * @param token The address of the token.
+     * @param liquidityPoolAddress The address of the liquidity pool.
+     */
+    event UpdateTokenToLiquidityPool(
+        address token, 
+        address liquidityPoolAddress
+    );
+
+    /**
+     * @dev Emitted when the available tokens for the liquidity pool are updated.
+     * @param availableTokenToLiquidityPool An array of available token addresses.
+     */
+    event UpdateAvailableTokenToLiquidityPool(
+        address[] availableTokenToLiquidityPool
+    );
+
+    /**
+     * @dev Emitted when the available ERC20 tokens are updated.
+     * @param availableErc20 An array of available ERC20 token addresses.
+     */
+    event UpdateAvailableErc20(
+        address[] availableErc20
+    );
+
+    /**
+     * @dev Emitted when the availability status of an ERC20 token is updated.
+     * @param token The address of the ERC20 token.
+     * @param value The availability status (true or false).
+     */
+    event UpdateIsAvailableErc20(
+        address token, 
+        bool value
+    );
+
+    /**
+     * @dev Emitted when the available ERC721 tokens are updated.
+     * @param availableErc721 An array of available ERC721 token addresses.
+     */
+    event UpdateAvailableErc721(
+        address[] availableErc721
+    );
+
+    /**
+     * @dev Emitted when the availability status of an ERC721 token is updated.
+     * @param token The address of the ERC721 token.
+     * @param value The availability status (true or false).
+     */
+    event UpdateIsAvailableErc721(
+        address token, 
+        bool value
+    );
+
+   /**
+     * @dev Emitted when a swap operation is performed.
+     * @param swapID The ID of the swap operation.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param marginAccountID The ID of the margin account.
+     * @param amountIn The amount of input tokens swapped.
+     * @param amountOut The amount of output tokens received.
+     */
+    event Swap(
+        uint indexed swapID,
+        address indexed tokenIn,
+        address indexed tokenOut,
+        uint marginAccountID,
+        uint amountIn,
+        uint amountOut
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/IMarginAccount.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IMarginAccountManager.sol =====
+pragma solidity 0.8.20;
+
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+interface IMarginAccountManager is IERC721{
+
+    /**
+     * @notice Creates a new margin account for the caller.
+     * @dev Mints a new ERC721 token representing the margin account and assigns it to the caller.
+     * @return marginAccountID The ID of the created margin account.
+     */
+    function createMarginAccount() external returns (uint marginAccountID);
+
+    /**
+     * @notice Checks if the given spender is approved or the owner of the specified token.
+     * @param spender The address to check for approval or ownership.
+     * @param tokenID The ID of the token to check.
+     * @return True if the spender is approved or the owner, false otherwise.
+     */
+    function isApprovedOrOwner(address spender, uint tokenID) external view returns (bool);
+
+    // EVENTS // 
+
+    /**
+     * @notice Emitted when a new margin account is created.
+     * @param tokenID The ID of the newly created margin account token.
+     */
+    event CreateMarginAccount(uint tokenID);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IMarginAccountManager.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IMarginTrading.sol =====
+pragma solidity 0.8.20;
+
+import {IModularSwapRouter} from "./modularSwapRouter/IModularSwapRouter.sol";
+
+interface IMarginTrading {
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    /**
+     * @notice Updates the modular swap router.
+     * @param newModularSwapRouter The address of the new modular swap router.
+     */
+    function setModularSwapRouter(IModularSwapRouter newModularSwapRouter) external;
+
+    /**
+     * @notice Updates the red coefficient.
+     * @param newRedCoeff The new red coefficient.
+     */
+    function setRedCoeff(uint newRedCoeff) external;
+
+     /**
+     * @notice Updates the yellow coefficient.
+     * @param newYellowCoeff The new yellow coefficient.
+     */
+    function setYellowCoeff(uint newYellowCoeff) external;
+
+    // PUBLIC FUNCTIONS //
+
+    function BASE_TOKEN() external view returns (address BASE_TOKEN);
+
+    /**
+     * @notice Calculates the total value of a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @return marginAccountValue The total value of the margin account.
+     */
+    function calculateMarginAccountValue(uint marginAccountID) external returns (uint marginAccountValue);
+
+    /**
+     * @notice Calculates the total debt with accrued interest for a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @return debtSizeInUSDC The total debt with accrued interest in USDC.
+     */
+    function calculateDebtWithAccruedInterest(uint marginAccountID) external returns (uint debtSizeInUSDC);
+
+    /**
+     * @notice Gets the margin account ratio.
+     * @param marginAccountID The ID of the margin account.
+     * @return The margin account ratio.
+     */
+    function getMarginAccountRatio(uint marginAccountID) external returns(uint);
+
+    // ONLY APPROVE OR OWNER FUNCTIONS //
+
+    /**
+     * @notice Provides ERC20 tokens as collateral to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to provide.
+     */
+    function provideERC20(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @notice Provides an ERC721 token as collateral to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param collateralTokenID The ID of the ERC721 token to provide.
+     */
+    function provideERC721(uint marginAccountID, address token, uint collateralTokenID) external;
+
+    /**
+     * @notice Withdraws ERC20 tokens from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens to withdraw.
+     */
+    function withdrawERC20(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @notice Withdraws an ERC721 token from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param value The value of the ERC721 token to withdraw.
+     */
+    function withdrawERC721(uint marginAccountID, address token, uint value) external;
+
+    /**
+     * @notice Borrows tokens using the margin account as collateral.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the token to borrow.
+     * @param amount The amount of tokens to borrow.
+     */
+    function borrow(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @notice Repays the borrowed tokens for a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the token to repay.
+     * @param amount The amount of tokens to repay.
+     */
+    function repay(uint marginAccountID, address token, uint amount) external;
+
+    /**
+     * @notice Swaps tokens within a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountIn The amount of input tokens to swap.
+     * @param amountOutMinimum The minimum amount of output tokens expected.
+     */
+    function swap(uint marginAccountID, address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) external;
+
+    /**
+     * @notice This function allows the owner or approved user of a margin account to exercise a collateral position.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the collateral token to be exercised.
+     * @param collateralTokenID The ID of the collateral token to be exercised.
+     */
+    function exercise(uint marginAccountID, address token, uint collateralTokenID) external;
+
+    // EXTERNAL FUNCTIONS //
+
+    /**
+     * @notice Liquidates a margin account if the account ratio is below the red coefficient.
+     * @param marginAccountID The ID of the margin account to liquidate.
+     */
+    function liquidate(uint marginAccountID) external;
+
+    // EVENTS //
+
+    /**
+     * @notice Emitted when the modular swap router is updated.
+     * @param newModularSwapRouter The address of the new modular swap router.
+     */
+    event UpdateModularSwapRouter(
+        address newModularSwapRouter
+    );
+
+    /**
+     * @notice Emitted when the red coefficient is updated.
+     * @param newRedCoeff The new red coefficient value.
+     */
+    event UpdateRedCoeff(
+        uint newRedCoeff
+    );
+
+    /**
+     * @notice Emitted when the yellow coefficient is updated.
+     * @param newYellowCoeff The new yellow coefficient value.
+     */
+    event UpdateYellowCoeff(
+        uint newYellowCoeff
+    );
+
+    /**
+     * @notice Emitted when ERC20 tokens are provided as collateral to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the sender providing the collateral.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens provided.
+     */
+    event ProvideERC20(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint amount
+    );
+
+    /**
+     * @notice Emitted when an ERC721 token is provided as collateral to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the sender providing the collateral.
+     * @param token The address of the ERC721 token.
+     * @param collateralTokenID The ID of the ERC721 token provided.
+     */
+    event ProvideERC721(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint collateralTokenID
+    );
+
+    /**
+     * @notice Emitted when ERC20 tokens are withdrawn from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the sender withdrawing the collateral.
+     * @param token The address of the ERC20 token.
+     * @param amount The amount of tokens withdrawn.
+     */
+    event WithdrawERC20(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint amount
+    );
+
+    /**
+     * @notice Emitted when an ERC721 token is withdrawn from a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the sender withdrawing the collateral.
+     * @param token The address of the ERC721 token.
+     * @param value The value of the ERC721 token withdrawn.
+     */
+    event WithdrawERC721(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint value
+    );
+
+    /**
+     * @notice Emitted when tokens are borrowed using a margin account as collateral.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the borrower.
+     * @param token The address of the borrowed token.
+     * @param amount The amount of tokens borrowed.
+     */
+    event Borrow(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint amount
+    );
+
+    /**
+     * @notice Emitted when borrowed tokens are repaid to a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param sender The address of the sender repaying the debt.
+     * @param token The address of the token being repaid.
+     * @param amount The amount of tokens repaid.
+     */
+    event Repay(
+        uint indexed marginAccountID, 
+        address indexed sender,
+        address indexed token, 
+        uint amount
+    );
+
+    /**
+     * @notice Emitted when a token swap is executed within a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param swapID The unique ID of the swap operation.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountIn The amount of input tokens swapped.
+     */
+    event Swap(
+        uint indexed marginAccountID, 
+        uint indexed swapID,
+        address tokenIn, 
+        address tokenOut, 
+        uint amountIn
+    );
+
+    /**
+     * @notice Emitted when a margin account is liquidated.
+     * @param marginAccountID The ID of the margin account being liquidated.
+     */
+    event Liquidate(uint indexed marginAccountID);
+
+    /**
+     * @dev Emitted when a collateral position is exercised in a margin account.
+     * @param marginAccountID The ID of the margin account where the exercise occurred.
+     * @param tokenIn The address of the collateral token being exercised.
+     * @param tokenOut The address of the base token received in exchange.
+     * @param value The value of the collateral token being exercised.
+     */
+    event Exercise(
+        uint indexed marginAccountID, 
+        address tokenIn, 
+        address tokenOut, 
+        uint value
+    );
+}
+// ===== END SOURCE FILE: contracts/interfaces/IMarginTrading.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/hegic/IHegicStrategy.sol =====
+pragma solidity 0.8.20;
+
+interface IHegicStrategy {  
+    /**
+     * @param optionID The ID of the option.
+     * @return The profit amount for the specified option.
+     */
+    function payOffAmount(uint256 optionID)
+        external
+        view
+        returns (uint256);
+
+    function calculateNegativepnlAndPositivepnl(
+        uint256 amount,
+        uint256 period,
+        bytes[] calldata
+    ) external view returns (uint128 negativepnl, uint128 positivepnl);
+}
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/hegic/IHegicStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/hegic/IOperationalTreasury.sol =====
+pragma solidity 0.8.20;
+
+import {IHegicStrategy} from "./IHegicStrategy.sol";
+
+interface IOperationalTreasury {
+    enum LockedLiquidityState { Unlocked, Locked }
+
+    /**
+     * @param positionID The position ID to pay off.
+     * @param account The address to receive the pay off.
+     */
+    function payOff(uint256 positionID, address account) external;
+
+    /**
+     * @param id The locked liquidity ID.
+     * @return state The state of the locked liquidity.
+     * @return strategy The strategy associated with the locked liquidity.
+     * @return negativepnl The negative profit and loss value.
+     * @return positivepnl The positive profit and loss value.
+     * @return expiration The expiration time of the locked liquidity.
+     */
+    function lockedLiquidity(uint256 id)
+        external
+        view
+        returns (
+            LockedLiquidityState state,
+            IHegicStrategy strategy,
+            uint128 negativepnl,
+            uint128 positivepnl,
+            uint32 expiration
+        );
+
+    function buy(
+        IHegicStrategy strategy,
+        address holder,
+        uint256 amount,
+        uint256 period,
+        bytes[] calldata additional
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/hegic/IOperationalTreasury.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/IModularSwapRouter.sol =====
+pragma solidity 0.8.20;
+
+interface IModularSwapRouter {
+
+    /**
+     * @dev Struct to hold information about an ERC20 position.
+     * @param tokenIn The address of the ERC20 token being deposited.
+     * @param tokenOut The address of the ERC20 token to be received.
+     * @param value The amount of `tokenIn` to be deposited.
+     */
+    struct ERC20PositionInfo {
+        address tokenIn;
+        address tokenOut;
+        uint256 value;
+    }
+
+    /**
+     * @dev Struct to hold information about an ERC721 position.
+     * @param tokenIn The address of the ERC721 token being deposited.
+     * @param tokenOut The address of the ERC20 token to be received.
+     * @param holder The address of the current holder of the ERC721 token.
+     * @param value An array of token IDs of the ERC721 tokens being deposited.
+     */
+    struct ERC721PositionInfo {
+        address tokenIn;
+        address tokenOut;
+        address holder;
+        uint256[] value;
+    }
+
+    // VIEW FUNCTINOS //
+
+    /**
+     * @notice Retrieves the module address for a given token pair.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @return The address of the module handling the swap for the given token pair.
+     */
+    function getModuleAddress(address tokenIn, address tokenOut) external view returns(address);
+
+    // EXTERNAL FUNCTIONS //
+
+    /**
+     * @notice Calculates the output amount for a given input amount in an ERC20 swap.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountIn The input amount.
+     * @return amountOut The calculated output amount.
+     */
+    function calculateAmountOutERC20(address tokenIn, address tokenOut, uint amountIn) external returns (uint amountOut);
+
+    /**
+     * @notice Calculates the input amount required for a given output amount in an ERC20 swap.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountOut The desired output amount.
+     * @return amountIn The calculated input amount.
+     */
+    function calculateAmountInERC20(address tokenIn, address tokenOut, uint amountOut) external returns (uint amountIn);
+
+    /**
+     * @notice Calculates the output amount for a given input amount in an ERC721 swap.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param tokenID The ID of the token.
+     * @return amountOut The calculated output amount.
+     */
+    function calculateAmountOutERC721(address tokenIn, address tokenOut, uint tokenID) external returns (uint amountOut);
+
+    /**
+     * @notice Checks the validity of a given ERC721 token ID for a swap.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param tokenID The ID of the token.
+     * @return isValid True if the token is valid for the swap, false otherwise.
+     */
+    function checkValidityERC721(address tokenIn, address tokenOut, uint tokenID) external returns (bool isValid);
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    /**
+     * @notice Sets the module address for a given token pair.
+     * @dev This function can only be called by an account with the MANAGER_ROLE.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param module The address of the module handling the swap for the given token pair.
+     */
+    function setTokenInToTokenOutToExchange(address tokenIn, address tokenOut, address module) external;
+
+    // ONLY MARGIN_TRADING_ROLE FUNCTIONS //
+
+    /**
+     * @notice Calculates the total value of provided ERC20 and ERC721 positions.
+     * @dev This function can only be called by an account with the MARGIN_TRADING_ROLE.
+     * @param erc20Params Array of ERC20PositionInfo structs containing ERC20 position details.
+     * @param erc721Params Array of ERC721PositionInfo structs containing ERC721 position details.
+     * @return totalValue The total value of provided ERC20 and ERC721 positions.
+     */
+    function calculateTotalPositionValue(ERC20PositionInfo[] memory erc20Params, ERC721PositionInfo[] memory erc721Params) external returns (uint totalValue);
+
+    // ONLY MARGIN_ACCOUNT_ROLE FUNCTIONS //
+
+    /**
+     * @notice Liquidates provided ERC20 and ERC721 positions.
+     * @dev This function can only be called by an account with the MARGIN_ACCOUNT_ROLE.
+     * @param erc20Params Array of ERC20PositionInfo structs containing ERC20 position details.
+     * @param erc721Params Array of ERC721PositionInfo structs containing ERC721 position details.
+     * @return amountOut The total amount of tokens received from liquidation.
+     */
+    function liquidate(ERC20PositionInfo[] memory erc20Params, ERC721PositionInfo[] memory erc721Params) external returns(uint amountOut);
+
+    /**
+     * @notice Swaps ERC20 tokens for ERC20 tokens.
+     * @dev This function can only be called by an account with the MARGIN_ACCOUNT_ROLE.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountIn The input amount.
+     * @param amountOutMinimum The minimum output amount expected.
+     * @return amountOut The output amount received from the swap.
+     */
+    function swapInput(address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) external returns(uint amountOut);
+
+    /**
+     * @notice Swaps ERC20 tokens for ERC20 tokens.
+     * @dev This function can only be called by an account with the MARGIN_ACCOUNT_ROLE.
+     * @param tokenIn The address of the input token.
+     * @param tokenOut The address of the output token.
+     * @param amountOut The output amount.
+     * @return amountIn The input amount required for the swap.
+     */
+    function swapOutput(address tokenIn, address tokenOut, uint amountOut) external returns(uint amountIn);
+
+    /**
+     * @dev Executes the exercise of an ERC721 token. 
+     * @param tokenIn The address of the input ERC721 token.
+     * @param tokenOut The address of the output ERC20 token.
+     * @param id The ID of the ERC721 token being exercised.
+     * @return amountOut The amount of ERC20 token received after exercising the ERC721 token.
+     */
+    function exercise(address tokenIn, address tokenOut, uint id) external returns(uint amountOut);
+}
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/IModularSwapRouter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/IPositionManagerERC20.sol =====
+pragma solidity 0.8.20;
+
+interface IPositionManagerERC20 {
+    // VIEW FUNCTIONS //
+
+    /**
+     * @notice Returns the output amount for a given input amount using the current Uniswap path.
+     * @param amountIn The input amount for which to quote the output value.
+     * @return amountOut The quoted output amount.
+     */
+    function getInputPositionValue(uint256 amountIn) external returns (uint amountOut);
+
+    /**
+     * @notice Returns the input amount required to obtain a given output amount using the current Uniswap path.
+     * @param amountOut The desired output amount for which to quote the input value.
+     * @return amountIn The quoted input amount.
+     */
+    function getOutputPositionValue(uint256 amountOut) external returns (uint amountIn);
+
+    function tokenInContract() external returns(address tokenInContract);
+
+    function tokenOutContract() external returns(address tokenOutContract);
+
+    // ONLY MODULAR_SWAP_ROUTER_ROLE FUNCTION //
+
+    /**
+     * @notice Executes a liquidation by swapping the specified input amount of tokens.
+     * @dev This function can only be called by an account with the MODULAR_SWAP_ROUTER_ROLE.
+     * @param amountIn The amount of input tokens to swap.
+     * @return amountOut The amount of output tokens received.
+     */
+    function liquidate(uint256 amountIn) external returns(uint amountOut);
+
+    /**
+     * @notice Executes an input swap with a specified minimum output amount.
+     * @dev This function can only be called by an account with the MODULAR_SWAP_ROUTER_ROLE.
+     * @param amountIn The amount of input tokens to swap.
+     * @param amountOutMinimum The minimum amount of output tokens to receive.
+     * @return amountOut The amount of output tokens received.
+     */
+    function swapInput(uint amountIn, uint amountOutMinimum) external returns(uint amountOut);
+
+    /**
+     * @notice Executes an output swap for a specified output amount.
+     * @dev This function can only be called by an account with the MODULAR_SWAP_ROUTER_ROLE.
+     * @param amountOut The desired amount of output tokens.
+     * @return amountIn The amount of input tokens spent.
+     */    
+    function swapOutput(uint amountOut) external returns(uint amountIn);
+}
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/IPositionManagerERC20.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/IPositionManagerERC721.sol =====
+pragma solidity 0.8.20;
+
+interface IPositionManagerERC721 {
+
+    // ONLY MODULAR_SWAP_ROUTER_ROLE FUNCTIONS //
+
+    /**
+     * @dev Liquidates multiple positions. 
+     * @param value An array of position IDs to be liquidated.
+     * @param holder The address of the account to transfer the positions to after liquidation.
+     * @return amountOut The total amount of profit received from the liquidation in USDC.
+     */
+    function liquidate(uint256[] memory value, address holder) external returns(uint amountOut);
+
+    /**
+     * @dev Executes the exercise of an option.
+     * @param id The ID of the option being exercised.
+     * @return amountOut The amount of base token received after exercising the option.
+     */
+    function exercise(uint id) external returns(uint amountOut);
+
+    // EXTERNAL FUNCTIONS //
+
+    /**
+     * @notice Checks the validity of a given ERC721 token ID.
+     * @param id The ID of the ERC721 token to check.
+     * @return True if the token is valid (locked), false otherwise.
+     */
+    function checkValidityERC721(uint id) external returns(bool);
+
+    // PUBLIC FUNCTIONS //
+
+    /**
+     * @notice Gets the value of a specified option ID.
+     * @param id The ID of the option.
+     * @return positionValue The value of the option.
+     */
+    function getOptionValue(uint id) external returns (uint positionValue);
+
+    /**
+     * @notice Gets the total value of specified option IDs.
+     * @param value An array of option IDs.
+     * @return positionValue The total value of the options.
+     */    
+    function getPositionValue(uint256[] memory value) external returns (uint positionValue);
+}
+    
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/IPositionManagerERC721.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/modularSwapRouter/uniswap/IQuoter.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+pragma abicoder v2;
+
+/// @title Quoter Interface
+/// @notice Supports quoting the calculated amounts from exact input or exact output swaps
+/// @dev These functions are not marked view because they rely on calling non-view functions and reverting
+/// to compute the result. They are also not gas efficient and should not be called on-chain.
+interface IQuoter {
+    /// @notice Returns the amount out received for a given exact input swap without executing the swap
+    /// @param path The path of the swap, i.e. each token pair and the pool fee
+    /// @param amountIn The amount of the first token to swap
+    /// @return amountOut The amount of the last token that would be received
+    function quoteExactInput(bytes memory path, uint256 amountIn) external returns (uint256 amountOut);
+
+    /// @notice Returns the amount out received for a given exact input but for a swap of a single pool
+    /// @param tokenIn The token being swapped in
+    /// @param tokenOut The token being swapped out
+    /// @param fee The fee of the token pool to consider for the pair
+    /// @param amountIn The desired input amount
+    /// @param sqrtPriceLimitX96 The price limit of the pool that cannot be exceeded by the swap
+    /// @return amountOut The amount of `tokenOut` that would be received
+    function quoteExactInputSingle(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountIn,
+        uint160 sqrtPriceLimitX96
+    ) external returns (uint256 amountOut);
+
+    /// @notice Returns the amount in required for a given exact output swap without executing the swap
+    /// @param path The path of the swap, i.e. each token pair and the pool fee
+    /// @param amountOut The amount of the last token to receive
+    /// @return amountIn The amount of first token required to be paid
+    function quoteExactOutput(bytes memory path, uint256 amountOut) external returns (uint256 amountIn);
+
+    /// @notice Returns the amount in required to receive the given exact output amount but for a swap of a single pool
+    /// @param tokenIn The token being swapped in
+    /// @param tokenOut The token being swapped out
+    /// @param fee The fee of the token pool to consider for the pair
+    /// @param amountOut The desired output amount
+    /// @param sqrtPriceLimitX96 The price limit of the pool that cannot be exceeded by the swap
+    /// @return amountIn The amount required as the input for the swap in order to receive `amountOut`
+    function quoteExactOutputSingle(
+        address tokenIn,
+        address tokenOut,
+        uint24 fee,
+        uint256 amountOut,
+        uint160 sqrtPriceLimitX96
+    ) external returns (uint256 amountIn);
+}
+// ===== END SOURCE FILE: contracts/interfaces/modularSwapRouter/uniswap/IQuoter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/LiquidityPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.20;
+
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
+import {ILiquidityPool} from"./interfaces/ILiquidityPool.sol";
+import {UD60x18, ud, convert, intoUint256, pow, div} from "@prb/math/src/UD60x18.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+
+/**
+ * @title LiquidityPool
+ * @dev This contract manages a liquidity pool for ERC20 tokens, allowing users to provide liquidity, borrow, and repay loans.
+ * @notice Users can deposit tokens to earn interest and borrow against their deposits.
+ * @author 0nika0
+ */
+contract LiquidityPool is ERC20, ERC20Burnable, AccessControl, ILiquidityPool, ReentrancyGuard {
+    uint private constant ONE_YEAR_SECONDS = 31536000;
+    uint private constant INTEREST_RATE_COEFFICIENT = 1e4;
+    bytes32 public constant MARGIN_ACCOUNT_ROLE = keccak256("MARGIN_ACCOUNT_ROLE");
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    ERC20 public immutable baseToken;
+    ERC20 public immutable poolToken;
+
+    uint public totalBorrowsSnapshotTimestamp;
+    uint public depositShare;
+    uint public debtSharesSum;
+    uint public netDebt;
+    uint public totalInterestSnapshot;
+    uint public maximumPoolCapacity;
+
+    mapping(uint => uint) public portfolioIdToDebt;
+
+    mapping(uint => uint) public shareOfDebt;
+
+    address public insurancePool;
+
+    uint public interestRate = 0.05*1e4;
+    uint public insuranceRateMultiplier = 0.05*1e4;
+    uint public maximumBorrowMultiplier = 0.8*1e4;
+
+    constructor(
+        address _insurancePool,
+        address _marginAccountStorage,
+        ERC20 _baseToken,
+        ERC20 _poolToken,
+        string memory _tokenName,
+        string memory _tokenSymbol,
+        uint _poolCapacity
+    ) ERC20(_tokenName, _tokenSymbol) {
+        insurancePool = _insurancePool;
+        baseToken = _baseToken;
+        poolToken = _poolToken;
+        totalBorrowsSnapshotTimestamp = block.timestamp;
+        maximumPoolCapacity = _poolCapacity;
+        _grantRole(MARGIN_ACCOUNT_ROLE, _marginAccountStorage);
+        _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    function setMaximumPoolCapacity(uint newMaximumPoolCapacity) external onlyRole(MANAGER_ROLE) {
+        maximumPoolCapacity = newMaximumPoolCapacity;
+
+        emit UpdateMaximumPoolCapacity(newMaximumPoolCapacity);
+    }
+
+    function setMaximumBorrowMultiplier(uint newMaximumBorrowMultiplier) external onlyRole(MANAGER_ROLE) {
+        maximumBorrowMultiplier = newMaximumBorrowMultiplier;
+
+        emit UpdateMaximumBorrowMultiplier(newMaximumBorrowMultiplier);
+    }
+
+    function setInsurancePool(address newInsurancePool) external onlyRole(MANAGER_ROLE) {
+        insurancePool = newInsurancePool;
+
+        emit UpdateInsurancePool(newInsurancePool);
+    }
+
+    function setInsuranceRateMultiplier(uint newInsuranceRateMultiplier) external onlyRole(MANAGER_ROLE) {
+        insuranceRateMultiplier = newInsuranceRateMultiplier;
+
+        emit UpdateInsuranceRateMultiplier(newInsuranceRateMultiplier);
+    }
+
+    function setInterestRate(uint newInterestRate) external onlyRole(MANAGER_ROLE) {
+        require(newInterestRate > 0, "The interest rate cannot be zero!");
+        uint newTotalBorrows = _fixAccruedInterest();
+        interestRate = newInterestRate;
+
+        emit UpdateInterestRate(getTotalLiquidity(), newTotalBorrows, interestRate);
+    }
+
+    // EXTERNAL FUNCTIONS //
+
+    function provide(uint amount) external nonReentrant {
+        uint totalLiquidity = getTotalLiquidity();
+        require(
+            totalLiquidity + amount <= maximumPoolCapacity,
+            "Maximum liquidity has been achieved!"
+        );
+        poolToken.transferFrom(msg.sender, address(this), amount);
+        uint shareChange = totalLiquidity > 0
+            ? (depositShare * amount) / totalLiquidity
+            : (amount * 10 ** decimals()) / 10 ** poolToken.decimals();
+        _mint(msg.sender, shareChange);
+        depositShare += shareChange;
+
+        emit Provide(msg.sender, shareChange, amount);
+    }
+
+    function withdraw(uint amount) external nonReentrant {
+        uint totalLiquidity = poolToken.balanceOf(address(this)) + netDebt;
+        require(totalLiquidity != 0, "Liquidity pool has no pool tokens");
+        uint amountWithdraw = (amount * totalLiquidity) / depositShare;
+        require(
+            poolToken.balanceOf(address(this)) >= amountWithdraw,
+            "Liquidity pool has not enough free tokens!"
+        );
+        _burn(msg.sender, amount);
+        depositShare -= amount;
+        poolToken.transfer(msg.sender, amountWithdraw);
+
+        emit Withdraw(msg.sender, amount, amountWithdraw);
+    }
+
+    // ONLY MARGIN_ACCOUNT_ROLE FUNCTIONS //
+
+    function borrow(uint marginAccountID, uint amount) external onlyRole(MARGIN_ACCOUNT_ROLE) {
+        require(
+            poolToken.balanceOf(address(this)) >= amount,
+            "There are not enough tokens in the liquidity pool to provide a loan!"
+        );
+        uint borrows = _fixAccruedInterest();
+        require(
+            borrows + amount <=
+                ((borrows + poolToken.balanceOf(address(this)))  * maximumBorrowMultiplier) /
+                    INTEREST_RATE_COEFFICIENT,
+            "Limit is exceed!"
+        );
+        uint newDebtShare = borrows > 0
+            ? (debtSharesSum * amount) / borrows
+            : (amount * 10 ** decimals()) / 10 ** poolToken.decimals();
+        
+        debtSharesSum += newDebtShare;
+        shareOfDebt[marginAccountID] += newDebtShare;
+        netDebt += amount;
+        portfolioIdToDebt[marginAccountID] += amount;
+        poolToken.transfer(msg.sender, amount);
+
+        emit Borrow(marginAccountID, amount);
+    }
+
+    function repay(uint marginAccountID, uint amount) external onlyRole(MARGIN_ACCOUNT_ROLE) {
+        uint newTotalBorrows = totalBorrows();
+        uint newTotalInterestSnapshot = newTotalBorrows - netDebt;
+        uint accruedInterest = (newTotalInterestSnapshot * shareOfDebt[marginAccountID]) / debtSharesSum; // Accrued interest only
+        uint debt = portfolioIdToDebt[marginAccountID] + accruedInterest;
+        if (debt < amount) {
+            // If you try to return more tokens than were borrowed, the required amount will be taken to repay the debt, the rest will remain untouched
+            amount = debt;
+        }
+        uint shareChange = (amount * debtSharesSum) / newTotalBorrows; // Trader's share to be given away
+        uint profit = (accruedInterest * shareChange) / shareOfDebt[marginAccountID];
+        uint profitInsurancePool = (profit * insuranceRateMultiplier) / INTEREST_RATE_COEFFICIENT;
+        totalInterestSnapshot -= totalInterestSnapshot * shareChange / debtSharesSum;
+        debtSharesSum -= shareChange;
+        shareOfDebt[marginAccountID] -= shareChange;
+        if (debt > amount) {
+            uint tempDebt = (portfolioIdToDebt[marginAccountID] * (debt - amount)) / debt;
+            netDebt = netDebt - (portfolioIdToDebt[marginAccountID] - tempDebt);
+            portfolioIdToDebt[marginAccountID] = tempDebt;
+        } else {
+            netDebt -= portfolioIdToDebt[marginAccountID];
+            portfolioIdToDebt[marginAccountID] = 0;
+        }
+        poolToken.transferFrom(msg.sender, address(this), amount);
+        if (profitInsurancePool > 0) {
+            poolToken.transfer(insurancePool, profitInsurancePool);
+        }
+
+        emit Repay(marginAccountID, amount, profit);
+    }
+
+    // VIEW FUNCTIONS //
+
+    function getDebtWithAccruedInterestOnTime(uint marginAccountID, uint checkTime) external view returns (uint debtByPool) {
+        require(
+            totalBorrowsSnapshotTimestamp < checkTime,
+            "The function is designed to calculate future debt!"
+        );
+        if (debtSharesSum == 0) return 0;
+        uint precision = 10 ** 18;
+        UD60x18 temp = div(
+            convert(
+                ((INTEREST_RATE_COEFFICIENT + interestRate) *
+                    precision) / INTEREST_RATE_COEFFICIENT
+            ),
+            convert(precision)
+        );
+        uint newTotalBorrow = ((netDebt + totalInterestSnapshot) *
+                intoUint256(pow(temp, div(convert(checkTime - totalBorrowsSnapshotTimestamp), convert(ONE_YEAR_SECONDS))))) / 1e18;
+        return (newTotalBorrow * shareOfDebt[marginAccountID]) / debtSharesSum;
+    }
+
+    function getDebtWithAccruedInterest(uint marginAccountID) external view returns (uint debtByPool) {
+        if (debtSharesSum == 0) return 0;
+        return (totalBorrows() * shareOfDebt[marginAccountID]) / debtSharesSum;
+    }
+
+    // PUBLIC FUNCTIONS //
+
+    function totalBorrows() public view returns (uint) {
+        uint ownershipTime = block.timestamp - totalBorrowsSnapshotTimestamp;
+        uint precision = 10 ** 18;
+        UD60x18 temp = div(
+            convert(
+                ((INTEREST_RATE_COEFFICIENT + interestRate) *
+                    precision) / INTEREST_RATE_COEFFICIENT
+            ),
+            convert(precision)
+        );
+        return
+            ((netDebt + totalInterestSnapshot) *
+                intoUint256(pow(temp, div(convert(ownershipTime), convert(ONE_YEAR_SECONDS))))) / 1e18;
+    }
+
+    function getTotalLiquidity() public view returns (uint) {
+        return poolToken.balanceOf(address(this)) + totalBorrows();
+    }
+
+    // PRIVATE FUNCTIONS //
+
+    /**
+     * @notice Charges interest rate to traders.
+     * @return newTotalBorrows The new total borrows after interest accrual.
+     */
+    function _fixAccruedInterest() private returns (uint) {
+        uint newTotalBorrows = totalBorrows();
+        totalInterestSnapshot = newTotalBorrows - netDebt;
+        totalBorrowsSnapshotTimestamp = block.timestamp;
+        return newTotalBorrows;
+    }
+}
+// ===== END SOURCE FILE: contracts/LiquidityPool.sol =====
+// ===== BEGIN SOURCE FILE: contracts/MarginAccount.sol =====
+pragma solidity 0.8.20;
+
+import {IModularSwapRouter} from "./interfaces/modularSwapRouter/IModularSwapRouter.sol";
+import {IMarginAccount} from "./interfaces/IMarginAccount.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ILiquidityPool} from "./interfaces/ILiquidityPool.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+/**
+ * @title MarginAccount
+ * @dev This contract manages the storage of margin accounts, including ERC20 and ERC721 tokens.
+ * It also handles interactions with liquidity pools and a modular swap router.
+ * @author 0nika0
+ */
+contract MarginAccount is IMarginAccount, AccessControl {
+    mapping(uint => mapping(address => uint)) private erc20ByContract;
+    mapping(uint => mapping(address => uint[])) private erc721ByContract;
+
+    mapping(address => bool) public isAvailableErc20;
+    mapping(address => bool) public isAvailableErc721;
+
+    address[] public availableErc20;
+    address[] public availableErc721;
+
+    mapping(address => address) public tokenToLiquidityPool;
+
+    address[] public availableTokenToLiquidityPool;
+
+    IModularSwapRouter public modularSwapRouter;
+    address public insurancePool;
+
+    bytes32 public constant MARGIN_TRADING_ROLE = keccak256("MARGIN_TRADING_ROLE");
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    constructor(
+        address _insurancePool
+    ) {
+        insurancePool = _insurancePool;
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // VIEW FUNCTIONS //
+
+    function getAvailableErc20() public view returns (address[] memory tokensArray) {
+        return availableErc20;
+    }
+
+    function getAvailableErc721() public view returns (address[] memory tokensArray) {
+        return availableErc721;
+    }
+
+    function getAvailableTokenToLiquidityPool() public view returns (address[] memory tokensArray) {
+        return availableTokenToLiquidityPool;
+    }
+
+    function getErc20ByContract(uint marginAccountID, address tokenAddress) public view returns (uint) {
+        return erc20ByContract[marginAccountID][tokenAddress];
+    }
+
+    function getErc721ByContract(uint marginAccountID, address tokenAddress) public view returns (uint[] memory) {
+        return erc721ByContract[marginAccountID][tokenAddress];
+    }
+
+    function checkERC721tokenID(uint marginAccountID, address token, uint value) public view returns(bool hasERC721Id) {
+        uint[] memory userERC721 = new uint[](erc721ByContract[marginAccountID][token].length);
+        userERC721 = erc721ByContract[marginAccountID][token];
+        for (uint i; i < userERC721.length; i++) {
+            if (userERC721[i] == value) {
+                return true;
+            }
+        } 
+    }
+
+    function checkERC20Amount(uint marginAccountID, address token, uint amount) external view returns(bool currectBalance) {
+        currectBalance = amount <= erc20ByContract[marginAccountID][token];
+    }
+
+    function checkERC721Value(uint marginAccountID, address token, uint value) external view returns (bool hasERC721Id) {
+        hasERC721Id = checkERC721tokenID(marginAccountID, token, value);
+    }
+
+    function checkLiquidityPool(address token) external view returns (bool isValid) {
+        address liquifityPoolAddress = tokenToLiquidityPool[token];
+        isValid = liquifityPoolAddress != address(0);       
+    }
+
+    function preparationTokesParams(uint marginAccountID, address baseToken) public view returns (
+        IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+        IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+    ) {
+        erc20Params = new IModularSwapRouter.ERC20PositionInfo[](availableErc20.length);
+        erc721Params = new IModularSwapRouter.ERC721PositionInfo[](availableErc721.length);
+        for(uint i; i < availableErc20.length; i++) {
+            uint erc20Balance = erc20ByContract[marginAccountID][availableErc20[i]];
+            erc20Params[i] = IModularSwapRouter.ERC20PositionInfo(availableErc20[i], baseToken, erc20Balance);
+        }
+
+        for(uint i; i < availableErc721.length; i++) {
+            uint[] memory erc721TokensByContract = erc721ByContract[marginAccountID][availableErc721[i]];
+            erc721Params[i] = IModularSwapRouter.ERC721PositionInfo(availableErc721[i], baseToken, address(0), erc721TokensByContract);
+        }
+    }
+
+    function preparationTokesParamsByDebt(uint marginAccountID, address baseToken) public view returns (
+        IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+        IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+    ) {
+        erc20Params = new IModularSwapRouter.ERC20PositionInfo[](availableTokenToLiquidityPool.length);
+        for (uint i; i < availableTokenToLiquidityPool.length; i++) {
+            address liquidityPoolAddress = tokenToLiquidityPool[availableTokenToLiquidityPool[i]];
+            erc20Params[i] = IModularSwapRouter.ERC20PositionInfo(
+                availableTokenToLiquidityPool[i],
+                baseToken,
+                ILiquidityPool(liquidityPoolAddress).getDebtWithAccruedInterest(marginAccountID)
+            );
+        }
+    }
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    function setModularSwapRouter(IModularSwapRouter newModularSwapRouter) external onlyRole(MANAGER_ROLE) {
+        modularSwapRouter = newModularSwapRouter;
+
+        emit UpdateModularSwapRouter(address(newModularSwapRouter));
+    }
+
+    function setTokenToLiquidityPool(address token, address liquidityPoolAddress) external onlyRole(MANAGER_ROLE) {
+        tokenToLiquidityPool[token] = liquidityPoolAddress;
+
+        emit UpdateTokenToLiquidityPool(token, liquidityPoolAddress);
+    }
+
+    function setAvailableTokenToLiquidityPool(address[] memory _availableTokenToLiquidityPool) external onlyRole(MANAGER_ROLE) {
+        availableTokenToLiquidityPool = _availableTokenToLiquidityPool;
+
+        emit UpdateAvailableTokenToLiquidityPool(_availableTokenToLiquidityPool);
+    }
+
+    function setAvailableErc20(address[] memory _availableErc20) external onlyRole(MANAGER_ROLE) {
+        availableErc20 = _availableErc20;
+
+        emit UpdateAvailableErc20(_availableErc20);
+    }
+
+    function setIsAvailableErc20(address token, bool value) external onlyRole(MANAGER_ROLE) {
+        isAvailableErc20[token] = value;
+
+        emit UpdateIsAvailableErc20(token, value);
+    }
+    
+    function setAvailableErc721(address[] memory _availableErc721) external onlyRole(MANAGER_ROLE) {
+        availableErc721 = _availableErc721;
+
+        emit UpdateAvailableErc721(availableErc721);
+    }
+
+    function setIsAvailableErc721(address token, bool value) external onlyRole(MANAGER_ROLE) {
+        isAvailableErc721[token] = value;
+
+        emit UpdateIsAvailableErc721(token, value);
+    }    
+
+    function approveERC20(address token, address to, uint amount) external onlyRole(MANAGER_ROLE) {
+        IERC20(token).approve(to, amount);
+    }
+
+    // ONLY MARGIN_TRADING_ROLE FUNCTIONS //
+
+    function provideERC20(uint marginAccountID, address txSender, address token, uint amount) external onlyRole(MARGIN_TRADING_ROLE) {
+        require(isAvailableErc20[token], "Token you are attempting to deposit is not available for deposit");
+        erc20ByContract[marginAccountID][token] += amount;
+        IERC20(token).transferFrom(txSender, address(this), amount);
+    }
+
+    function provideERC721(uint marginAccountID, address txSender, address token, uint collateralTokenID, address baseToken) external onlyRole(MARGIN_TRADING_ROLE) {
+        require(isAvailableErc721[token], "Token you are attempting to deposit is not available for deposit");
+        erc721ByContract[marginAccountID][token].push(collateralTokenID);
+        IERC721(token).transferFrom(txSender, address(this), collateralTokenID);
+        IERC721(token).approve(modularSwapRouter.getModuleAddress(token, baseToken), collateralTokenID);
+    }
+
+    function withdrawERC20(uint marginAccountID, address token, uint amount, address txSender) external onlyRole(MARGIN_TRADING_ROLE) {
+        erc20ByContract[marginAccountID][token] -= amount;
+        IERC20(token).transfer(txSender, amount);
+    }
+
+    function withdrawERC721(uint marginAccountID, address token, uint value, address txSender) external onlyRole(MARGIN_TRADING_ROLE) {
+        _deleteERC721TokenFromContractList(marginAccountID, token, value);
+        IERC721(token).transferFrom(address(this), txSender, value);
+    }
+
+    function borrow(uint marginAccountID, address token, uint amount) external onlyRole(MARGIN_TRADING_ROLE) {
+        address liquifityPoolAddress = tokenToLiquidityPool[token];       
+        require(liquifityPoolAddress != address(0), "Token is not supported");
+
+        erc20ByContract[marginAccountID][token] += amount;
+        ILiquidityPool(liquifityPoolAddress).borrow(marginAccountID, amount);
+    }
+
+    function repay(uint marginAccountID, address token, uint amount) external onlyRole(MARGIN_TRADING_ROLE) {
+        address liquifityPoolAddress = tokenToLiquidityPool[token];    
+        require(liquifityPoolAddress != address(0), "Token is not supported");
+        
+        require(amount <= erc20ByContract[marginAccountID][token], "Insufficient funds to repay the debt");
+
+
+        uint debtWithAccruedInterest = ILiquidityPool(liquifityPoolAddress).getDebtWithAccruedInterest(marginAccountID);
+        if (amount == 0 || amount > debtWithAccruedInterest) {
+            amount = debtWithAccruedInterest;
+        }
+        
+        erc20ByContract[marginAccountID][token] -= amount;
+        ILiquidityPool(liquifityPoolAddress).repay(marginAccountID, amount);
+    }
+
+    function liquidate(uint marginAccountID, address baseToken, address marginAccountOwner) external onlyRole(MARGIN_TRADING_ROLE) {
+        IModularSwapRouter.ERC20PositionInfo[] memory erc20Params = new IModularSwapRouter.ERC20PositionInfo[](availableErc20.length); 
+        IModularSwapRouter.ERC721PositionInfo[] memory erc721Params = new IModularSwapRouter.ERC721PositionInfo[](availableErc721.length);
+
+        for(uint i; i < availableErc20.length; i++) {
+            uint erc20Balance = erc20ByContract[marginAccountID][availableErc20[i]];
+            erc20Params[i] = IModularSwapRouter.ERC20PositionInfo(availableErc20[i], baseToken, erc20Balance);
+            erc20ByContract[marginAccountID][availableErc20[i]] -= erc20Balance;
+        }
+
+        for(uint i; i < availableErc721.length; i++) {
+            uint[] memory erc721TokensByContract = erc721ByContract[marginAccountID][availableErc721[i]];
+            erc721Params[i] = IModularSwapRouter.ERC721PositionInfo(availableErc721[i], baseToken, marginAccountOwner, erc721TokensByContract);
+            delete erc721ByContract[marginAccountID][availableErc721[i]];
+        }
+
+        uint amountOutInUSDC = modularSwapRouter.liquidate(erc20Params,erc721Params);
+
+        erc20ByContract[marginAccountID][baseToken] += amountOutInUSDC;
+
+        _clearDebtsWithPools(marginAccountID, baseToken);
+    }
+
+    function swap(uint marginAccountID, uint swapID, address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) external onlyRole(MARGIN_TRADING_ROLE){
+        require(isAvailableErc20[tokenIn] && isAvailableErc20[tokenOut], "Token is not available");
+        require(amountIn <= erc20ByContract[marginAccountID][tokenIn], "Insufficient funds for the swap");
+        uint amountOut = modularSwapRouter.swapInput(tokenIn, tokenOut, amountIn, amountOutMinimum);
+        erc20ByContract[marginAccountID][tokenIn] -= amountIn;
+        erc20ByContract[marginAccountID][tokenOut] += amountOut;
+
+        emit Swap(swapID, tokenIn, tokenOut, marginAccountID, amountIn, amountOut);
+    }
+
+    function exercise(uint marginAccountID, address erc721Token, address baseToken, uint id, address sender) external onlyRole(MARGIN_TRADING_ROLE){ 
+        require(isAvailableErc721[erc721Token] && isAvailableErc20[baseToken], "Token is not available");
+        uint amountOut = modularSwapRouter.exercise(erc721Token, baseToken, id);
+        _deleteERC721TokenFromContractList(marginAccountID, erc721Token, id);
+        erc20ByContract[marginAccountID][baseToken] += amountOut;
+        IERC721(erc721Token).transferFrom(address(this), sender, id);
+    }
+
+    // PRIVATE FUNCTIONS //
+
+    /**
+     * @dev Deletes an ERC721 token from the contract's list for a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param token The address of the ERC721 token.
+     * @param tokenID The ID of the token to delete.
+     */
+    function _deleteERC721TokenFromContractList(uint marginAccountID, address token, uint tokenID) private {
+        uint[] storage userTokesByContract = erc721ByContract[marginAccountID][token];
+
+        for(uint i = 0; i < userTokesByContract.length; i++) {
+            if(userTokesByContract[i] == tokenID) {
+                userTokesByContract[i] = userTokesByContract[userTokesByContract.length - 1]; 
+                userTokesByContract.pop(); 
+                return;
+            }
+        }
+    }
+
+    /**
+     * @dev Clears debts with liquidity pools for a margin account.
+     * @param marginAccountID The ID of the margin account.
+     * @param baseToken The base token address.
+     */
+    function _clearDebtsWithPools(uint marginAccountID, address baseToken) private {
+        for (uint i; i < availableTokenToLiquidityPool.length; i++) {
+            address liquidityPoolAddress = tokenToLiquidityPool[availableTokenToLiquidityPool[i]];   
+            uint poolDebt = ILiquidityPool(liquidityPoolAddress).getDebtWithAccruedInterest(marginAccountID);
+            if (poolDebt != 0) {
+                uint amountInUSDC = modularSwapRouter.calculateAmountInERC20(baseToken, availableTokenToLiquidityPool[i], poolDebt);
+                uint userUSDCbalance = getErc20ByContract(marginAccountID, baseToken);
+                if (amountInUSDC > userUSDCbalance) {
+                    uint amountOut = modularSwapRouter.swapInput(baseToken, availableTokenToLiquidityPool[i], userUSDCbalance, 0);
+                    erc20ByContract[marginAccountID][baseToken] -= userUSDCbalance;
+                    IERC20(availableTokenToLiquidityPool[i]).transferFrom(insurancePool, address(this), poolDebt-amountOut); 
+                } else {
+                    uint amountIn = modularSwapRouter.swapOutput(baseToken, availableTokenToLiquidityPool[i], poolDebt);
+                    erc20ByContract[marginAccountID][baseToken] -= amountIn;
+                }
+                ILiquidityPool(liquidityPoolAddress).repay(marginAccountID, poolDebt);
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/MarginAccount.sol =====
+// ===== BEGIN SOURCE FILE: contracts/MarginAccountManager.sol =====
+pragma solidity 0.8.20;
+
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {IMarginAccountManager} from "./interfaces/IMarginAccountManager.sol";
+
+/**
+ * @title MarginAccountManager
+ * @dev This contract manages margin accounts represented as ERC721 tokens.
+ * @notice Users can create margin accounts using the `createMarginAccount` function.
+ * @author 0nika0
+ */
+contract MarginAccountManager is IMarginAccountManager, ERC721("MarginAccountToken", "MAT") {
+    uint public nextTokenID = 0;
+
+    function createMarginAccount() external returns (uint marginAccountID) {
+        marginAccountID = nextTokenID;
+        _safeMint(msg.sender, marginAccountID);
+        nextTokenID++;
+
+        emit CreateMarginAccount(marginAccountID);
+    }
+
+    function isApprovedOrOwner(address spender, uint tokenID)
+        external
+        view
+        returns (bool)
+    {
+        return _isApprovedOrOwner(spender, tokenID);
+    }
+}
+// ===== END SOURCE FILE: contracts/MarginAccountManager.sol =====
+// ===== BEGIN SOURCE FILE: contracts/MarginTrading.sol =====
+pragma solidity 0.8.20;
+
+import {IModularSwapRouter} from "./interfaces/modularSwapRouter/IModularSwapRouter.sol";
+import {IMarginAccountManager} from "./interfaces/IMarginAccountManager.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IMarginAccount} from "./interfaces/IMarginAccount.sol";
+import {IMarginTrading} from "./interfaces/IMarginTrading.sol";
+
+/**
+ * @title MarginTrading
+ * @notice This contract allows users to manage margin accounts, provide collateral, borrow, and repay tokens.
+ * @dev The contract uses modular architecture with separate modules for swap routing, margin account management, and storage.
+ * It also includes access control mechanisms for managing roles and permissions.
+ * @author 0nika0
+ */
+contract MarginTrading is IMarginTrading, AccessControl, ReentrancyGuard {
+    uint private constant COEFFICIENT_DECUMALS = 1e5;
+
+    address public immutable BASE_TOKEN;
+
+    uint public yellowCoeff = 1.10 * 1e5;
+    uint public redCoeff = 1.05 * 1e5; 
+    uint public swapID = 0;
+
+    IModularSwapRouter public modularSwapRouter;
+    IMarginAccountManager public immutable marginAccountManager;
+    IMarginAccount public immutable marginAccount;
+
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    constructor(
+        address _positionsManager,
+        address _baseToken,
+        address _portfolioLendingStorage
+    ) {
+        BASE_TOKEN = _baseToken;
+        marginAccountManager = IMarginAccountManager(_positionsManager);
+        marginAccount = IMarginAccount(_portfolioLendingStorage);
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    /**
+     * @dev Modifier to check if the caller is approved or the owner of the margin account.
+     * @param marginAccountID The ID of the margin account.
+     */
+    modifier onlyApprovedOrOwner(uint marginAccountID) {
+        require(marginAccountManager.isApprovedOrOwner(msg.sender, marginAccountID), "You are not the owner of the token");
+        _;
+    }
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    function setModularSwapRouter(IModularSwapRouter newModularSwapRouter) external onlyRole(MANAGER_ROLE) {
+        modularSwapRouter = newModularSwapRouter;
+        emit UpdateModularSwapRouter(address(newModularSwapRouter));
+    }
+
+    function setRedCoeff(uint newRedCoeff) external onlyRole(MANAGER_ROLE) {
+        redCoeff = newRedCoeff;
+        emit UpdateRedCoeff(newRedCoeff);
+    }
+
+    function setYellowCoeff(uint newYellowCoeff) external onlyRole(MANAGER_ROLE) {
+        yellowCoeff = newYellowCoeff;
+        emit UpdateYellowCoeff(newYellowCoeff);
+    }
+
+    // PUBLIC FUNCTIONS //
+
+    function calculateMarginAccountValue(uint marginAccountID) public returns (uint marginAccountValue) {
+        (
+            IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+            IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+        ) = marginAccount.preparationTokesParams(marginAccountID, BASE_TOKEN);
+        marginAccountValue = modularSwapRouter.calculateTotalPositionValue(erc20Params,erc721Params);
+    }
+
+    function calculateDebtWithAccruedInterest(uint marginAccountID) public returns (uint debtSizeInUSDC) {
+        (
+            IModularSwapRouter.ERC20PositionInfo[] memory erc20Params, 
+            IModularSwapRouter.ERC721PositionInfo[] memory erc721Params
+        ) = marginAccount.preparationTokesParamsByDebt(marginAccountID, BASE_TOKEN);
+        debtSizeInUSDC += modularSwapRouter.calculateTotalPositionValue(erc20Params, erc721Params);
+    }
+
+    function getMarginAccountRatio(uint marginAccountID) public returns(uint) {
+        uint marginAccountValue = calculateMarginAccountValue(marginAccountID);
+        uint debtWithAccruedInterest = calculateDebtWithAccruedInterest(marginAccountID);
+        return _calculatePortfolioRatio(marginAccountValue, debtWithAccruedInterest);
+    }
+
+    // ONLY APPROVE OR OWNER FUNCTIONS //
+
+
+    function provideERC20(uint marginAccountID, address token, uint amount) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        marginAccount.provideERC20(marginAccountID, msg.sender, token, amount);
+
+        emit ProvideERC20(marginAccountID, msg.sender, token, amount);
+    }
+
+
+    function provideERC721(uint marginAccountID, address token, uint collateralTokenID) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        marginAccount.provideERC721(marginAccountID, msg.sender, token, collateralTokenID, BASE_TOKEN);
+
+        emit ProvideERC721(marginAccountID, msg.sender, token, collateralTokenID);
+    }
+
+    function withdrawERC20(uint marginAccountID, address token, uint amount) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        require(marginAccount.checkERC20Amount(marginAccountID, token, amount), "Insufficient token balance for withdrawal");
+        uint marginAccountValue = calculateMarginAccountValue(marginAccountID);
+
+        uint withdrawSizeInBaseToken = modularSwapRouter.calculateAmountOutERC20(token, BASE_TOKEN, amount);
+        marginAccountValue -= withdrawSizeInBaseToken;
+        uint debtWithAccruedInterest = calculateDebtWithAccruedInterest(marginAccountID);
+        uint portfolioRatio = _calculatePortfolioRatio(marginAccountValue, debtWithAccruedInterest);
+        if (portfolioRatio != 0) {
+            require(portfolioRatio > yellowCoeff, "portfolioRatio is too low");
+        }
+        marginAccount.withdrawERC20(marginAccountID, token, amount, msg.sender);
+
+        emit WithdrawERC20(marginAccountID, msg.sender, token, amount);
+    }
+
+    function withdrawERC721(uint marginAccountID, address token, uint value) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        require(marginAccount.checkERC721Value(marginAccountID, token, value), "The ERC721 token you are attempting to withdraw is not available for withdrawal");
+        require(modularSwapRouter.checkValidityERC721(token, BASE_TOKEN, value), "token id is not valid");
+
+        uint marginAccountValue = calculateMarginAccountValue(marginAccountID);
+
+        uint withdrawSizeInBaseToken = modularSwapRouter.calculateAmountOutERC721(token, BASE_TOKEN, value);
+        marginAccountValue -= withdrawSizeInBaseToken;
+
+        uint debtWithAccruedInterest = calculateDebtWithAccruedInterest(marginAccountID);
+        uint portfolioRatio = _calculatePortfolioRatio(marginAccountValue, debtWithAccruedInterest);
+
+        if (portfolioRatio != 0) {
+            require(portfolioRatio > yellowCoeff, "portfolioRatio is too low");
+        }
+
+        marginAccount.withdrawERC721(marginAccountID, token, value, msg.sender);
+
+        emit WithdrawERC721(marginAccountID, msg.sender, token, value);
+    }
+
+    function borrow(uint marginAccountID, address token, uint amount) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        require(marginAccount.checkLiquidityPool(token), "Token is not supported");
+        uint amountInBaseToken = modularSwapRouter.calculateAmountOutERC20(token, BASE_TOKEN, amount);
+        uint marginAccountValue = calculateMarginAccountValue(marginAccountID);
+        uint debtWithAccruedInterest = calculateDebtWithAccruedInterest(marginAccountID);
+        uint marginAccountRatio = _calculatePortfolioRatio(marginAccountValue + amountInBaseToken, debtWithAccruedInterest + amountInBaseToken);
+        require(marginAccountRatio >= yellowCoeff, "Cannot borrow more; margin account ratio is too high"); 
+
+        marginAccount.borrow(marginAccountID, token, amount);
+
+        emit Borrow(marginAccountID, msg.sender, token, amount);
+    }
+
+    function repay(uint marginAccountID, address token, uint amount) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        marginAccount.repay(marginAccountID, token, amount);
+
+        emit Repay(marginAccountID, msg.sender, token, amount);
+    }
+
+    function swap(uint marginAccountID, address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) external nonReentrant onlyApprovedOrOwner(marginAccountID) {
+        emit Swap(marginAccountID, swapID, tokenIn, tokenOut, amountIn);
+
+        marginAccount.swap(marginAccountID, swapID, tokenIn, tokenOut, amountIn, amountOutMinimum);
+
+        swapID++;
+    }
+
+    function exercise(uint marginAccountID, address token, uint collateralTokenID) external nonReentrant onlyApprovedOrOwner(marginAccountID)  {
+        marginAccount.exercise(marginAccountID, token, BASE_TOKEN, collateralTokenID, msg.sender);
+
+        emit Exercise(marginAccountID, token, BASE_TOKEN, collateralTokenID);
+    }
+
+    // EXTERNAL FUNCTIONS //
+    
+    function liquidate(uint marginAccountID) external {
+        require(getMarginAccountRatio(marginAccountID) <= redCoeff, "Margin Account ratio is too high to execute liquidation");
+        marginAccount.liquidate(marginAccountID, BASE_TOKEN, marginAccountManager.ownerOf(marginAccountID));
+
+        emit Liquidate(marginAccountID);
+    }
+
+    // PRIIVATE FUNCTIONS //
+
+    /**
+     * @dev Calculates the margin account ratio.
+     * @param marginAccountValue The total value of the margin account.
+     * @param debtWithAccruedInterest The total debt with accrued interest.
+     * @return marginAccountRatio The calculated margin account ratio.
+     */
+    function _calculatePortfolioRatio(uint marginAccountValue, uint debtWithAccruedInterest) private pure returns (uint marginAccountRatio) {
+        if (debtWithAccruedInterest == 0) {
+            return 0;
+        }
+        require(marginAccountValue*COEFFICIENT_DECUMALS > debtWithAccruedInterest, "Margin Account value should be greater than debt with accrued interest");
+        marginAccountRatio = marginAccountValue*COEFFICIENT_DECUMALS/debtWithAccruedInterest;
+    }
+}
+// ===== END SOURCE FILE: contracts/MarginTrading.sol =====
+// ===== BEGIN SOURCE FILE: contracts/modularSwapRouter/hegic/HegicModule.sol =====
+pragma solidity 0.8.20;
+
+import {IPositionManagerERC721} from "../../interfaces/modularSwapRouter/IPositionManagerERC721.sol";
+import {IPositionManagerERC20} from "../../interfaces/modularSwapRouter/IPositionManagerERC20.sol"; 
+import {IHegicStrategy} from "../../interfaces/modularSwapRouter/hegic/IHegicStrategy.sol";
+import {IOperationalTreasury} from "../../interfaces/modularSwapRouter/hegic/IOperationalTreasury.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+
+/**
+ * @title HegicModule
+ * @dev A module for managing and liquidating Hegic options using ERC721 and ERC20 tokens.
+ * @notice This contract facilitates the liquidation of Hegic options and the management of associated tokens.
+ * @author 0nika0
+ */
+contract HegicModule is IPositionManagerERC721, AccessControl {
+    bytes32 public constant MODULAR_SWAP_ROUTER_ROLE = keccak256("MODULAR_SWAP_ROUTER_ROLE");
+
+    IERC20 public hegicReturnToken;
+    IERC721 public hegicPositionManager;
+    IOperationalTreasury public operationalTreasury;
+    IPositionManagerERC20 public assetExchangerUSDCetoUSDC;
+
+    address public marginAccount;
+
+    constructor(
+        IERC20 _hegicReturnToken,
+        IERC721 _hegicPositionManager,
+        IOperationalTreasury _operationalTreasury,
+        IPositionManagerERC20 _assetExchangerUSDCetoUSDC,
+        address _marginAccount
+    ) {
+        hegicReturnToken = _hegicReturnToken;
+        operationalTreasury = _operationalTreasury;
+        assetExchangerUSDCetoUSDC = _assetExchangerUSDCetoUSDC;
+        hegicPositionManager = _hegicPositionManager;
+        marginAccount = _marginAccount;
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // ONLY MODULAR_SWAP_ROUTER_ROLE FUNCTIONS //
+
+    function liquidate(uint[] memory value, address holder) external onlyRole(MODULAR_SWAP_ROUTER_ROLE) returns(uint amountOut) {
+        for (uint i; i < value.length; i++) {
+            if (getPayOffAmount(value[i]) > 0 && isOptionActive(value[i]) && getExpirationTime(value[i]) > block.timestamp) {
+                uint profit = getOptionValue(value[i]);
+                hegicPositionManager.transferFrom(marginAccount, address(this), value[i]);
+                operationalTreasury.payOff(value[i], marginAccount);
+                amountOut += assetExchangerUSDCetoUSDC.swapInput(profit, 0);
+                hegicPositionManager.transferFrom(address(this), holder, value[i]);
+            }
+        }
+    }
+
+    function exercise(uint id) external onlyRole(MODULAR_SWAP_ROUTER_ROLE) returns(uint amountOut) {
+        require(getPayOffAmount(id) > 0 && isOptionActive(id) && getExpirationTime(id) > block.timestamp, "The option is not active or there is no profit on it");
+        uint profit = getOptionValue(id);
+        hegicPositionManager.transferFrom(marginAccount, address(this), id);
+        operationalTreasury.payOff(id, marginAccount);
+        amountOut = assetExchangerUSDCetoUSDC.swapInput(profit, 0);
+        hegicPositionManager.transferFrom(address(this), marginAccount, id);
+    }
+
+    // EXTERNAL FUNCTIONS //
+
+    function checkValidityERC721(uint id) external returns(bool) {
+        if (getPayOffAmount(id) > 0 && isOptionActive(id) && getExpirationTime(id) > block.timestamp) {
+            return true;
+        }
+    }
+
+    // PUBLIC FUNCTIONS //
+
+    function getOptionValue(uint id) public returns (uint positionValue) {
+        if (isOptionActive(id) && getExpirationTime(id) > block.timestamp) {
+            uint profit = getPayOffAmount(id);
+            positionValue = assetExchangerUSDCetoUSDC.getInputPositionValue(profit);
+        }
+    }
+
+    function getPositionValue(uint[] memory value) public returns (uint positionValue) {
+        for (uint i; i < value.length; i++) {
+            positionValue += getOptionValue(value[i]);
+        }
+    }
+
+    function getExpirationTime(uint256 tokenId) public view returns (uint256) {
+        (, , , , uint32 expiration) = operationalTreasury.lockedLiquidity(tokenId);
+        return uint256(expiration);
+    }
+
+    function isOptionActive(uint id) public view returns(bool) {
+        (IOperationalTreasury.LockedLiquidityState state, , , , ) = operationalTreasury.lockedLiquidity(id);
+        return state == IOperationalTreasury.LockedLiquidityState.Locked;
+    }
+
+    // PRIVATE FUNCTIONS //
+
+    /**
+     * @notice Gets the payoff amount for a given token ID.
+     * @param tokenID The ID of the token.
+     * @return The payoff amount.
+     */
+    function getPayOffAmount(uint tokenID) private view returns (uint) {
+        (, IHegicStrategy strategy, , , ) = operationalTreasury.lockedLiquidity(tokenID);
+        return strategy.payOffAmount(tokenID);
+    } 
+}
+// ===== END SOURCE FILE: contracts/modularSwapRouter/hegic/HegicModule.sol =====
+// ===== BEGIN SOURCE FILE: contracts/modularSwapRouter/ModularSwapRouter.sol =====
+pragma solidity 0.8.20;
+
+import {IPositionManagerERC721} from "../interfaces/modularSwapRouter/IPositionManagerERC721.sol";
+import {IPositionManagerERC20} from "../interfaces/modularSwapRouter/IPositionManagerERC20.sol"; 
+import {IModularSwapRouter} from "../interfaces/modularSwapRouter/IModularSwapRouter.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IMarginTrading} from "../interfaces/IMarginTrading.sol";
+
+/**
+ * @title ModularSwapRouter
+ * @dev A router contract for modular token swaps and liquidations.
+ * @notice This contract facilitates token swaps and liquidations across different modules.
+ * @author 0nika0
+ */
+contract ModularSwapRouter is IModularSwapRouter, AccessControl {
+    bytes32 public constant MARGIN_ACCOUNT_ROLE = keccak256("MARGIN_ACCOUNT_ROLE");
+    bytes32 public constant MARGIN_TRADING_ROLE = keccak256("MARGIN_TRADING_ROLE");
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+
+    IMarginTrading public immutable marginTrading;
+
+    constructor(
+        IMarginTrading _marginTrading
+    ) {
+        marginTrading = _marginTrading;
+        _setupRole(MARGIN_TRADING_ROLE, address(_marginTrading));
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    mapping(address => mapping(address => address)) public tokenInToTokenOutToExchange;
+
+    // VIEW FUNCTINOS //
+
+    function getModuleAddress(address tokenIn, address tokenOut) external view returns(address) {
+        return tokenInToTokenOutToExchange[tokenIn][tokenOut];
+    }
+
+    // EXTERNAL FUNCTIONS //
+
+    function calculateAmountOutERC20(address tokenIn, address tokenOut, uint amountIn) external returns (uint amountOut) {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        if (tokenIn == marginTradingBaseToken && tokenOut == marginTradingBaseToken) {
+            amountOut = amountIn;
+        } else {
+            address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+            amountOut = IPositionManagerERC20(moduleAddress).getInputPositionValue(amountIn);
+        }
+    }
+
+    function calculateAmountInERC20(address tokenIn, address tokenOut, uint amountOut) external returns (uint amountIn) {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        if (tokenIn == marginTradingBaseToken && tokenOut == marginTradingBaseToken) {
+            amountIn = amountOut;
+        } else {
+            address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+            amountIn = IPositionManagerERC20(moduleAddress).getOutputPositionValue(amountOut);
+        }
+    }
+
+    function calculateAmountOutERC721(address tokenIn, address tokenOut, uint tokenID) external returns (uint amountOut) {
+        address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+        if (moduleAddress != address(0)) {
+            amountOut = IPositionManagerERC721(moduleAddress).getOptionValue(tokenID);
+        }
+    }
+
+    function checkValidityERC721(address tokenIn, address tokenOut, uint tokenID) external returns (bool isValid) {
+        address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+        if (moduleAddress != address(0)) {
+            isValid = IPositionManagerERC721(moduleAddress).checkValidityERC721(tokenID);
+        }
+    }
+
+    // ONLY MANAGER_ROLE FUNCTIONS //
+
+    function setTokenInToTokenOutToExchange(address tokenIn, address tokenOut, address module) external onlyRole(MANAGER_ROLE) {
+        tokenInToTokenOutToExchange[tokenIn][tokenOut] = module;
+    }
+
+    // ONLY MARGIN_TRADING_ROLE FUNCTIONS //
+
+    function calculateTotalPositionValue(ERC20PositionInfo[] memory erc20Params, ERC721PositionInfo[] memory erc721Params) 
+        external 
+        onlyRole(MARGIN_TRADING_ROLE)
+        returns (uint totalValue) 
+    {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        for (uint i; i < erc20Params.length; i++) {
+            address moduleAddress = tokenInToTokenOutToExchange[erc20Params[i].tokenIn][erc20Params[i].tokenOut];
+            if (
+                erc20Params[i].tokenIn == marginTradingBaseToken &&
+                erc20Params[i].tokenOut == marginTradingBaseToken
+            ) {
+                totalValue += erc20Params[i].value;   
+            } else if (moduleAddress != address(0)) {
+                totalValue += IPositionManagerERC20(moduleAddress).getInputPositionValue(erc20Params[i].value);
+            }
+        }
+
+        for (uint i; i < erc721Params.length; i++) {
+            address moduleAddress = tokenInToTokenOutToExchange[erc721Params[i].tokenIn][erc721Params[i].tokenOut];
+            if (moduleAddress != address(0)) {
+                totalValue += IPositionManagerERC721(moduleAddress).getPositionValue(erc721Params[i].value);
+            }
+        }
+    }
+
+    // ONLY MARGIN_ACCOUNT_ROLE FUNCTIONS //
+
+    function liquidate(ERC20PositionInfo[] memory erc20Params, ERC721PositionInfo[] memory erc721Params) 
+        external
+        onlyRole(MARGIN_ACCOUNT_ROLE)   
+        returns(uint amountOut)  
+    {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        for (uint i; i < erc20Params.length; i++) {
+            address moduleAddress = tokenInToTokenOutToExchange[erc20Params[i].tokenIn][erc20Params[i].tokenOut];
+            if (
+                erc20Params[i].tokenIn == marginTradingBaseToken &&
+                erc20Params[i].tokenOut == marginTradingBaseToken
+            ) {
+                amountOut += erc20Params[i].value;
+            } else if (moduleAddress != address(0)) {
+                amountOut += IPositionManagerERC20(moduleAddress).liquidate(erc20Params[i].value);
+            }
+        }
+
+        for (uint i; i < erc721Params.length; i++) {
+            address moduleAddress = tokenInToTokenOutToExchange[erc721Params[i].tokenIn][erc721Params[i].tokenOut];
+            if (moduleAddress != address(0)) {
+                amountOut += IPositionManagerERC721(moduleAddress).liquidate(erc721Params[i].value, erc721Params[i].holder);
+            }
+        }
+    }
+
+    function swapInput(address tokenIn, address tokenOut, uint amountIn, uint amountOutMinimum) 
+        external
+        onlyRole(MARGIN_ACCOUNT_ROLE) 
+        returns(uint amountOut)
+    {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        if (
+            tokenIn == marginTradingBaseToken &&
+            tokenOut == marginTradingBaseToken
+        ) {
+            return amountIn;
+        }
+        address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+        return IPositionManagerERC20(moduleAddress).swapInput(amountIn, amountOutMinimum);
+    }
+
+    function swapOutput(address tokenIn, address tokenOut, uint amountOut) 
+        external
+        onlyRole(MARGIN_ACCOUNT_ROLE) 
+        returns(uint amountIn)
+    {
+        address marginTradingBaseToken = marginTrading.BASE_TOKEN();
+        if (
+            tokenIn == marginTradingBaseToken &&
+            tokenOut == marginTradingBaseToken
+        ) {
+            return amountOut;
+        }
+        address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+        return IPositionManagerERC20(moduleAddress).swapOutput(amountOut);
+    }
+
+    function exercise(address tokenIn, address tokenOut, uint id) external onlyRole(MARGIN_ACCOUNT_ROLE) returns(uint amountOut) {
+        address moduleAddress = tokenInToTokenOutToExchange[tokenIn][tokenOut];
+        if (moduleAddress != address(0)) {
+            amountOut = IPositionManagerERC721(moduleAddress).exercise(id);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/modularSwapRouter/ModularSwapRouter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/modularSwapRouter/uniswap/UniswapModule.sol =====
+pragma solidity 0.8.20;
+
+import {IPositionManagerERC20} from "../../interfaces/modularSwapRouter/IPositionManagerERC20.sol"; 
+import {IQuoter} from "../../interfaces/modularSwapRouter/uniswap/IQuoter.sol";
+import {ISwapRouter} from "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+
+/**
+ * @title UniswapModule
+ * @dev A module for managing token swaps and liquidity positions using Uniswap.
+ * @notice This contract provides functions to facilitate token swaps and manage liquidity on Uniswap. 
+ * It uses AccessControl for role-based access management and integrates with Uniswap's swap router and quoter.
+ * @author 0nika0
+ */
+contract UniswapModule is IPositionManagerERC20, AccessControl {
+    bytes32 public constant MANAGER_ROLE = keccak256("MANAGER_ROLE");
+    bytes32 public constant MODULAR_SWAP_ROUTER_ROLE = keccak256("MODULAR_SWAP_ROUTER_ROLE");
+
+    address public marginAccount;
+
+    bytes public uniswapPath;
+
+    address public tokenInContract;
+    address public tokenOutContract;
+
+    ISwapRouter public swapRouter;
+    IQuoter public quoter;
+
+    constructor(
+        address _marginAccount,
+        address _tokenInContract,
+        address _tokenOutContract,
+        ISwapRouter _swapRouter,
+        IQuoter _quoter,
+        bytes memory _uniswapPath
+    ) {
+        marginAccount = _marginAccount;
+        tokenInContract = _tokenInContract;
+        tokenOutContract = _tokenOutContract;
+        swapRouter = _swapRouter;
+        quoter = _quoter;
+        uniswapPath = _uniswapPath;
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    // ONLY MANAGER_ROLE FUNTIONS //
+
+    /**
+     * @notice Updates the Uniswap path used for swaps.
+     * @dev This function can only be called by an account with the MANAGER_ROLE.
+     * @param newPath The new path to set for Uniswap swaps.
+     */
+    function setUniswapPath(bytes memory newPath) external onlyRole(MANAGER_ROLE) {
+        uniswapPath = newPath;
+    }
+
+    // VIEW FUNCTIONS //
+
+    function getInputPositionValue(uint256 amountIn) external returns (uint amountOut) {
+        ISwapRouter.ExactInputParams memory params = _preparationInputParams(amountIn);
+
+        amountOut = quoter.quoteExactInput(params.path, amountIn);
+    }
+
+    function getOutputPositionValue(uint256 amountOut) public returns (uint amountIn) {
+        ISwapRouter.ExactOutputParams memory params = _preparationOutputParams(amountOut);
+
+        amountIn = quoter.quoteExactOutput(params.path, amountOut);
+    }
+
+    // EXTERNAL FUNCTION //
+
+    /**
+     * @notice Approves the maximum amount of the input token to be spent by the swap router.
+     * @dev This function can be called by any account.
+     */
+    function allApprove() external {
+        IERC20(tokenInContract).approve(address(swapRouter), type(uint256).max);
+    }
+
+    // ONLY MODULAR_SWAP_ROUTER_ROLE FUNCTION //
+
+    function liquidate(uint256 amountIn) external onlyRole(MODULAR_SWAP_ROUTER_ROLE) returns(uint amountOut) {
+
+        IERC20(tokenInContract).transferFrom(marginAccount, address(this), amountIn);
+
+        ISwapRouter.ExactInputParams memory params = _preparationInputParams(amountIn);
+
+        amountOut = swapRouter.exactInput(params);
+        IERC20(tokenOutContract).transfer(marginAccount, amountOut);
+    }
+
+    function swapInput(uint amountIn, uint amountOutMinimum) external onlyRole(MODULAR_SWAP_ROUTER_ROLE) returns(uint amountOut) {
+        IERC20(tokenInContract).transferFrom(marginAccount, address(this), amountIn);
+
+        ISwapRouter.ExactInputParams memory params = _preparationInputParams(amountIn);
+        params.amountOutMinimum = amountOutMinimum;
+
+        amountOut = swapRouter.exactInput(params);
+
+        IERC20(tokenOutContract).transfer(marginAccount, amountOut);
+    }
+
+    function swapOutput(uint amountOut) external onlyRole(MODULAR_SWAP_ROUTER_ROLE) returns(uint amountIn) {
+        ISwapRouter.ExactOutputParams memory params = _preparationOutputParams(amountOut);
+
+        amountIn = getOutputPositionValue(amountOut);
+        IERC20(tokenInContract).transferFrom(marginAccount, address(this), amountIn);
+
+        swapRouter.exactOutput(params);
+
+        IERC20(tokenOutContract).transfer(marginAccount, amountOut);
+    }
+
+    // PRIVATE FUNCTION //
+
+    /**
+     * @notice Prepares the parameters for an exact input swap.
+     * @param amount The amount of input tokens.
+     * @return params The prepared ExactInputParams struct.
+     */
+    function _preparationInputParams(uint256 amount) private view returns(ISwapRouter.ExactInputParams memory params) {
+        params = ISwapRouter.ExactInputParams({
+            path: uniswapPath,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountIn: amount,
+            amountOutMinimum: 0
+        });
+    }
+
+    /**
+     * @notice Prepares the parameters for an exact output swap.
+     * @param amount The amount of output tokens.
+     * @return params The prepared ExactOutputParams struct.
+     */
+    function _preparationOutputParams(uint256 amount) private view returns(ISwapRouter.ExactOutputParams memory params) {
+        params = ISwapRouter.ExactOutputParams({
+            path: uniswapPath,
+            recipient: address(this),
+            deadline: block.timestamp,
+            amountOut: amount,
+            amountInMaximum: 0
+        });
+    }
+}
+// ===== END SOURCE FILE: contracts/modularSwapRouter/uniswap/UniswapModule.sol =====

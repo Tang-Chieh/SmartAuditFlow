@@ -1,0 +1,4661 @@
+// ===== BEGIN SOURCE FILE: lib/AggregatorV3Interface.sol =====
+
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+// needed chainlink interface for chainlink oracle feeds
+interface AggregatorV3Interface {
+    function latestRoundData() external view returns (
+        uint80 roundId,
+        int256 answer,
+        uint256 startedAt,
+        uint256 updatedAt,
+        uint80 answeredInRound
+    );
+
+    function decimals() external view returns (uint8);
+}
+// ===== END SOURCE FILE: lib/AggregatorV3Interface.sol =====
+// ===== BEGIN SOURCE FILE: lib/IUniversalRouter.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity ^0.8.0;
+
+interface IUniversalRouter {
+    /// @notice Executes encoded commands along with provided inputs. Reverts if deadline has expired.
+    /// @param commands A set of concatenated commands, each 1 byte in length
+    /// @param inputs An array of byte strings containing abi encoded inputs for each command
+    /// @param deadline The deadline by which the transaction must be executed
+    function execute(bytes calldata commands, bytes[] calldata inputs, uint256 deadline) external payable;
+}
+// ===== END SOURCE FILE: lib/IUniversalRouter.sol =====
+// ===== BEGIN SOURCE FILE: lib/IWETH9.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.0;
+
+import '@openzeppelin/contracts/token/ERC20/IERC20.sol';
+
+/// @title Interface for WETH9
+interface IWETH9 is IERC20 {
+    /// @notice Deposit ether to get wrapped ether
+    function deposit() external payable;
+
+    /// @notice Withdraw wrapped ether to get ether
+    function withdraw(uint256) external;
+}
+// ===== END SOURCE FILE: lib/IWETH9.sol =====
+// ===== BEGIN SOURCE FILE: src/automators/AutoExit.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "./Automator.sol";
+
+/// @title AutoExit
+/// @notice Lets a v3 position to be automatically removed (limit order) or swapped to the opposite token (stop loss order) when it reaches a certain tick.
+/// A revert controlled bot (operator) is responsable for the execution of optimized swaps (using external swap router)
+/// Positions need to be approved (approve or setApprovalForAll) for the contract and configured with configToken method
+contract AutoExit is Automator {
+    event Executed(
+        uint256 indexed tokenId,
+        address account,
+        bool isSwap,
+        uint256 amountReturned0,
+        uint256 amountReturned1,
+        address token0,
+        address token1
+    );
+    event PositionConfigured(
+        uint256 indexed tokenId,
+        bool isActive,
+        bool token0Swap,
+        bool token1Swap,
+        int24 token0TriggerTick,
+        int24 token1TriggerTick,
+        uint64 token0SlippageX64,
+        uint64 token1SlippageX64,
+        bool onlyFees,
+        uint64 maxRewardX64
+    );
+
+    constructor(
+        INonfungiblePositionManager _npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
+
+    // define how stoploss / limit should be handled
+    struct PositionConfig {
+        bool isActive; // if position is active
+        // should swap token to other token when triggered
+        bool token0Swap;
+        bool token1Swap;
+        // when should action be triggered (when this tick is reached - allow execute)
+        int24 token0TriggerTick; // when tick is below this one
+        int24 token1TriggerTick; // when tick is equal or above this one
+        // max price difference from current pool price for swap / Q64
+        uint64 token0SlippageX64; // when token 0 is swapped to token 1
+        uint64 token1SlippageX64; // when token 1 is swapped to token 0
+        bool onlyFees; // if only fees maybe used for protocol reward
+        uint64 maxRewardX64; // max allowed reward percentage of fees or full position
+    }
+
+    // configured tokens
+    mapping(uint256 => PositionConfig) public positionConfigs;
+
+    /// @notice params for execute()
+    struct ExecuteParams {
+        uint256 tokenId; // tokenid to process
+        bytes swapData; // if its a swap order - must include swap data
+        uint128 liquidity; // liquidity the calculations are based on
+        uint256 amountRemoveMin0; // min amount to be removed from liquidity
+        uint256 amountRemoveMin1; // min amount to be removed from liquidity
+        uint256 deadline; // for uniswap operations - operator promises fair value
+        uint64 rewardX64; // which reward will be used for protocol, can be max configured amount (considering onlyFees)
+    }
+
+    struct ExecuteState {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 feeAmount0;
+        uint256 feeAmount1;
+        uint256 amountOutMin;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+        IUniswapV3Pool pool;
+        uint256 swapAmount;
+        int24 tick;
+        bool isSwap;
+        bool isAbove;
+        address owner;
+    }
+
+    /**
+     * @notice Handle token (must be in correct state)
+     * Can only be called only from configured operator account
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function execute(ExecuteParams calldata params) external {
+        if (!operators[msg.sender]) {
+            revert Unauthorized();
+        }
+
+        ExecuteState memory state;
+        PositionConfig memory config = positionConfigs[params.tokenId];
+
+        if (!config.isActive) {
+            revert NotConfigured();
+        }
+
+        if (
+            config.onlyFees && params.rewardX64 > config.maxRewardX64
+                || !config.onlyFees && params.rewardX64 > config.maxRewardX64
+        ) {
+            revert ExceedsMaxReward();
+        }
+
+        // get position info
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
+
+        // so can be executed only once
+        if (state.liquidity == 0) {
+            revert NoLiquidity();
+        }
+        if (state.liquidity != params.liquidity) {
+            revert LiquidityChanged();
+        }
+
+        state.pool = _getPool(state.token0, state.token1, state.fee);
+        (, state.tick,,,,,) = state.pool.slot0();
+
+        // not triggered
+        if (config.token0TriggerTick <= state.tick && state.tick < config.token1TriggerTick) {
+            revert NotReady();
+        }
+
+        state.isAbove = state.tick >= config.token1TriggerTick;
+        state.isSwap = !state.isAbove && config.token0Swap || state.isAbove && config.token1Swap;
+
+        // decrease full liquidity for given position - and return fees as well
+        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
+            params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+        );
+
+        // swap to other token
+        if (state.isSwap) {
+            if (params.swapData.length == 0) {
+                revert MissingSwapData();
+            }
+
+            // reward is taken before swap - if from fees only
+            if (config.onlyFees) {
+                state.amount0 -= state.feeAmount0 * params.rewardX64 / Q64;
+                state.amount1 -= state.feeAmount1 * params.rewardX64 / Q64;
+            }
+
+            state.swapAmount = state.isAbove ? state.amount1 : state.amount0;
+
+            // checks if price in valid oracle range and calculates amountOutMin
+            (state.amountOutMin,,,) = _validateSwap(
+                !state.isAbove,
+                state.swapAmount,
+                state.pool,
+                TWAPSeconds,
+                maxTWAPTickDifference,
+                state.isAbove ? config.token1SlippageX64 : config.token0SlippageX64
+            );
+
+            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    state.isAbove ? IERC20(state.token1) : IERC20(state.token0),
+                    state.isAbove ? IERC20(state.token0) : IERC20(state.token1),
+                    state.swapAmount,
+                    state.amountOutMin,
+                    params.swapData
+                )
+            );
+
+            state.amount0 = state.isAbove ? state.amount0 + state.amountOutDelta : state.amount0 - state.amountInDelta;
+            state.amount1 = state.isAbove ? state.amount1 - state.amountInDelta : state.amount1 + state.amountOutDelta;
+
+            // when swap and !onlyFees - protocol reward is removed only from target token (to incentivize optimal swap done by operator)
+            if (!config.onlyFees) {
+                if (state.isAbove) {
+                    state.amount0 -= state.amount0 * params.rewardX64 / Q64;
+                } else {
+                    state.amount1 -= state.amount1 * params.rewardX64 / Q64;
+                }
+            }
+        } else {
+            // reward is taken as configured
+            state.amount0 -= (config.onlyFees ? state.feeAmount0 : state.amount0) * params.rewardX64 / Q64;
+            state.amount1 -= (config.onlyFees ? state.feeAmount1 : state.amount1) * params.rewardX64 / Q64;
+        }
+
+        state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+        if (state.amount0 > 0) {
+            _transferToken(state.owner, IERC20(state.token0), state.amount0, true);
+        }
+        if (state.amount1 > 0) {
+            _transferToken(state.owner, IERC20(state.token1), state.amount1, true);
+        }
+
+        // delete config for position
+        delete positionConfigs[params.tokenId];
+        emit PositionConfigured(params.tokenId, false, false, false, 0, 0, 0, 0, false, 0);
+
+        // log event
+        emit Executed(
+            params.tokenId, msg.sender, state.isSwap, state.amount0, state.amount1, state.token0, state.token1
+        );
+    }
+
+    // function to configure a token to be used with this runner
+    // it needs to have approvals set for this contract beforehand
+    function configToken(uint256 tokenId, PositionConfig calldata config) external {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+
+        if (config.isActive) {
+            if (config.token0TriggerTick >= config.token1TriggerTick) {
+                revert InvalidConfig();
+            }
+        }
+
+        positionConfigs[tokenId] = config;
+
+        emit PositionConfigured(
+            tokenId,
+            config.isActive,
+            config.token0Swap,
+            config.token1Swap,
+            config.token0TriggerTick,
+            config.token1TriggerTick,
+            config.token0SlippageX64,
+            config.token1SlippageX64,
+            config.onlyFees,
+            config.maxRewardX64
+        );
+    }
+}
+// ===== END SOURCE FILE: src/automators/AutoExit.sol =====
+// ===== BEGIN SOURCE FILE: src/automators/Automator.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+import "v3-core/interfaces/IUniswapV3Factory.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/libraries/TickMath.sol";
+import "v3-core/libraries/FullMath.sol";
+
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "../../lib/IWETH9.sol";
+import "../utils/Swapper.sol";
+import "../interfaces/IVault.sol";
+
+abstract contract Automator is Swapper, Ownable {
+    uint256 internal constant Q64 = 2 ** 64;
+    uint256 internal constant Q96 = 2 ** 96;
+
+    uint32 public constant MIN_TWAP_SECONDS = 60; // 1 minute
+    uint32 public constant MAX_TWAP_TICK_DIFFERENCE = 200; // 2%
+
+    // admin events
+    event OperatorChanged(address newOperator, bool active);
+    event VaultChanged(address newVault, bool active);
+
+    event WithdrawerChanged(address newWithdrawer);
+    event TWAPConfigChanged(uint32 TWAPSeconds, uint16 maxTWAPTickDifference);
+
+    // configurable by owner
+    mapping(address => bool) public operators;
+    mapping(address => bool) public vaults;
+
+    address public withdrawer;
+    uint32 public TWAPSeconds;
+    uint16 public maxTWAPTickDifference;
+
+    constructor(
+        INonfungiblePositionManager npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Swapper(npm, _zeroxRouter, _universalRouter) {
+        setOperator(_operator, true);
+        setWithdrawer(_withdrawer);
+        setTWAPConfig(_maxTWAPTickDifference, _TWAPSeconds);
+    }
+
+    /**
+     * @notice Owner controlled function to set withdrawer address
+     * @param _withdrawer withdrawer
+     */
+    function setWithdrawer(address _withdrawer) public onlyOwner {
+        emit WithdrawerChanged(_withdrawer);
+        withdrawer = _withdrawer;
+    }
+
+    /**
+     * @notice Owner controlled function to activate/deactivate operator address
+     * @param _operator operator
+     * @param _active active or not
+     */
+    function setOperator(address _operator, bool _active) public onlyOwner {
+        emit OperatorChanged(_operator, _active);
+        operators[_operator] = _active;
+    }
+
+    /**
+     * @notice Owner controlled function to activate/deactivate vault address
+     * @param _vault vault
+     * @param _active active or not
+     */
+    function setVault(address _vault, bool _active) public onlyOwner {
+        emit VaultChanged(_vault, _active);
+        vaults[_vault] = _active;
+    }
+
+    /**
+     * @notice Owner controlled function to increase TWAPSeconds / decrease maxTWAPTickDifference
+     */
+    function setTWAPConfig(uint16 _maxTWAPTickDifference, uint32 _TWAPSeconds) public onlyOwner {
+        if (_TWAPSeconds < MIN_TWAP_SECONDS) {
+            revert InvalidConfig();
+        }
+        if (_maxTWAPTickDifference > MAX_TWAP_TICK_DIFFERENCE) {
+            revert InvalidConfig();
+        }
+        emit TWAPConfigChanged(_TWAPSeconds, _maxTWAPTickDifference);
+        TWAPSeconds = _TWAPSeconds;
+        maxTWAPTickDifference = _maxTWAPTickDifference;
+    }
+
+    /**
+     * @notice Withdraws token balance (accumulated protocol fee)
+     * @param tokens Addresses of tokens to withdraw
+     * @param to Address to send to
+     */
+    function withdrawBalances(address[] calldata tokens, address to) external virtual {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+
+        uint256 i;
+        uint256 count = tokens.length;
+        for (; i < count; ++i) {
+            uint256 balance = IERC20(tokens[i]).balanceOf(address(this));
+            if (balance > 0) {
+                _transferToken(to, IERC20(tokens[i]), balance, true);
+            }
+        }
+    }
+
+    /**
+     * @notice Withdraws ETH balance
+     * @param to Address to send to
+     */
+    function withdrawETH(address to) external {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+
+        uint256 balance = address(this).balance;
+        if (balance > 0) {
+            (bool sent,) = to.call{value: balance}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        }
+    }
+
+    // validate if swap can be done with specified oracle parameters - if not possible reverts
+    // if possible returns minAmountOut
+    function _validateSwap(
+        bool swap0For1,
+        uint256 amountIn,
+        IUniswapV3Pool pool,
+        uint32 twapPeriod,
+        uint16 maxTickDifference,
+        uint64 maxPriceDifferenceX64
+    ) internal view returns (uint256 amountOutMin, int24 currentTick, uint160 sqrtPriceX96, uint256 priceX96) {
+        // get current price and tick
+        (sqrtPriceX96, currentTick,,,,,) = pool.slot0();
+
+        // check if current tick not too far from TWAP
+        if (!_hasMaxTWAPTickDifference(pool, twapPeriod, currentTick, maxTickDifference)) {
+            revert TWAPCheckFailed();
+        }
+
+        // calculate min output price price and percentage
+        priceX96 = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+        if (swap0For1) {
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), priceX96, Q96 * Q64);
+        } else {
+            amountOutMin = FullMath.mulDiv(amountIn * (Q64 - maxPriceDifferenceX64), Q96, priceX96 * Q64);
+        }
+    }
+
+    // Checks if there was not more tick difference
+    // returns false if not enough data available or tick difference >= maxDifference
+    function _hasMaxTWAPTickDifference(IUniswapV3Pool pool, uint32 twapPeriod, int24 currentTick, uint16 maxDifference)
+        internal
+        view
+        returns (bool)
+    {
+        (int24 twapTick, bool twapOk) = _getTWAPTick(pool, twapPeriod);
+        if (twapOk) {
+            return twapTick - currentTick >= -int16(maxDifference) && twapTick - currentTick <= int16(maxDifference);
+        } else {
+            return false;
+        }
+    }
+
+    // gets twap tick from pool history if enough history available
+    function _getTWAPTick(IUniswapV3Pool pool, uint32 twapPeriod) internal view returns (int24, bool) {
+        uint32[] memory secondsAgos = new uint32[](2);
+        secondsAgos[0] = 0; // from (before)
+        secondsAgos[1] = twapPeriod; // from (before)
+
+        // pool observe may fail when there is not enough history available
+        try pool.observe(secondsAgos) returns (int56[] memory tickCumulatives, uint160[] memory) {
+            return (int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapPeriod))), true);
+        } catch {
+            return (0, false);
+        }
+    }
+
+    function _decreaseFullLiquidityAndCollect(
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 amountRemoveMin0,
+        uint256 amountRemoveMin1,
+        uint256 deadline
+    ) internal returns (uint256 amount0, uint256 amount1, uint256 feeAmount0, uint256 feeAmount1) {
+        if (liquidity > 0) {
+            // store in temporarely "misnamed" variables - see comment below
+            (feeAmount0, feeAmount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(
+                    tokenId, liquidity, amountRemoveMin0, amountRemoveMin1, deadline
+                )
+            );
+        }
+        (amount0, amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), type(uint128).max, type(uint128).max)
+        );
+
+        // fee amount is what was collected additionally to liquidity amount
+        feeAmount0 = amount0 - feeAmount0;
+        feeAmount1 = amount1 - feeAmount1;
+    }
+
+    // transfers token (or unwraps WETH and sends ETH)
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
+            weth.withdraw(amount);
+            (bool sent,) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
+    function _validateOwner(uint256 tokenId, address vault) internal returns (address owner) {
+        // msg.sender must not be a vault
+        if (vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+
+        if (vault != address(0)) {
+            if (!vaults[vault]) {
+                revert Unauthorized();
+            }
+            owner = IVault(vault).ownerOf(tokenId);
+        } else {
+            owner = nonfungiblePositionManager.ownerOf(tokenId);
+        }
+
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
+        }
+    }
+}
+// ===== END SOURCE FILE: src/automators/Automator.sol =====
+// ===== BEGIN SOURCE FILE: src/InterestRateModel.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IErrors.sol";
+
+/// @title Model for interest rate calculation used in Vault
+/// @notice Calculates both borrow and supply rate
+contract InterestRateModel is Ownable, IInterestRateModel, IErrors {
+    uint256 private constant Q96 = 2 ** 96;
+    uint256 public constant YEAR_SECS = 31557600; // taking into account leap years
+
+    uint256 public constant MAX_BASE_RATE_X96 = Q96 / 10; // 10%
+    uint256 public constant MAX_MULTIPLIER_X96 = Q96 * 2; // 200%
+
+    event SetValues(
+        uint256 baseRatePerYearX96, uint256 multiplierPerYearX96, uint256 jumpMultiplierPerYearX96, uint256 kinkX96
+    );
+
+    // all values are multiplied by Q96
+    uint256 public multiplierPerSecondX96;
+    uint256 public baseRatePerSecondX96;
+    uint256 public jumpMultiplierPerSecondX96;
+    uint256 public kinkX96;
+
+    /// @notice Creates interest rate model
+    /// @param baseRatePerYearX96 Base rate per year multiplied by Q96
+    /// @param multiplierPerYearX96 Multiplier for utilization rate below kink multiplied by Q96
+    /// @param jumpMultiplierPerYearX96 Multiplier for utilization rate above kink multiplied by Q96
+    /// @param _kinkX96 Kink percentage multiplied by Q96
+    constructor(
+        uint256 baseRatePerYearX96,
+        uint256 multiplierPerYearX96,
+        uint256 jumpMultiplierPerYearX96,
+        uint256 _kinkX96
+    ) {
+        setValues(baseRatePerYearX96, multiplierPerYearX96, jumpMultiplierPerYearX96, _kinkX96);
+    }
+
+    /// @notice Returns utilization rate X96 given cash and debt
+    /// @param cash Current available cash 
+    /// @param debt Current debt
+    /// @return Utilization rate between 0 and Q96
+    function getUtilizationRateX96(uint256 cash, uint256 debt) public pure returns (uint256) {
+        if (debt == 0) {
+            return 0;
+        }
+        return debt * Q96 / (cash + debt);
+    }
+
+    /// @notice Returns interest rates X96 given cash and debt
+    /// @param cash Current available cash 
+    /// @param debt Current debt
+    /// @return borrowRateX96 borrow rate multiplied by Q96
+    /// @return supplyRateX96 supply rate multiplied by Q96
+    function getRatesPerSecondX96(uint256 cash, uint256 debt)
+        public
+        view
+        override
+        returns (uint256 borrowRateX96, uint256 supplyRateX96)
+    {
+        uint256 utilizationRateX96 = getUtilizationRateX96(cash, debt);
+
+        if (utilizationRateX96 <= kinkX96) {
+            borrowRateX96 = (utilizationRateX96 * multiplierPerSecondX96 / Q96) + baseRatePerSecondX96;
+        } else {
+            uint256 normalRateX96 = (kinkX96 * multiplierPerSecondX96 / Q96) + baseRatePerSecondX96;
+            uint256 excessUtilX96 = utilizationRateX96 - kinkX96;
+            borrowRateX96 = (excessUtilX96 * jumpMultiplierPerSecondX96 / Q96) + normalRateX96;
+        }
+
+        supplyRateX96 = utilizationRateX96 * borrowRateX96 / Q96;
+    }
+
+    /// @notice Update interest rate values (onlyOwner)
+    /// @param baseRatePerYearX96 Base rate per year multiplied by Q96
+    /// @param multiplierPerYearX96 Multiplier for utilization rate below kink multiplied by Q96
+    /// @param jumpMultiplierPerYearX96 Multiplier for utilization rate above kink multiplied by Q96
+    /// @param _kinkX96 Kink percentage multiplied by Q96
+    function setValues(
+        uint256 baseRatePerYearX96,
+        uint256 multiplierPerYearX96,
+        uint256 jumpMultiplierPerYearX96,
+        uint256 _kinkX96
+    ) public onlyOwner {
+        if (
+            baseRatePerYearX96 > MAX_BASE_RATE_X96 || multiplierPerYearX96 > MAX_MULTIPLIER_X96
+                || jumpMultiplierPerYearX96 > MAX_MULTIPLIER_X96
+        ) {
+            revert InvalidConfig();
+        }
+
+        baseRatePerSecondX96 = baseRatePerYearX96 / YEAR_SECS;
+        multiplierPerSecondX96 = multiplierPerYearX96 / YEAR_SECS;
+        jumpMultiplierPerSecondX96 = jumpMultiplierPerYearX96 / YEAR_SECS;
+        kinkX96 = _kinkX96;
+
+        emit SetValues(baseRatePerYearX96, multiplierPerYearX96, jumpMultiplierPerYearX96, _kinkX96);
+    }
+}
+// ===== END SOURCE FILE: src/InterestRateModel.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IErrors.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+interface IErrors {
+    error Unauthorized();
+    error Reentrancy();
+    error NotConfigured();
+    error NotReady();
+    error InvalidConfig();
+    error TWAPCheckFailed();
+    error WrongContract();
+
+    error SwapFailed();
+    error SlippageError();
+    error MissingSwapData();
+    error SwapAmountTooLarge();
+
+    error LiquidityChanged();
+    error ExceedsMaxReward();
+    error InvalidPool();
+    error ChainlinkPriceError();
+    error PriceDifferenceExceeded();
+
+    error CollateralFail();
+    error MinLoanSize();
+    error GlobalDebtLimit();
+    error GlobalLendLimit();
+    error DailyDebtIncreaseLimit();
+    error DailyLendIncreaseLimit();
+    error InsufficientLiquidity();
+    error NotLiquidatable();
+    error InterestNotUpdated();
+    error RepayExceedsDebt();
+    error TransformNotAllowed();
+    error TransformFailed();
+    error CollateralFactorExceedsMax();
+    error CollateralValueLimit();
+    error NoLiquidity();
+    error DebtChanged();
+
+    error SelfSend();
+    error NotSupportedWhatToDo();
+    error SameToken();
+    error AmountError();
+    error CollectError();
+    error TransferError();
+
+    error TooMuchEtherSent();
+    error NoEtherToken();
+    error EtherSendFailed();
+    error NotWETH();
+
+    error NotEnoughReward();
+    error SameRange();
+    error NotSupportedFeeTier();
+}
+// ===== END SOURCE FILE: src/interfaces/IErrors.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IInterestRateModel.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+interface IInterestRateModel {
+    // gets borrow and supply interest rate per second
+    function getRatesPerSecondX96(uint256 cash, uint256 debt)
+        external
+        view
+        returns (uint256 borrowRateX96, uint256 supplyRateX96);
+}
+// ===== END SOURCE FILE: src/interfaces/IInterestRateModel.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IV3Oracle.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+interface IV3Oracle {
+    // gets value and prices for a given v3 nft denominated in token
+    // reverts if any involved token is not configured
+    // reverts if prices are not valid given oracle configuration
+    function getValue(uint256 tokenId, address token)
+        external
+        view
+        returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96);
+
+    // gets breakdown of position specifying liquidity amounts and available fee amounts
+    function getPositionBreakdown(uint256 tokenId)
+        external
+        view
+        returns (
+            address token0,
+            address token1,
+            uint24 fee,
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1,
+            uint128 fees0,
+            uint128 fees1
+        );
+}
+// ===== END SOURCE FILE: src/interfaces/IV3Oracle.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IVault.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/interfaces/IERC4626.sol";
+
+interface IVault is IERC4626 {
+    function vaultInfo()
+        external
+        view
+        returns (
+            uint256 debt,
+            uint256 lent,
+            uint256 balance,
+            uint256 available,
+            uint256 reserves,
+            uint256 debtExchangeRateX96,
+            uint256 lendExchangeRateX96
+        );
+    function lendInfo(address account) external view returns (uint256 amount);
+    function loanInfo(uint256 tokenId)
+        external
+        view
+        returns (
+            uint256 debt,
+            uint256 fullValue,
+            uint256 collateralValue,
+            uint256 liquidationCost,
+            uint256 liquidationValue
+        );
+
+    function ownerOf(uint256 tokenId) external returns (address);
+
+    // functions for iterating over owners loans
+    function loanCount(address owner) external view returns (uint256);
+    function loanAtIndex(address owner, uint256 index) external view returns (uint256);
+
+    function create(uint256 tokenId, address recipient) external;
+    function createWithPermit(
+        uint256 tokenId,
+        address owner,
+        address recipient,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+
+    function approveTransform(uint256 tokenId, address target, bool active) external;
+    function transform(uint256 tokenId, address transformer, bytes calldata data) external returns (uint256);
+
+    // params for decreasing liquidity of collateralized position
+    struct DecreaseLiquidityAndCollectParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        // min amount to accept from liquidity removal
+        uint256 amount0Min;
+        uint256 amount1Min;
+        // amount to remove from fees additional to the liquidity amounts
+        uint128 feeAmount0; // (if uint256(128).max - all fees)
+        uint128 feeAmount1; // (if uint256(128).max - all fees)
+        uint256 deadline;
+        address recipient;
+    }
+
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)
+        external
+        returns (uint256 amount0, uint256 amount1);
+
+    function borrow(uint256 tokenId, uint256 amount) external;
+    function repay(uint256 tokenId, uint256 amount, bool isShare) external;
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external;
+
+    struct LiquidateParams {
+        // token to liquidate
+        uint256 tokenId;
+        // expected debt shares - reverts if changed in the meantime
+        uint256 debtShares;
+        // min amount to recieve
+        uint256 amount0Min;
+        uint256 amount1Min;
+        // recipient of rewarded tokens
+        address recipient;
+        // if permit2 signatures are used - set this
+        bytes permitData;
+    }
+
+    function liquidate(LiquidateParams calldata params) external returns (uint256 amount0, uint256 amount1);
+
+    // deposit functions with permit2
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external returns (uint256);
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/IVault.sol =====
+// ===== BEGIN SOURCE FILE: src/transformers/AutoCompound.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Multicall.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
+
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "../automators/Automator.sol";
+
+/// @title AutoCompound
+/// @notice Allows operator of AutoCompound contract (Revert controlled bot) to compound a position
+/// Positions need to be approved (approve or setApprovalForAll) for the contract when outside vault
+/// When position is inside Vault - owner needs to approve the position to be transformed by the contract
+contract AutoCompound is Automator, Multicall, ReentrancyGuard {
+    // autocompound event
+    event AutoCompounded(
+        address account,
+        uint256 tokenId,
+        uint256 amountAdded0,
+        uint256 amountAdded1,
+        uint256 reward0,
+        uint256 reward1,
+        address token0,
+        address token1
+    );
+
+    // config changes
+    event RewardUpdated(address account, uint64 totalRewardX64);
+
+    // balance movements
+    event BalanceAdded(uint256 tokenId, address token, uint256 amount);
+    event BalanceRemoved(uint256 tokenId, address token, uint256 amount);
+    event BalanceWithdrawn(uint256 tokenId, address token, address to, uint256 amount);
+
+    constructor(
+        INonfungiblePositionManager _npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, address(0), address(0)) {}
+
+    mapping(uint256 => mapping(address => uint256)) public positionBalances;
+
+    uint64 public constant MAX_REWARD_X64 = uint64(Q64 / 50); // 2%
+    uint64 public totalRewardX64 = MAX_REWARD_X64; // 2%
+
+    /// @notice params for execute()
+    struct ExecuteParams {
+        // tokenid to autocompound
+        uint256 tokenId;
+        // swap direction - calculated off-chain
+        bool swap0To1;
+        // swap amount - calculated off-chain - if this is set to 0 no swap happens
+        uint256 amountIn;
+    }
+
+    // state used during autocompound execution
+    struct ExecuteState {
+        uint256 amount0;
+        uint256 amount1;
+        uint256 maxAddAmount0;
+        uint256 maxAddAmount1;
+        uint256 amount0Fees;
+        uint256 amount1Fees;
+        uint256 priceX96;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint256 compounded0;
+        uint256 compounded1;
+        int24 tick;
+        uint160 sqrtPriceX96;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+    }
+
+    /**
+     * @notice Adjust token (which is in a Vault) - via transform method
+     * Can only be called from configured operator account - vault must be configured as well
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function executeWithVault(ExecuteParams calldata params, address vault) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault).transform(
+            params.tokenId, address(this), abi.encodeWithSelector(AutoCompound.execute.selector, params)
+        );
+    }
+
+    /**
+     * @notice Adjust token directly (must be in correct state)
+     * Can only be called only from configured operator account, or vault via transform
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function execute(ExecuteParams calldata params) external nonReentrant {
+        if (!operators[msg.sender] && !vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+        ExecuteState memory state;
+
+        // collect fees - if the position doesn't have operator set or is called from vault - it won't work
+        (state.amount0, state.amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(
+                params.tokenId, address(this), type(uint128).max, type(uint128).max
+            )
+        );
+
+        // get position info
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper,,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
+
+        // add previous balances from given tokens
+        state.amount0 = state.amount0 + positionBalances[params.tokenId][state.token0];
+        state.amount1 = state.amount1 + positionBalances[params.tokenId][state.token1];
+
+        // only if there are balances to work with - start autocompounding process
+        if (state.amount0 > 0 || state.amount1 > 0) {
+            uint256 amountIn = params.amountIn;
+
+            // if a swap is requested - check TWAP oracle
+            if (amountIn > 0) {
+                IUniswapV3Pool pool = _getPool(state.token0, state.token1, state.fee);
+                (state.sqrtPriceX96, state.tick,,,,,) = pool.slot0();
+
+                // how many seconds are needed for TWAP protection
+                uint32 tSecs = TWAPSeconds;
+                if (tSecs > 0) {
+                    if (!_hasMaxTWAPTickDifference(pool, tSecs, state.tick, maxTWAPTickDifference)) {
+                        // if there is no valid TWAP - disable swap
+                        amountIn = 0;
+                    }
+                }
+                // if still needed - do swap
+                if (amountIn > 0) {
+                    // no slippage check done - because protected by TWAP check
+                    (state.amountInDelta, state.amountOutDelta) = _poolSwap(
+                        Swapper.PoolSwapParams(
+                            pool, IERC20(state.token0), IERC20(state.token1), state.fee, params.swap0To1, amountIn, 0
+                        )
+                    );
+                    state.amount0 =
+                        params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+                    state.amount1 =
+                        params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+                }
+            }
+
+            uint256 rewardX64 = totalRewardX64;
+
+            state.maxAddAmount0 = state.amount0 * Q64 / (rewardX64 + Q64);
+            state.maxAddAmount1 = state.amount1 * Q64 / (rewardX64 + Q64);
+
+            // deposit liquidity into tokenId
+            if (state.maxAddAmount0 > 0 || state.maxAddAmount1 > 0) {
+                _checkApprovals(state.token0, state.token1);
+
+                (, state.compounded0, state.compounded1) = nonfungiblePositionManager.increaseLiquidity(
+                    INonfungiblePositionManager.IncreaseLiquidityParams(
+                        params.tokenId, state.maxAddAmount0, state.maxAddAmount1, 0, 0, block.timestamp
+                    )
+                );
+
+                // fees are always calculated based on added amount (to incentivize optimal swap)
+                state.amount0Fees = state.compounded0 * rewardX64 / Q64;
+                state.amount1Fees = state.compounded1 * rewardX64 / Q64;
+            }
+
+            // calculate remaining tokens for owner
+            _setBalance(params.tokenId, state.token0, state.amount0 - state.compounded0 - state.amount0Fees);
+            _setBalance(params.tokenId, state.token1, state.amount1 - state.compounded1 - state.amount1Fees);
+
+            // add reward to protocol balance (token 0)
+            _increaseBalance(0, state.token0, state.amount0Fees);
+            _increaseBalance(0, state.token1, state.amount1Fees);
+        }
+
+        emit AutoCompounded(
+            msg.sender,
+            params.tokenId,
+            state.compounded0,
+            state.compounded1,
+            state.amount0Fees,
+            state.amount1Fees,
+            state.token0,
+            state.token1
+        );
+    }
+
+    /**
+     * @notice Withdraws leftover token balance for a token
+     * @param tokenId Id of position to withdraw
+     * @param to Address to send to
+     */
+    function withdrawLeftoverBalances(uint256 tokenId, address to) external nonReentrant {
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (vaults[owner]) {
+            owner = IVault(owner).ownerOf(tokenId);
+        }
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        uint256 balance0 = positionBalances[tokenId][token0];
+        if (balance0 > 0) {
+            _withdrawBalanceInternal(tokenId, token0, to, balance0, balance0);
+        }
+        uint256 balance1 = positionBalances[tokenId][token1];
+        if (balance1 > 0) {
+            _withdrawBalanceInternal(tokenId, token1, to, balance1, balance1);
+        }
+    }
+
+    /**
+     * @notice Withdraws token balance (accumulated protocol fee)
+     * @dev The method is overriden, because it differs from standard automator fee handling
+     * @param tokens Addresses of tokens to withdraw
+     * @param to Address to send to
+     */
+    function withdrawBalances(address[] calldata tokens, address to) external override nonReentrant {
+        if (msg.sender != withdrawer) {
+            revert Unauthorized();
+        }
+        uint256 i;
+        uint256 count = tokens.length;
+        for (; i < count; ++i) {
+            uint256 balance = positionBalances[0][tokens[i]];
+            _withdrawBalanceInternal(0, tokens[i], to, balance, balance);
+        }
+    }
+
+    /**
+     * @notice Management method to lower reward(onlyOwner)
+     * @param _totalRewardX64 new total reward (can't be higher than current total reward)
+     */
+    function setReward(uint64 _totalRewardX64) external onlyOwner {
+        require(_totalRewardX64 <= totalRewardX64, ">totalRewardX64");
+        totalRewardX64 = _totalRewardX64;
+        emit RewardUpdated(msg.sender, _totalRewardX64);
+    }
+
+    function _increaseBalance(uint256 tokenId, address token, uint256 amount) internal {
+        positionBalances[tokenId][token] = positionBalances[tokenId][token] + amount;
+        emit BalanceAdded(tokenId, token, amount);
+    }
+
+    function _setBalance(uint256 tokenId, address token, uint256 amount) internal {
+        uint256 currentBalance = positionBalances[tokenId][token];
+        if (amount != currentBalance) {
+            positionBalances[tokenId][token] = amount;
+            if (amount > currentBalance) {
+                emit BalanceAdded(tokenId, token, amount - currentBalance);
+            } else {
+                emit BalanceRemoved(tokenId, token, currentBalance - amount);
+            }
+        }
+    }
+
+    function _withdrawBalanceInternal(uint256 tokenId, address token, address to, uint256 balance, uint256 amount)
+        internal
+    {
+        require(amount <= balance, "amount>balance");
+        positionBalances[tokenId][token] = positionBalances[tokenId][token] - amount;
+        emit BalanceRemoved(tokenId, token, amount);
+        SafeERC20.safeTransfer(IERC20(token), to, amount);
+        emit BalanceWithdrawn(tokenId, token, to, amount);
+    }
+
+    function _checkApprovals(address token0, address token1) internal {
+        // approve tokens once if not yet approved - to save gas during compounds
+        uint256 allowance0 = IERC20(token0).allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance0 == 0) {
+            SafeERC20.safeApprove(IERC20(token0), address(nonfungiblePositionManager), type(uint256).max);
+        }
+        uint256 allowance1 = IERC20(token1).allowance(address(this), address(nonfungiblePositionManager));
+        if (allowance1 == 0) {
+            SafeERC20.safeApprove(IERC20(token1), address(nonfungiblePositionManager), type(uint256).max);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/transformers/AutoCompound.sol =====
+// ===== BEGIN SOURCE FILE: src/transformers/AutoRange.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "../automators/Automator.sol";
+
+/// @title AutoRange
+/// @notice Allows operator of AutoRange contract (Revert controlled bot) to change range for configured positions
+/// Positions need to be approved (setApprovalForAll) for the contract and configured with configToken method
+/// When executed a new position is created and automatically configured the same way as the original position
+/// When position is inside Vault - transform is called
+contract AutoRange is Automator {
+    event RangeChanged(uint256 indexed oldTokenId, uint256 indexed newTokenId);
+    event PositionConfigured(
+        uint256 indexed tokenId,
+        int32 lowerTickLimit,
+        int32 upperTickLimit,
+        int32 lowerTickDelta,
+        int32 upperTickDelta,
+        uint64 token0SlippageX64,
+        uint64 token1SlippageX64,
+        bool onlyFees,
+        uint64 maxRewardX64
+    );
+
+    constructor(
+        INonfungiblePositionManager _npm,
+        address _operator,
+        address _withdrawer,
+        uint32 _TWAPSeconds,
+        uint16 _maxTWAPTickDifference,
+        address _zeroxRouter,
+        address _universalRouter
+    ) Automator(_npm, _operator, _withdrawer, _TWAPSeconds, _maxTWAPTickDifference, _zeroxRouter, _universalRouter) {}
+
+    // defines when and how a position can be changed by operator
+    // when a position is adjusted config for the position is cleared and copied to the newly created position
+    struct PositionConfig {
+        // needs more than int24 because it can be [-type(uint24).max,type(uint24).max]
+        int32 lowerTickLimit; // if negative also in-range positions may be adjusted / if 0 out of range positions may be adjusted
+        int32 upperTickLimit; // if negative also in-range positions may be adjusted / if 0 out of range positions may be adjusted
+        int32 lowerTickDelta; // this amount is added to current tick (floored to tickspacing) to define lowerTick of new position
+        int32 upperTickDelta; // this amount is added to current tick (floored to tickspacing) to define upperTick of new position
+        uint64 token0SlippageX64; // max price difference from current pool price for swap / Q64 for token0
+        uint64 token1SlippageX64; // max price difference from current pool price for swap / Q64 for token1
+        bool onlyFees; // if only fees maybe used for protocol reward
+        uint64 maxRewardX64; // max allowed reward percentage of fees or full position
+    }
+
+    // configured tokens
+    mapping(uint256 => PositionConfig) public positionConfigs;
+
+    /// @notice params for execute()
+    struct ExecuteParams {
+        uint256 tokenId;
+        bool swap0To1;
+        uint256 amountIn; // if this is set to 0 no swap happens
+        bytes swapData;
+        uint128 liquidity; // liquidity the calculations are based on
+        uint256 amountRemoveMin0; // min amount to be removed from liquidity
+        uint256 amountRemoveMin1; // min amount to be removed from liquidity
+        uint256 deadline; // for uniswap operations - operator promises fair value
+        uint64 rewardX64; // which reward will be used for protocol, can be max configured amount (considering onlyFees)
+    }
+
+    struct ExecuteState {
+        address owner;
+        address realOwner;
+        IUniswapV3Pool pool;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        int24 currentTick;
+        uint256 amount0;
+        uint256 amount1;
+        uint256 feeAmount0;
+        uint256 feeAmount1;
+        uint256 maxAddAmount0;
+        uint256 maxAddAmount1;
+        uint256 amountAdded0;
+        uint256 amountAdded1;
+        uint128 liquidity;
+        uint256 protocolReward0;
+        uint256 protocolReward1;
+        uint256 amountOutMin;
+        uint256 amountInDelta;
+        uint256 amountOutDelta;
+        uint256 newTokenId;
+    }
+
+    /**
+     * @notice Adjust token (which is in a Vault) - via transform method
+     * Can only be called from configured operator account - vault must be configured as well
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function executeWithVault(ExecuteParams calldata params, address vault) external {
+        if (!operators[msg.sender] || !vaults[vault]) {
+            revert Unauthorized();
+        }
+        IVault(vault).transform(
+            params.tokenId, address(this), abi.encodeWithSelector(AutoRange.execute.selector, params)
+        );
+    }
+
+    /**
+     * @notice Adjust token directly (must be in correct state)
+     * Can only be called only from configured operator account, or vault via transform
+     * Swap needs to be done with max price difference from current pool price - otherwise reverts
+     */
+    function execute(ExecuteParams calldata params) external {
+        if (!operators[msg.sender] && !vaults[msg.sender]) {
+            revert Unauthorized();
+        }
+        ExecuteState memory state;
+        PositionConfig memory config = positionConfigs[params.tokenId];
+
+        if (config.lowerTickDelta == config.upperTickDelta) {
+            revert NotConfigured();
+        }
+
+        if (
+            config.onlyFees && params.rewardX64 > config.maxRewardX64
+                || !config.onlyFees && params.rewardX64 > config.maxRewardX64
+        ) {
+            revert ExceedsMaxReward();
+        }
+
+        // get position info
+        (,, state.token0, state.token1, state.fee, state.tickLower, state.tickUpper, state.liquidity,,,,) =
+            nonfungiblePositionManager.positions(params.tokenId);
+
+        if (state.liquidity != params.liquidity) {
+            revert LiquidityChanged();
+        }
+
+        (state.amount0, state.amount1, state.feeAmount0, state.feeAmount1) = _decreaseFullLiquidityAndCollect(
+            params.tokenId, state.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+        );
+
+        // if only fees reward is removed before adding
+        if (config.onlyFees) {
+            state.protocolReward0 = state.feeAmount0 * params.rewardX64 / Q64;
+            state.protocolReward1 = state.feeAmount1 * params.rewardX64 / Q64;
+            state.amount0 -= state.protocolReward0;
+            state.amount1 -= state.protocolReward1;
+        }
+
+        if (params.swap0To1 && params.amountIn > state.amount0 || !params.swap0To1 && params.amountIn > state.amount1) {
+            revert SwapAmountTooLarge();
+        }
+
+        // get pool info
+        state.pool = _getPool(state.token0, state.token1, state.fee);
+
+        // check oracle for swap
+        (state.amountOutMin, state.currentTick,,) = _validateSwap(
+            params.swap0To1,
+            params.amountIn,
+            state.pool,
+            TWAPSeconds,
+            maxTWAPTickDifference,
+            params.swap0To1 ? config.token0SlippageX64 : config.token1SlippageX64
+        );
+
+        if (
+            state.currentTick < state.tickLower - config.lowerTickLimit
+                || state.currentTick >= state.tickUpper + config.upperTickLimit
+        ) {
+            int24 tickSpacing = _getTickSpacing(state.fee);
+            int24 baseTick = state.currentTick - (((state.currentTick % tickSpacing) + tickSpacing) % tickSpacing);
+
+            // check if new range same as old range
+            if (
+                baseTick + config.lowerTickDelta == state.tickLower
+                    && baseTick + config.upperTickDelta == state.tickUpper
+            ) {
+                revert SameRange();
+            }
+
+            (state.amountInDelta, state.amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.swap0To1 ? IERC20(state.token0) : IERC20(state.token1),
+                    params.swap0To1 ? IERC20(state.token1) : IERC20(state.token0),
+                    params.amountIn,
+                    state.amountOutMin,
+                    params.swapData
+                )
+            );
+
+            state.amount0 = params.swap0To1 ? state.amount0 - state.amountInDelta : state.amount0 + state.amountOutDelta;
+            state.amount1 = params.swap0To1 ? state.amount1 + state.amountOutDelta : state.amount1 - state.amountInDelta;
+
+            // max amount to add - removing max potential fees (if config.onlyFees - the have been removed already)
+            state.maxAddAmount0 = config.onlyFees ? state.amount0 : state.amount0 * Q64 / (params.rewardX64 + Q64);
+            state.maxAddAmount1 = config.onlyFees ? state.amount1 : state.amount1 * Q64 / (params.rewardX64 + Q64);
+
+            INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams(
+                address(state.token0),
+                address(state.token1),
+                state.fee,
+                SafeCast.toInt24(baseTick + config.lowerTickDelta), // reverts if out of valid range
+                SafeCast.toInt24(baseTick + config.upperTickDelta), // reverts if out of valid range
+                state.maxAddAmount0,
+                state.maxAddAmount1,
+                0,
+                0,
+                address(this), // is sent to real recipient aftwards
+                params.deadline
+            );
+
+            // approve npm
+            SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), state.maxAddAmount0);
+            SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), state.maxAddAmount1);
+
+            // mint is done to address(this) first - its not a safemint
+            (state.newTokenId,, state.amountAdded0, state.amountAdded1) = nonfungiblePositionManager.mint(mintParams);
+
+            // remove remaining approval
+            SafeERC20.safeApprove(IERC20(state.token0), address(nonfungiblePositionManager), 0);
+            SafeERC20.safeApprove(IERC20(state.token1), address(nonfungiblePositionManager), 0);
+
+            state.owner = nonfungiblePositionManager.ownerOf(params.tokenId);
+
+            // get the real owner - if owner is vault - for sending leftover tokens
+            state.realOwner = state.owner;
+            if (vaults[state.owner]) {
+                state.realOwner = IVault(state.owner).ownerOf(params.tokenId);
+            }
+
+            // send the new nft to the owner / vault
+            nonfungiblePositionManager.safeTransferFrom(address(this), state.owner, state.newTokenId);
+
+            // protocol reward is calculated based on added amount (to incentivize optimal swap done by operator)
+            if (!config.onlyFees) {
+                state.protocolReward0 = state.amountAdded0 * params.rewardX64 / Q64;
+                state.protocolReward1 = state.amountAdded1 * params.rewardX64 / Q64;
+                state.amount0 -= state.protocolReward0;
+                state.amount1 -= state.protocolReward1;
+            }
+
+            // send leftover to real owner
+            if (state.amount0 - state.amountAdded0 > 0) {
+                _transferToken(state.realOwner, IERC20(state.token0), state.amount0 - state.amountAdded0, true);
+            }
+            if (state.amount1 - state.amountAdded1 > 0) {
+                _transferToken(state.realOwner, IERC20(state.token1), state.amount1 - state.amountAdded1, true);
+            }
+
+            // copy token config for new token
+            positionConfigs[state.newTokenId] = config;
+            emit PositionConfigured(
+                state.newTokenId,
+                config.lowerTickLimit,
+                config.upperTickLimit,
+                config.lowerTickDelta,
+                config.upperTickDelta,
+                config.token0SlippageX64,
+                config.token1SlippageX64,
+                config.onlyFees,
+                config.maxRewardX64
+            );
+
+            // delete config for old position
+            delete positionConfigs[params.tokenId];
+            emit PositionConfigured(params.tokenId, 0, 0, 0, 0, 0, 0, false, 0);
+
+            emit RangeChanged(params.tokenId, state.newTokenId);
+        } else {
+            revert NotReady();
+        }
+    }
+
+    // function to configure a token to be used with this runner
+    // it needs to have approvals set for this contract beforehand
+    function configToken(uint256 tokenId, address vault, PositionConfig calldata config) external {
+        _validateOwner(tokenId, vault);
+
+        // lower tick must be always below or equal to upper tick - if they are equal - range adjustment is deactivated
+        if (config.lowerTickDelta > config.upperTickDelta) {
+            revert InvalidConfig();
+        }
+
+        positionConfigs[tokenId] = config;
+
+        emit PositionConfigured(
+            tokenId,
+            config.lowerTickLimit,
+            config.upperTickLimit,
+            config.lowerTickDelta,
+            config.upperTickDelta,
+            config.token0SlippageX64,
+            config.token1SlippageX64,
+            config.onlyFees,
+            config.maxRewardX64
+        );
+    }
+
+    // get tick spacing for fee tier (cached when possible)
+    function _getTickSpacing(uint24 fee) internal view returns (int24) {
+        if (fee == 10000) {
+            return 200;
+        } else if (fee == 3000) {
+            return 60;
+        } else if (fee == 500) {
+            return 10;
+        } else {
+            int24 spacing = IUniswapV3Factory(factory).feeAmountTickSpacing(fee);
+            if (spacing <= 0) {
+                revert NotSupportedFeeTier();
+            }
+            return spacing;
+        }
+    }
+}
+// ===== END SOURCE FILE: src/transformers/AutoRange.sol =====
+// ===== BEGIN SOURCE FILE: src/transformers/LeverageTransformer.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "../utils/Swapper.sol";
+import "../interfaces/IVault.sol";
+
+/// @title LeverageTransformer
+/// @notice Functionality to leverage / deleverage positions direcly in one tx
+contract LeverageTransformer is Swapper {
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
+        Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
+    {}
+
+    struct LeverageUpParams {
+        // which token to leverage
+        uint256 tokenId;
+        // how much to borrow
+        uint256 borrowAmount;
+        // how much of borrowed lend token should be swapped to token0
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // how much of borrowed lend token should be swapped to token1
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // for adding liquidity slippage
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
+        // recipient for leftover tokens
+        address recipient;
+        // for all uniswap deadlineable functions
+        uint256 deadline;
+    }
+
+    // method called from transform() method in Vault
+    function leverageUp(LeverageUpParams calldata params) external {
+        uint256 amount = params.borrowAmount;
+
+        address token = IVault(msg.sender).asset();
+
+        IVault(msg.sender).borrow(params.tokenId, amount);
+
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+
+        uint256 amount0 = token == token0 ? amount : 0;
+        uint256 amount1 = token == token1 ? amount : 0;
+
+        if (params.amountIn0 > 0) {
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(token), IERC20(token0), params.amountIn0, params.amountOut0Min, params.swapData0
+                )
+            );
+            if (token == token1) {
+                amount1 -= amountIn;
+            }
+            amount -= amountIn;
+            amount0 += amountOut;
+        }
+        if (params.amountIn1 > 0) {
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(token), IERC20(token1), params.amountIn1, params.amountOut1Min, params.swapData1
+                )
+            );
+            if (token == token0) {
+                amount0 -= amountIn;
+            }
+            amount -= amountIn;
+            amount1 += amountOut;
+        }
+
+        SafeERC20.safeIncreaseAllowance(IERC20(token0), address(nonfungiblePositionManager), amount0);
+        SafeERC20.safeIncreaseAllowance(IERC20(token1), address(nonfungiblePositionManager), amount1);
+
+        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager
+            .IncreaseLiquidityParams(
+            params.tokenId, amount0, amount1, params.amountAddMin0, params.amountAddMin1, params.deadline
+        );
+        (, uint256 added0, uint256 added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
+
+        // send leftover tokens
+        if (amount0 > added0) {
+            SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0 - added0);
+        }
+        if (amount1 > added1) {
+            SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1 - added1);
+        }
+        if (token != token0 && token != token1 && amount > 0) {
+            SafeERC20.safeTransfer(IERC20(token), params.recipient, amount);
+        }
+    }
+
+    struct LeverageDownParams {
+        // which token to leverage
+        uint256 tokenId;
+        // for removing - remove liquidity amount
+        uint128 liquidity;
+        uint256 amountRemoveMin0;
+        uint256 amountRemoveMin1;
+        // collect fee amount (if type(uint128).max - ALL)
+        uint128 feeAmount0;
+        uint128 feeAmount1;
+        // how much of token0 should be swapped to lend token
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // how much of token1 should be swapped to lend token
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // recipient for leftover tokens
+        address recipient;
+        // for all uniswap deadlineable functions
+        uint256 deadline;
+    }
+
+    // method called from transform() method in Vault
+    function leverageDown(LeverageDownParams calldata params) external {
+        address token = IVault(msg.sender).asset();
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+
+        uint256 amount0;
+        uint256 amount1;
+
+        INonfungiblePositionManager.DecreaseLiquidityParams memory decreaseLiquidityParams = INonfungiblePositionManager
+            .DecreaseLiquidityParams(
+            params.tokenId, params.liquidity, params.amountRemoveMin0, params.amountRemoveMin1, params.deadline
+        );
+        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(decreaseLiquidityParams);
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
+            params.tokenId,
+            address(this),
+            params.feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount0 + params.feeAmount0),
+            params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
+        );
+        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
+
+        uint256 amount = token == token0 ? amount0 : (token == token1 ? amount1 : 0);
+
+        if (params.amountIn0 > 0 && token != token0) {
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(token0), IERC20(token), params.amountIn0, params.amountOut0Min, params.swapData0
+                )
+            );
+            amount0 -= amountIn;
+            amount += amountOut;
+        }
+        if (params.amountIn1 > 0 && token != token1) {
+            (uint256 amountIn, uint256 amountOut) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    IERC20(token1), IERC20(token), params.amountIn1, params.amountOut1Min, params.swapData1
+                )
+            );
+            amount1 -= amountIn;
+            amount += amountOut;
+        }
+
+        SafeERC20.safeApprove(IERC20(token), msg.sender, amount);
+        IVault(msg.sender).repay(params.tokenId, amount, false);
+
+        // send leftover tokens
+        if (amount0 > 0 && token != token0) {
+            SafeERC20.safeTransfer(IERC20(token0), params.recipient, amount0);
+        }
+        if (amount1 > 0 && token != token1) {
+            SafeERC20.safeTransfer(IERC20(token1), params.recipient, amount1);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/transformers/LeverageTransformer.sol =====
+// ===== BEGIN SOURCE FILE: src/transformers/V3Utils.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+
+import "permit2/interfaces/IPermit2.sol";
+
+import "../utils/Swapper.sol";
+
+/// @title v3Utils v1.1
+/// @notice Utility functions for Uniswap V3 positions
+/// This is a completely ownerless/stateless contract - does not hold any ERC20 or NFTs.
+/// It can be simply redeployed when new / better functionality is implemented
+contract V3Utils is Swapper, IERC721Receiver {
+    using SafeCast for uint256;
+
+    // @notice Permit2 contract
+    IPermit2 public immutable permit2;
+
+    // events
+    event CompoundFees(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+    event ChangeRange(uint256 indexed tokenId, uint256 newTokenId);
+    event WithdrawAndCollectAndSwap(uint256 indexed tokenId, address token, uint256 amount);
+    event SwapAndMint(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+    event SwapAndIncreaseLiquidity(uint256 indexed tokenId, uint128 liquidity, uint256 amount0, uint256 amount1);
+
+    /// @notice Constructor
+    /// @param _nonfungiblePositionManager Uniswap v3 position manager
+    /// @param _zeroxRouter 0x Exchange Proxy
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _zeroxRouter,
+        address _universalRouter,
+        address _permit2
+    ) Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter) {
+        permit2 = IPermit2(_permit2);
+    }
+
+    /// @notice Action which should be executed on provided NFT
+    enum WhatToDo {
+        CHANGE_RANGE,
+        WITHDRAW_AND_COLLECT_AND_SWAP,
+        COMPOUND_FEES
+    }
+
+    /// @notice Complete description of what should be executed on provided NFT - different fields are used depending on specified WhatToDo
+    struct Instructions {
+        // what action to perform on provided Uniswap v3 position
+        WhatToDo whatToDo;
+        // target token for swaps (if this is address(0) no swaps are executed)
+        address targetToken;
+        // for removing liquidity slippage
+        uint256 amountRemoveMin0;
+        uint256 amountRemoveMin1;
+        // amountIn0 is used for swap and also as minAmount0 for decreased liquidity + collected fees
+        uint256 amountIn0;
+        // if token0 needs to be swapped to targetToken - set values
+        uint256 amountOut0Min;
+        bytes swapData0; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // amountIn1 is used for swap and also as minAmount1 for decreased liquidity + collected fees
+        uint256 amountIn1;
+        // if token1 needs to be swapped to targetToken - set values
+        uint256 amountOut1Min;
+        bytes swapData1; // encoded data from 0x api call (address,bytes) - allowanceTarget,data
+        // collect fee amount for COMPOUND_FEES / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP (if uint256(128).max - ALL)
+        uint128 feeAmount0;
+        uint128 feeAmount1;
+        // for creating new positions with CHANGE_RANGE
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        // remove liquidity amount for COMPOUND_FEES (in this case should be probably 0) / CHANGE_RANGE / WITHDRAW_AND_COLLECT_AND_SWAP
+        uint128 liquidity;
+        // for adding liquidity slippage
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
+        // for all uniswap deadlineable functions
+        uint256 deadline;
+        // left over tokens will be sent to this address
+        address recipient;
+        // recipient of newly minted nft (the incoming NFT will ALWAYS be returned to from)
+        address recipientNFT;
+        // if tokenIn or tokenOut is WETH - unwrap
+        bool unwrap;
+        // data sent with returned token to IERC721Receiver (optional)
+        bytes returnData;
+        // data sent with minted token to IERC721Receiver (optional)
+        bytes swapAndMintReturnData;
+    }
+
+    /// @notice Execute instruction with EIP712 permit
+    /// @param tokenId Token to process
+    /// @param instructions Instructions to execute
+    /// @param v Signature values for EIP712 permit
+    /// @param r Signature values for EIP712 permit
+    /// @param s Signature values for EIP712 permit
+    function executeWithPermit(uint256 tokenId, Instructions memory instructions, uint8 v, bytes32 r, bytes32 s)
+        public
+        returns (uint256 newTokenId)
+    {
+        if (nonfungiblePositionManager.ownerOf(tokenId) != msg.sender) {
+            revert Unauthorized();
+        }
+
+        nonfungiblePositionManager.permit(address(this), tokenId, instructions.deadline, v, r, s);
+        return execute(tokenId, instructions);
+
+        // NOTE: previous operator can not be reset as operator set by permit can not change operator - so this operator will stay until reset
+    }
+
+    /// @notice Execute instruction by pulling approved NFT instead of direct safeTransferFrom call from owner
+    /// @param tokenId Token to process
+    /// @param instructions Instructions to execute
+    function execute(uint256 tokenId, Instructions memory instructions) public returns (uint256 newTokenId) {
+        (,, address token0, address token1,,,, uint128 liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+        uint256 amount0;
+        uint256 amount1;
+        if (instructions.liquidity != 0) {
+            (amount0, amount1) = _decreaseLiquidity(
+                tokenId,
+                instructions.liquidity,
+                instructions.deadline,
+                instructions.amountRemoveMin0,
+                instructions.amountRemoveMin1
+            );
+        }
+        (amount0, amount1) = _collectFees(
+            tokenId,
+            IERC20(token0),
+            IERC20(token1),
+            instructions.feeAmount0 == type(uint128).max
+                ? type(uint128).max
+                : (amount0 + instructions.feeAmount0).toUint128(),
+            instructions.feeAmount1 == type(uint128).max
+                ? type(uint128).max
+                : (amount1 + instructions.feeAmount1).toUint128()
+        );
+
+        // check if enough tokens are available for swaps
+        if (amount0 < instructions.amountIn0 || amount1 < instructions.amountIn1) {
+            revert AmountError();
+        }
+
+        if (instructions.whatToDo == WhatToDo.COMPOUND_FEES) {
+            if (instructions.targetToken == token0) {
+                (liquidity, amount0, amount1) = _swapAndIncrease(
+                    SwapAndIncreaseLiquidityParams(
+                        tokenId,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.deadline,
+                        IERC20(token1),
+                        instructions.amountIn1,
+                        instructions.amountOut1Min,
+                        instructions.swapData1,
+                        0,
+                        0,
+                        "",
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        ""
+                    ),
+                    IERC20(token0),
+                    IERC20(token1),
+                    instructions.unwrap
+                );
+            } else if (instructions.targetToken == token1) {
+                (liquidity, amount0, amount1) = _swapAndIncrease(
+                    SwapAndIncreaseLiquidityParams(
+                        tokenId,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.deadline,
+                        IERC20(token0),
+                        0,
+                        0,
+                        "",
+                        instructions.amountIn0,
+                        instructions.amountOut0Min,
+                        instructions.swapData0,
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        ""
+                    ),
+                    IERC20(token0),
+                    IERC20(token1),
+                    instructions.unwrap
+                );
+            } else {
+                // no swap is done here
+                (liquidity, amount0, amount1) = _swapAndIncrease(
+                    SwapAndIncreaseLiquidityParams(
+                        tokenId,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.deadline,
+                        IERC20(address(0)),
+                        0,
+                        0,
+                        "",
+                        0,
+                        0,
+                        "",
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        ""
+                    ),
+                    IERC20(token0),
+                    IERC20(token1),
+                    instructions.unwrap
+                );
+            }
+            emit CompoundFees(tokenId, liquidity, amount0, amount1);
+        } else if (instructions.whatToDo == WhatToDo.CHANGE_RANGE) {
+            if (instructions.targetToken == token0) {
+                (newTokenId,,,) = _swapAndMint(
+                    SwapAndMintParams(
+                        IERC20(token0),
+                        IERC20(token1),
+                        instructions.fee,
+                        instructions.tickLower,
+                        instructions.tickUpper,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.recipientNFT,
+                        instructions.deadline,
+                        IERC20(token1),
+                        instructions.amountIn1,
+                        instructions.amountOut1Min,
+                        instructions.swapData1,
+                        0,
+                        0,
+                        "",
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        instructions.swapAndMintReturnData,
+                        ""
+                    ),
+                    instructions.unwrap
+                );
+            } else if (instructions.targetToken == token1) {
+                (newTokenId,,,) = _swapAndMint(
+                    SwapAndMintParams(
+                        IERC20(token0),
+                        IERC20(token1),
+                        instructions.fee,
+                        instructions.tickLower,
+                        instructions.tickUpper,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.recipientNFT,
+                        instructions.deadline,
+                        IERC20(token0),
+                        0,
+                        0,
+                        "",
+                        instructions.amountIn0,
+                        instructions.amountOut0Min,
+                        instructions.swapData0,
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        instructions.swapAndMintReturnData,
+                        ""
+                    ),
+                    instructions.unwrap
+                );
+            } else {
+                // no swap is done here
+                (newTokenId,,,) = _swapAndMint(
+                    SwapAndMintParams(
+                        IERC20(token0),
+                        IERC20(token1),
+                        instructions.fee,
+                        instructions.tickLower,
+                        instructions.tickUpper,
+                        amount0,
+                        amount1,
+                        instructions.recipient,
+                        instructions.recipientNFT,
+                        instructions.deadline,
+                        IERC20(address(0)),
+                        0,
+                        0,
+                        "",
+                        0,
+                        0,
+                        "",
+                        instructions.amountAddMin0,
+                        instructions.amountAddMin1,
+                        instructions.swapAndMintReturnData,
+                        ""
+                    ),
+                    instructions.unwrap
+                );
+            }
+            emit ChangeRange(tokenId, newTokenId);
+        } else if (instructions.whatToDo == WhatToDo.WITHDRAW_AND_COLLECT_AND_SWAP) {
+            uint256 targetAmount;
+            if (token0 != instructions.targetToken) {
+                (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        IERC20(token0),
+                        IERC20(instructions.targetToken),
+                        amount0,
+                        instructions.amountOut0Min,
+                        instructions.swapData0
+                    )
+                );
+                if (amountInDelta < amount0) {
+                    _transferToken(instructions.recipient, IERC20(token0), amount0 - amountInDelta, instructions.unwrap);
+                }
+                targetAmount += amountOutDelta;
+            } else {
+                targetAmount += amount0;
+            }
+            if (token1 != instructions.targetToken) {
+                (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(
+                    Swapper.RouterSwapParams(
+                        IERC20(token1),
+                        IERC20(instructions.targetToken),
+                        amount1,
+                        instructions.amountOut1Min,
+                        instructions.swapData1
+                    )
+                );
+                if (amountInDelta < amount1) {
+                    _transferToken(instructions.recipient, IERC20(token1), amount1 - amountInDelta, instructions.unwrap);
+                }
+                targetAmount += amountOutDelta;
+            } else {
+                targetAmount += amount1;
+            }
+
+            // send complete target amount
+            if (targetAmount != 0 && instructions.targetToken != address(0)) {
+                _transferToken(
+                    instructions.recipient, IERC20(instructions.targetToken), targetAmount, instructions.unwrap
+                );
+            }
+
+            emit WithdrawAndCollectAndSwap(tokenId, instructions.targetToken, targetAmount);
+        } else {
+            revert NotSupportedWhatToDo();
+        }
+    }
+
+    /// @notice ERC721 callback function. Called on safeTransferFrom and does manipulation as configured in encoded Instructions parameter.
+    /// At the end the NFT (and any newly minted NFT) is returned to sender. The leftover tokens are sent to instructions.recipient.
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
+        external
+        override
+        returns (bytes4)
+    {
+        // only Uniswap v3 NFTs allowed
+        if (msg.sender != address(nonfungiblePositionManager)) {
+            revert WrongContract();
+        }
+
+        // not allowed to send to itself
+        if (from == address(this)) {
+            revert SelfSend();
+        }
+
+        Instructions memory instructions = abi.decode(data, (Instructions));
+
+        execute(tokenId, instructions);
+
+        // return token to owner (this line guarantees that token is returned to originating owner)
+        nonfungiblePositionManager.safeTransferFrom(address(this), from, tokenId, instructions.returnData);
+
+        return IERC721Receiver.onERC721Received.selector;
+    }
+
+    /// @notice Params for swap() function
+    struct SwapParams {
+        IERC20 tokenIn;
+        IERC20 tokenOut;
+        uint256 amountIn;
+        uint256 minAmountOut;
+        address recipient; // recipient of tokenOut and leftover tokenIn (if any leftover)
+        bytes swapData;
+        bool unwrap; // if tokenIn or tokenOut is WETH - unwrap
+        bytes permitData; // if permit2 signatures are used - set this
+    }
+
+    /// @notice Swaps amountIn of tokenIn for tokenOut - returning at least minAmountOut
+    /// @param params Swap configuration
+    /// If tokenIn is wrapped native token - both the token or the wrapped token can be sent (the sum of both must be equal to amountIn)
+    /// Optionally unwraps any wrapped native token and returns native token instead
+    function swap(SwapParams calldata params) external payable returns (uint256 amountOut) {
+        if (params.tokenIn == params.tokenOut) {
+            revert SameToken();
+        }
+
+        if (params.permitData.length > 0) {
+            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
+                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
+            _prepareAddPermit2(
+                params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0, pbtf, signature
+            );
+        } else {
+            _prepareAddApproved(params.tokenIn, IERC20(address(0)), IERC20(address(0)), params.amountIn, 0, 0);
+        }
+
+        uint256 amountInDelta;
+        (amountInDelta, amountOut) = _routerSwap(
+            Swapper.RouterSwapParams(
+                params.tokenIn, params.tokenOut, params.amountIn, params.minAmountOut, params.swapData
+            )
+        );
+
+        // send swapped amount of tokenOut
+        if (amountOut != 0) {
+            _transferToken(params.recipient, params.tokenOut, amountOut, params.unwrap);
+        }
+
+        // if not all was swapped - return leftovers of tokenIn
+        uint256 leftOver = params.amountIn - amountInDelta;
+        if (leftOver != 0) {
+            _transferToken(params.recipient, params.tokenIn, leftOver, params.unwrap);
+        }
+    }
+
+    /// @notice Params for swapAndMint() function
+    struct SwapAndMintParams {
+        IERC20 token0;
+        IERC20 token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        // how much is provided of token0 and token1
+        uint256 amount0;
+        uint256 amount1;
+        address recipient; // recipient of leftover tokens
+        address recipientNFT; // recipient of nft
+        uint256 deadline;
+        // source token for swaps (maybe either address(0), token0, token1 or another token)
+        // if swapSourceToken is another token than token0 or token1 -> amountIn0 + amountIn1 of swapSourceToken are expected to be available
+        IERC20 swapSourceToken;
+        // if swapSourceToken needs to be swapped to token0 - set values
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0;
+        // if swapSourceToken needs to be swapped to token1 - set values
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1;
+        // min amount to be added after swap
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
+        // data to be sent along newly created NFT when transfered to recipientNFT (sent to IERC721Receiver callback)
+        bytes returnData;
+        // if permit2 signatures are used - set this
+        bytes permitData;
+    }
+
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to a newly minted position.
+    /// @param params Swap and mint configuration
+    /// Newly minted NFT and leftover tokens are returned to recipient
+    function swapAndMint(SwapAndMintParams calldata params)
+        external
+        payable
+        returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)
+    {
+        if (params.token0 == params.token1) {
+            revert SameToken();
+        }
+
+        if (params.permitData.length > 0) {
+            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
+                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
+            _prepareAddPermit2(
+                params.token0,
+                params.token1,
+                params.swapSourceToken,
+                params.amount0,
+                params.amount1,
+                params.amountIn0 + params.amountIn1,
+                pbtf,
+                signature
+            );
+        } else {
+            _prepareAddApproved(
+                params.token0,
+                params.token1,
+                params.swapSourceToken,
+                params.amount0,
+                params.amount1,
+                params.amountIn0 + params.amountIn1
+            );
+        }
+
+        (tokenId, liquidity, amount0, amount1) = _swapAndMint(params, msg.value != 0);
+    }
+
+    /// @notice Params for swapAndIncreaseLiquidity() function
+    struct SwapAndIncreaseLiquidityParams {
+        uint256 tokenId;
+        // how much is provided of token0 and token1
+        uint256 amount0;
+        uint256 amount1;
+        address recipient; // recipient of leftover tokens
+        uint256 deadline;
+        // source token for swaps (maybe either address(0), token0, token1 or another token)
+        // if swapSourceToken is another token than token0 or token1 -> amountIn0 + amountIn1 of swapSourceToken are expected to be available
+        IERC20 swapSourceToken;
+        // if swapSourceToken needs to be swapped to token0 - set values
+        uint256 amountIn0;
+        uint256 amountOut0Min;
+        bytes swapData0;
+        // if swapSourceToken needs to be swapped to token1 - set values
+        uint256 amountIn1;
+        uint256 amountOut1Min;
+        bytes swapData1;
+        // min amount to be added after swap
+        uint256 amountAddMin0;
+        uint256 amountAddMin1;
+        // if permit2 signatures are used - set this
+        bytes permitData;
+    }
+
+    /// @notice Does 1 or 2 swaps from swapSourceToken to token0 and token1 and adds as much as possible liquidity to any existing position (no need to be position owner).
+    /// @param params Swap and increase liquidity configuration
+    // Sends any leftover tokens to recipient.
+    function swapAndIncreaseLiquidity(SwapAndIncreaseLiquidityParams calldata params)
+        external
+        payable
+        returns (uint128 liquidity, uint256 amount0, uint256 amount1)
+    {
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+
+        if (params.permitData.length > 0) {
+            (ISignatureTransfer.PermitBatchTransferFrom memory pbtf, bytes memory signature) =
+                abi.decode(params.permitData, (ISignatureTransfer.PermitBatchTransferFrom, bytes));
+            _prepareAddPermit2(
+                IERC20(token0),
+                IERC20(token1),
+                params.swapSourceToken,
+                params.amount0,
+                params.amount1,
+                params.amountIn0 + params.amountIn1,
+                pbtf,
+                signature
+            );
+        } else {
+            _prepareAddApproved(
+                IERC20(token0),
+                IERC20(token1),
+                params.swapSourceToken,
+                params.amount0,
+                params.amount1,
+                params.amountIn0 + params.amountIn1
+            );
+        }
+
+        (liquidity, amount0, amount1) = _swapAndIncrease(params, IERC20(token0), IERC20(token1), msg.value != 0);
+    }
+
+    function _prepareAddApproved(
+        IERC20 token0,
+        IERC20 token1,
+        IERC20 otherToken,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 amountOther
+    ) internal {
+        (uint256 needed0, uint256 needed1, uint256 neededOther) =
+            _prepareAdd(token0, token1, otherToken, amount0, amount1, amountOther);
+
+        if (needed0 > 0) {
+            SafeERC20.safeTransferFrom(token0, msg.sender, address(this), needed0);
+        }
+        if (needed1 > 0) {
+            SafeERC20.safeTransferFrom(token1, msg.sender, address(this), needed1);
+        }
+        if (neededOther > 0) {
+            SafeERC20.safeTransferFrom(otherToken, msg.sender, address(this), neededOther);
+        }
+    }
+
+    struct PrepareAddPermit2State {
+        uint256 needed0;
+        uint256 needed1;
+        uint256 neededOther;
+        uint256 i;
+        uint256 balanceBefore0;
+        uint256 balanceBefore1;
+        uint256 balanceBeforeOther;
+    }
+
+    function _prepareAddPermit2(
+        IERC20 token0,
+        IERC20 token1,
+        IERC20 otherToken,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 amountOther,
+        IPermit2.PermitBatchTransferFrom memory permit,
+        bytes memory signature
+    ) internal {
+        PrepareAddPermit2State memory state;
+
+        (state.needed0, state.needed1, state.neededOther) =
+            _prepareAdd(token0, token1, otherToken, amount0, amount1, amountOther);
+
+        ISignatureTransfer.SignatureTransferDetails[] memory transferDetails =
+            new ISignatureTransfer.SignatureTransferDetails[](permit.permitted.length);
+
+        // permitted tokens must be in this same order
+        if (state.needed0 > 0) {
+            state.balanceBefore0 = token0.balanceOf(address(this));
+            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.needed0);
+        }
+        if (state.needed1 > 0) {
+            state.balanceBefore1 = token1.balanceOf(address(this));
+            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.needed1);
+        }
+        if (state.neededOther > 0) {
+            state.balanceBeforeOther = otherToken.balanceOf(address(this));
+            transferDetails[state.i++] = ISignatureTransfer.SignatureTransferDetails(address(this), state.neededOther);
+        }
+
+        // execute batch transfer
+        permit2.permitTransferFrom(permit, transferDetails, msg.sender, signature);
+
+        // check if recieved correct amount of tokens
+        if (state.needed0 > 0) {
+            if (token0.balanceOf(address(this)) - state.balanceBefore0 != state.needed0) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
+        }
+        if (state.needed1 > 0) {
+            if (token1.balanceOf(address(this)) - state.balanceBefore1 != state.needed1) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
+        }
+        if (state.neededOther > 0) {
+            if (otherToken.balanceOf(address(this)) - state.balanceBeforeOther != state.neededOther) {
+                revert TransferError(); // reverts for fee-on-transfer tokens
+            }
+        }
+    }
+
+    // checks if required amounts are provided and are exact - wraps any provided ETH as WETH
+    // if less or more provided reverts
+    function _prepareAdd(
+        IERC20 token0,
+        IERC20 token1,
+        IERC20 otherToken,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 amountOther
+    ) internal returns (uint256 needed0, uint256 needed1, uint256 neededOther) {
+        uint256 amountAdded0;
+        uint256 amountAdded1;
+        uint256 amountAddedOther;
+
+        // wrap ether sent
+        if (msg.value != 0) {
+            weth.deposit{value: msg.value}();
+
+            if (address(weth) == address(token0)) {
+                amountAdded0 = msg.value;
+                if (amountAdded0 > amount0) {
+                    revert TooMuchEtherSent();
+                }
+            } else if (address(weth) == address(token1)) {
+                amountAdded1 = msg.value;
+                if (amountAdded1 > amount1) {
+                    revert TooMuchEtherSent();
+                }
+            } else if (address(weth) == address(otherToken)) {
+                amountAddedOther = msg.value;
+                if (amountAddedOther > amountOther) {
+                    revert TooMuchEtherSent();
+                }
+            } else {
+                revert NoEtherToken();
+            }
+        }
+
+        // calculate missing token amounts
+        if (amount0 > amountAdded0) {
+            needed0 = amount0 - amountAdded0;
+        }
+        if (amount1 > amountAdded1) {
+            needed1 = amount1 - amountAdded1;
+        }
+        if (
+            amountOther > amountAddedOther && address(otherToken) != address(0) && token0 != otherToken
+                && token1 != otherToken
+        ) {
+            neededOther = amountOther - amountAddedOther;
+        }
+    }
+
+    // swap and mint logic
+    function _swapAndMint(SwapAndMintParams memory params, bool unwrap)
+        internal
+        returns (uint256 tokenId, uint128 liquidity, uint256 added0, uint256 added1)
+    {
+        (uint256 total0, uint256 total1) = _swapAndPrepareAmounts(params, unwrap);
+
+        INonfungiblePositionManager.MintParams memory mintParams = INonfungiblePositionManager.MintParams(
+            address(params.token0),
+            address(params.token1),
+            params.fee,
+            params.tickLower,
+            params.tickUpper,
+            total0,
+            total1,
+            params.amountAddMin0,
+            params.amountAddMin1,
+            address(this), // is sent to real recipient aftwards
+            params.deadline
+        );
+
+        // mint is done to address(this) because it is not a safemint and safeTransferFrom needs to be done manually afterwards
+        (tokenId, liquidity, added0, added1) = nonfungiblePositionManager.mint(mintParams);
+        nonfungiblePositionManager.safeTransferFrom(address(this), params.recipientNFT, tokenId, params.returnData);
+
+        emit SwapAndMint(tokenId, liquidity, added0, added1);
+
+        _returnLeftoverTokens(params.recipient, params.token0, params.token1, total0, total1, added0, added1, unwrap);
+    }
+
+    // swap and increase logic
+    function _swapAndIncrease(SwapAndIncreaseLiquidityParams memory params, IERC20 token0, IERC20 token1, bool unwrap)
+        internal
+        returns (uint128 liquidity, uint256 added0, uint256 added1)
+    {
+        (uint256 total0, uint256 total1) = _swapAndPrepareAmounts(
+            SwapAndMintParams(
+                token0,
+                token1,
+                0,
+                0,
+                0,
+                params.amount0,
+                params.amount1,
+                params.recipient,
+                params.recipient,
+                params.deadline,
+                params.swapSourceToken,
+                params.amountIn0,
+                params.amountOut0Min,
+                params.swapData0,
+                params.amountIn1,
+                params.amountOut1Min,
+                params.swapData1,
+                params.amountAddMin0,
+                params.amountAddMin1,
+                "",
+                params.permitData
+            ),
+            unwrap
+        );
+
+        INonfungiblePositionManager.IncreaseLiquidityParams memory increaseLiquidityParams = INonfungiblePositionManager
+            .IncreaseLiquidityParams(
+            params.tokenId, total0, total1, params.amountAddMin0, params.amountAddMin1, params.deadline
+        );
+
+        (liquidity, added0, added1) = nonfungiblePositionManager.increaseLiquidity(increaseLiquidityParams);
+
+        emit SwapAndIncreaseLiquidity(params.tokenId, liquidity, added0, added1);
+
+        _returnLeftoverTokens(params.recipient, token0, token1, total0, total1, added0, added1, unwrap);
+    }
+
+    // swaps available tokens and prepares max amounts to be added to nonfungiblePositionManager
+    function _swapAndPrepareAmounts(SwapAndMintParams memory params, bool unwrap)
+        internal
+        returns (uint256 total0, uint256 total1)
+    {
+        if (params.swapSourceToken == params.token0) {
+            if (params.amount0 < params.amountIn1) {
+                revert AmountError();
+            }
+            (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.token0, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1
+                )
+            );
+            total0 = params.amount0 - amountInDelta;
+            total1 = params.amount1 + amountOutDelta;
+        } else if (params.swapSourceToken == params.token1) {
+            if (params.amount1 < params.amountIn0) {
+                revert AmountError();
+            }
+            (uint256 amountInDelta, uint256 amountOutDelta) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.token1, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0
+                )
+            );
+            total1 = params.amount1 - amountInDelta;
+            total0 = params.amount0 + amountOutDelta;
+        } else if (address(params.swapSourceToken) != address(0)) {
+            (uint256 amountInDelta0, uint256 amountOutDelta0) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.swapSourceToken, params.token0, params.amountIn0, params.amountOut0Min, params.swapData0
+                )
+            );
+            (uint256 amountInDelta1, uint256 amountOutDelta1) = _routerSwap(
+                Swapper.RouterSwapParams(
+                    params.swapSourceToken, params.token1, params.amountIn1, params.amountOut1Min, params.swapData1
+                )
+            );
+            total0 = params.amount0 + amountOutDelta0;
+            total1 = params.amount1 + amountOutDelta1;
+
+            // return third token leftover if any
+            uint256 leftOver = params.amountIn0 + params.amountIn1 - amountInDelta0 - amountInDelta1;
+
+            if (leftOver != 0) {
+                _transferToken(params.recipient, params.swapSourceToken, leftOver, unwrap);
+            }
+        } else {
+            total0 = params.amount0;
+            total1 = params.amount1;
+        }
+
+        if (total0 != 0) {
+            SafeERC20.safeApprove(params.token0, address(nonfungiblePositionManager), 0);
+            SafeERC20.safeApprove(params.token0, address(nonfungiblePositionManager), total0);
+        }
+        if (total1 != 0) {
+            SafeERC20.safeApprove(params.token1, address(nonfungiblePositionManager), 0);
+            SafeERC20.safeApprove(params.token1, address(nonfungiblePositionManager), total1);
+        }
+    }
+
+    // returns leftover token balances
+    function _returnLeftoverTokens(
+        address to,
+        IERC20 token0,
+        IERC20 token1,
+        uint256 total0,
+        uint256 total1,
+        uint256 added0,
+        uint256 added1,
+        bool unwrap
+    ) internal {
+        uint256 left0 = total0 - added0;
+        uint256 left1 = total1 - added1;
+
+        // return leftovers
+        if (left0 != 0) {
+            _transferToken(to, token0, left0, unwrap);
+        }
+        if (left1 != 0) {
+            _transferToken(to, token1, left1, unwrap);
+        }
+    }
+
+    // transfers token (or unwraps WETH and sends ETH)
+    function _transferToken(address to, IERC20 token, uint256 amount, bool unwrap) internal {
+        if (address(weth) == address(token) && unwrap) {
+            weth.withdraw(amount);
+            (bool sent,) = to.call{value: amount}("");
+            if (!sent) {
+                revert EtherSendFailed();
+            }
+        } else {
+            SafeERC20.safeTransfer(token, to, amount);
+        }
+    }
+
+    // decreases liquidity from uniswap v3 position
+    function _decreaseLiquidity(
+        uint256 tokenId,
+        uint128 liquidity,
+        uint256 deadline,
+        uint256 token0Min,
+        uint256 token1Min
+    ) internal returns (uint256 amount0, uint256 amount1) {
+        if (liquidity != 0) {
+            (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, token0Min, token1Min, deadline)
+            );
+        }
+    }
+
+    // collects specified amount of fees from uniswap v3 position
+    function _collectFees(uint256 tokenId, IERC20 token0, IERC20 token1, uint128 collectAmount0, uint128 collectAmount1)
+        internal
+        returns (uint256 amount0, uint256 amount1)
+    {
+        uint256 balanceBefore0 = token0.balanceOf(address(this));
+        uint256 balanceBefore1 = token1.balanceOf(address(this));
+        (amount0, amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(tokenId, address(this), collectAmount0, collectAmount1)
+        );
+        uint256 balanceAfter0 = token0.balanceOf(address(this));
+        uint256 balanceAfter1 = token1.balanceOf(address(this));
+
+        // reverts for fee-on-transfer tokens
+        if (balanceAfter0 - balanceBefore0 != amount0) {
+            revert CollectError();
+        }
+        if (balanceAfter1 - balanceBefore1 != amount1) {
+            revert CollectError();
+        }
+    }
+
+    // needed for WETH unwrapping
+    receive() external payable {
+        if (msg.sender != address(weth)) {
+            revert NotWETH();
+        }
+    }
+}
+// ===== END SOURCE FILE: src/transformers/V3Utils.sol =====
+// ===== BEGIN SOURCE FILE: src/utils/FlashloanLiquidator.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/interfaces/callback/IUniswapV3FlashCallback.sol";
+
+import "../interfaces/IVault.sol";
+import "./Swapper.sol";
+
+/// @title Helper contract which allows atomic liquidation and needed swaps by using UniV3 Flashloan
+contract FlashloanLiquidator is Swapper, IUniswapV3FlashCallback {
+    struct FlashCallbackData {
+        uint256 tokenId;
+        uint256 debtShares;
+        uint256 liquidationCost;
+        IVault vault;
+        IERC20 asset;
+        RouterSwapParams swap0;
+        RouterSwapParams swap1;
+        address liquidator;
+        uint256 minReward;
+    }
+
+    constructor(INonfungiblePositionManager _nonfungiblePositionManager, address _zeroxRouter, address _universalRouter)
+        Swapper(_nonfungiblePositionManager, _zeroxRouter, _universalRouter)
+    {}
+
+    struct LiquidateParams {
+        uint256 tokenId; // loan to liquidate
+        uint256 debtShares; // debt shares calculation is based on
+        IVault vault; // vault where the loan is
+        IUniswapV3Pool flashLoanPool; // pool which is used for flashloan - may not be used in the swaps below
+        uint256 amount0In; // how much of token0 to swap to asset (0 if no swap should be done)
+        bytes swapData0; // swap data for token0 swap
+        uint256 amount1In; // how much of token1 to swap to asset (0 if no swap should be done)
+        bytes swapData1; // swap data for token1 swap
+        uint256 minReward; // min reward amount (works as a global slippage control for complete operation)
+    }
+
+    /// @notice Liquidates a loan, using a Uniswap Flashloan
+    function liquidate(LiquidateParams calldata params) external {
+        (,,, uint256 liquidationCost,) = params.vault.loanInfo(params.tokenId);
+        if (liquidationCost == 0) {
+            revert NotLiquidatable();
+        }
+
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(params.tokenId);
+        address asset = params.vault.asset();
+
+        bool isAsset0 = params.flashLoanPool.token0() == asset;
+        bytes memory data = abi.encode(
+            FlashCallbackData(
+                params.tokenId,
+                params.debtShares,
+                liquidationCost,
+                params.vault,
+                IERC20(asset),
+                RouterSwapParams(IERC20(token0), IERC20(asset), params.amount0In, 0, params.swapData0),
+                RouterSwapParams(IERC20(token1), IERC20(asset), params.amount1In, 0, params.swapData1),
+                msg.sender,
+                params.minReward
+            )
+        );
+        params.flashLoanPool.flash(address(this), isAsset0 ? liquidationCost : 0, !isAsset0 ? liquidationCost : 0, data);
+    }
+
+    function uniswapV3FlashCallback(uint256 fee0, uint256 fee1, bytes calldata callbackData) external {
+        // no origin check is needed - because the contract doesn't hold any funds - there is no benefit in calling uniswapV3FlashCallback() from another context
+
+        FlashCallbackData memory data = abi.decode(callbackData, (FlashCallbackData));
+
+        SafeERC20.safeApprove(data.asset, address(data.vault), data.liquidationCost);
+        data.vault.liquidate(
+            IVault.LiquidateParams(
+                data.tokenId, data.debtShares, data.swap0.amountIn, data.swap1.amountIn, address(this), ""
+            )
+        );
+        SafeERC20.safeApprove(data.asset, address(data.vault), 0);
+
+        // do swaps
+        _routerSwap(data.swap0);
+        _routerSwap(data.swap1);
+
+        // transfer lent amount + fee (only one token can have fee) - back to pool
+        SafeERC20.safeTransfer(data.asset, msg.sender, data.liquidationCost + (fee0 + fee1));
+
+        // return all leftover tokens to liquidator
+        if (data.swap0.tokenIn != data.asset) {
+            uint256 balance = data.swap0.tokenIn.balanceOf(address(this));
+            if (balance > 0) {
+                SafeERC20.safeTransfer(data.swap0.tokenIn, data.liquidator, balance);
+            }
+        }
+        if (data.swap1.tokenIn != data.asset) {
+            uint256 balance = data.swap1.tokenIn.balanceOf(address(this));
+            if (balance > 0) {
+                SafeERC20.safeTransfer(data.swap1.tokenIn, data.liquidator, balance);
+            }
+        }
+        {
+            uint256 balance = data.asset.balanceOf(address(this));
+            if (balance < data.minReward) {
+                revert NotEnoughReward();
+            }
+            if (balance > 0) {
+                SafeERC20.safeTransfer(data.asset, data.liquidator, balance);
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: src/utils/FlashloanLiquidator.sol =====
+// ===== BEGIN SOURCE FILE: src/utils/Swapper.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/libraries/TickMath.sol";
+
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "../../lib/IWETH9.sol";
+import "../../lib/IUniversalRouter.sol";
+import "../interfaces/IErrors.sol";
+
+// base functionality to do swaps with different routing protocols
+abstract contract Swapper is IUniswapV3SwapCallback, IErrors {
+    event Swap(address indexed tokenIn, address indexed tokenOut, uint256 amountIn, uint256 amountOut);
+
+    /// @notice Wrapped native token address
+    IWETH9 public immutable weth;
+
+    address public immutable factory;
+
+    /// @notice Uniswap v3 position manager
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
+
+    /// @notice 0x Exchange Proxy
+    address public immutable zeroxRouter;
+
+    /// @notice Uniswap Universal Router
+    address public immutable universalRouter;
+
+    /// @notice Constructor
+    /// @param _nonfungiblePositionManager Uniswap v3 position manager
+    /// @param _zeroxRouter 0x Exchange Proxy
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _zeroxRouter,
+        address _universalRouter
+    ) {
+        weth = IWETH9(_nonfungiblePositionManager.WETH9());
+        factory = _nonfungiblePositionManager.factory();
+        nonfungiblePositionManager = _nonfungiblePositionManager;
+        zeroxRouter = _zeroxRouter;
+        universalRouter = _universalRouter;
+    }
+
+    // swap data for 0x
+    struct ZeroxRouterData {
+        address allowanceTarget;
+        bytes data;
+    }
+
+    // swap data for uni - must include sweep for input token
+    struct UniversalRouterData {
+        bytes commands;
+        bytes[] inputs;
+        uint256 deadline;
+    }
+
+    struct RouterSwapParams {
+        IERC20 tokenIn;
+        IERC20 tokenOut;
+        uint256 amountIn;
+        uint256 amountOutMin;
+        bytes swapData;
+    }
+
+    // general swap function which uses external router with off-chain calculated swap instructions
+    // does slippage check with amountOutMin param
+    // returns token amounts deltas after swap
+    function _routerSwap(RouterSwapParams memory params)
+        internal
+        returns (uint256 amountInDelta, uint256 amountOutDelta)
+    {
+        if (params.amountIn != 0 && params.swapData.length != 0 && address(params.tokenOut) != address(0)) {
+            uint256 balanceInBefore = params.tokenIn.balanceOf(address(this));
+            uint256 balanceOutBefore = params.tokenOut.balanceOf(address(this));
+
+            // get router specific swap data
+            (address router, bytes memory routerData) = abi.decode(params.swapData, (address, bytes));
+
+            if (router == zeroxRouter) {
+                ZeroxRouterData memory data = abi.decode(routerData, (ZeroxRouterData));
+                // approve needed amount
+                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, params.amountIn);
+                // execute swap
+                (bool success,) = zeroxRouter.call(data.data);
+                if (!success) {
+                    revert SwapFailed();
+                }
+                // reset approval
+                SafeERC20.safeApprove(params.tokenIn, data.allowanceTarget, 0);
+            } else if (router == universalRouter) {
+                UniversalRouterData memory data = abi.decode(routerData, (UniversalRouterData));
+                // tokens are transfered to Universalrouter directly (data.commands must include sweep action!)
+                SafeERC20.safeTransfer(params.tokenIn, universalRouter, params.amountIn);
+                IUniversalRouter(universalRouter).execute(data.commands, data.inputs, data.deadline);
+            } else {
+                revert WrongContract();
+            }
+
+            uint256 balanceInAfter = params.tokenIn.balanceOf(address(this));
+            uint256 balanceOutAfter = params.tokenOut.balanceOf(address(this));
+
+            amountInDelta = balanceInBefore - balanceInAfter;
+            amountOutDelta = balanceOutAfter - balanceOutBefore;
+
+            // amountMin slippage check
+            if (amountOutDelta < params.amountOutMin) {
+                revert SlippageError();
+            }
+
+            // event for any swap with exact swapped value
+            emit Swap(address(params.tokenIn), address(params.tokenOut), amountInDelta, amountOutDelta);
+        }
+    }
+
+    struct PoolSwapParams {
+        IUniswapV3Pool pool;
+        IERC20 token0;
+        IERC20 token1;
+        uint24 fee;
+        bool swap0For1;
+        uint256 amountIn;
+        uint256 amountOutMin;
+    }
+
+    // execute swap directly on specified pool
+    // amounts must be available on the contract for both tokens
+    function _poolSwap(PoolSwapParams memory params) internal returns (uint256 amountInDelta, uint256 amountOutDelta) {
+        if (params.amountIn > 0) {
+            (int256 amount0Delta, int256 amount1Delta) = params.pool.swap(
+                address(this),
+                params.swap0For1,
+                int256(params.amountIn),
+                (params.swap0For1 ? TickMath.MIN_SQRT_RATIO + 1 : TickMath.MAX_SQRT_RATIO - 1),
+                abi.encode(
+                    params.swap0For1 ? params.token0 : params.token1,
+                    params.swap0For1 ? params.token1 : params.token0,
+                    params.fee
+                )
+            );
+            amountInDelta = params.swap0For1 ? uint256(amount0Delta) : uint256(amount1Delta);
+            amountOutDelta = params.swap0For1 ? uint256(-amount1Delta) : uint256(-amount0Delta);
+
+            // amountMin slippage check
+            if (amountOutDelta < params.amountOutMin) {
+                revert SlippageError();
+            }
+        }
+    }
+
+    // swap callback function where amount for swap is payed
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+        require(amount0Delta > 0 || amount1Delta > 0); // swaps entirely within 0-liquidity regions are not supported
+
+        // check if really called from pool
+        (address tokenIn, address tokenOut, uint24 fee) = abi.decode(data, (address, address, uint24));
+        if (address(_getPool(tokenIn, tokenOut, fee)) != msg.sender) {
+            revert Unauthorized();
+        }
+
+        // transfer needed amount of tokenIn
+        uint256 amountToPay = amount0Delta > 0 ? uint256(amount0Delta) : uint256(amount1Delta);
+        SafeERC20.safeTransfer(IERC20(tokenIn), msg.sender, amountToPay);
+    }
+
+    // get pool for token
+    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
+        return IUniswapV3Pool(PoolAddress.computeAddress(address(factory), PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+    }
+}
+// ===== END SOURCE FILE: src/utils/Swapper.sol =====
+// ===== BEGIN SOURCE FILE: src/V3Oracle.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "v3-core/interfaces/IUniswapV3Factory.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+
+import "v3-core/libraries/TickMath.sol";
+
+import "v3-periphery/libraries/PoolAddress.sol";
+import "v3-periphery/libraries/LiquidityAmounts.sol";
+
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+import "../lib/AggregatorV3Interface.sol";
+
+import "./interfaces/IV3Oracle.sol";
+import "./interfaces/IErrors.sol";
+
+/// @title V3Oracle to be used in V3Vault to calculate position values
+/// @notice It uses both chainlink and uniswap v3 TWAP and provides emergency fallback mode
+contract V3Oracle is IV3Oracle, Ownable, IErrors {
+    uint16 public constant MIN_PRICE_DIFFERENCE = 200; //2%
+
+    uint256 private constant Q96 = 2 ** 96;
+    uint256 private constant Q128 = 2 ** 128;
+
+    event TokenConfigUpdated(address indexed token, TokenConfig config);
+    event OracleModeUpdated(address indexed token, Mode mode);
+    event SetMaxPoolPriceDifference(uint16 maxPoolPriceDifference);
+    event SetEmergencyAdmin(address emergencyAdmin);
+
+    enum Mode {
+        NOT_SET,
+        CHAINLINK_TWAP_VERIFY, // using chainlink for price and TWAP to verify
+        TWAP_CHAINLINK_VERIFY, // using TWAP for price and chainlink to verify
+        CHAINLINK, // using only chainlink directly
+        TWAP // using TWAP directly
+    }
+
+    struct TokenConfig {
+        AggregatorV3Interface feed; // chainlink feed
+        uint32 maxFeedAge;
+        uint8 feedDecimals;
+        uint8 tokenDecimals;
+        IUniswapV3Pool pool; // reference pool
+        bool isToken0;
+        uint32 twapSeconds;
+        Mode mode;
+        uint16 maxDifference; // max price difference x10000
+    }
+
+    // token => config mapping
+    mapping(address => TokenConfig) public feedConfigs;
+
+    address public immutable factory;
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
+
+    // common token which is used in TWAP pools
+    address public immutable referenceToken;
+    uint8 public immutable referenceTokenDecimals;
+
+    uint16 public maxPoolPriceDifference = MIN_PRICE_DIFFERENCE; // max price difference between oracle derived price and pool price x10000
+
+    // common token which is used in chainlink feeds as "pair" (address(0) if USD or another non-token reference)
+    address public immutable chainlinkReferenceToken;
+
+    // address which can call special emergency actions without timelock
+    address public emergencyAdmin;
+
+    // constructor: sets owner of contract
+    constructor(
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        address _referenceToken,
+        address _chainlinkReferenceToken
+    ) {
+        nonfungiblePositionManager = _nonfungiblePositionManager;
+        factory = _nonfungiblePositionManager.factory();
+        referenceToken = _referenceToken;
+        referenceTokenDecimals = IERC20Metadata(_referenceToken).decimals();
+        chainlinkReferenceToken = _chainlinkReferenceToken;
+    }
+
+    /// @notice Gets value and prices of a uniswap v3 lp position in specified token
+    /// @dev uses configured oracles and verfies price on second oracle - if fails - reverts
+    /// @dev all involved tokens must be configured in oracle - otherwise reverts
+    /// @param tokenId tokenId of position
+    /// @param token address of token in which value and prices should be given
+    /// @return value value of complete position at current prices
+    /// @return feeValue value of positions fees only at current prices
+    /// @return price0X96 price of token0
+    /// @return price1X96 price of token1
+    function getValue(uint256 tokenId, address token)
+        external
+        view
+        override
+        returns (uint256 value, uint256 feeValue, uint256 price0X96, uint256 price1X96)
+    {
+        (address token0, address token1, uint24 fee,, uint256 amount0, uint256 amount1, uint256 fees0, uint256 fees1) =
+            getPositionBreakdown(tokenId);
+
+        uint256 cachedChainlinkReferencePriceX96;
+
+        (price0X96, cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(token0, cachedChainlinkReferencePriceX96);
+        (price1X96, cachedChainlinkReferencePriceX96) =
+            _getReferenceTokenPriceX96(token1, cachedChainlinkReferencePriceX96);
+
+        uint256 priceTokenX96;
+        if (token0 == token) {
+            priceTokenX96 = price0X96;
+        } else if (token1 == token) {
+            priceTokenX96 = price1X96;
+        } else {
+            (priceTokenX96,) = _getReferenceTokenPriceX96(token, cachedChainlinkReferencePriceX96);
+        }
+
+        value = (price0X96 * (amount0 + fees0) / Q96 + price1X96 * (amount1 + fees1) / Q96) * Q96 / priceTokenX96;
+        feeValue = (price0X96 * fees0 / Q96 + price1X96 * fees1 / Q96) * Q96 / priceTokenX96;
+        price0X96 = price0X96 * Q96 / priceTokenX96;
+        price1X96 = price1X96 * Q96 / priceTokenX96;
+
+        // checks derived pool price for price manipulation attacks
+        // this prevents manipulations of pool to get distorted proportions of collateral tokens - for borrowing
+        // when a pool is in this state, liquidations will be disabled - but arbitrageurs (or liquidator himself)
+        // will move price back to reasonable range and enable liquidation
+        uint256 derivedPoolPriceX96 = price0X96 * Q96 / price1X96;
+        _checkPoolPrice(token0, token1, fee, derivedPoolPriceX96);
+    }
+
+    function _checkPoolPrice(address token0, address token1, uint24 fee, uint256 derivedPoolPriceX96) internal view {
+        IUniswapV3Pool pool = _getPool(token0, token1, fee);
+        uint256 priceX96 = _getReferencePoolPriceX96(pool, 0);
+        _requireMaxDifference(priceX96, derivedPoolPriceX96, maxPoolPriceDifference);
+    }
+
+    function _requireMaxDifference(uint256 priceX96, uint256 verifyPriceX96, uint256 maxDifferenceX10000)
+        internal
+        pure
+    {
+        uint256 differenceX10000 = priceX96 > verifyPriceX96
+            ? (priceX96 - verifyPriceX96) * 10000 / priceX96
+            : (verifyPriceX96 - priceX96) * 10000 / verifyPriceX96;
+        // if too big difference - revert
+        if (differenceX10000 >= maxDifferenceX10000) {
+            revert PriceDifferenceExceeded();
+        }
+    }
+
+    /// @notice Gets breakdown of a uniswap v3 position (tokens and fee tier, liquidity, current liquidity amounts, uncollected fees)
+    /// @param tokenId tokenId of position
+    /// @return token0 token0 of position
+    /// @return token1 token1 of position
+    /// @return fee fee tier of position
+    /// @return liquidity liquidity of position
+    /// @return amount0 current amount token0
+    /// @return amount1 current amount token1
+    /// @return fees0 current token0 fees of position
+    /// @return fees1 current token1 fees of position
+    function getPositionBreakdown(uint256 tokenId)
+        public
+        view
+        override
+        returns (
+            address token0,
+            address token1,
+            uint24 fee,
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1,
+            uint128 fees0,
+            uint128 fees1
+        )
+    {
+        PositionState memory state = _initializeState(tokenId);
+        (token0, token1, fee) = (state.token0, state.token1, state.fee);
+        (amount0, amount1, fees0, fees1) = _getAmounts(state);
+        liquidity = state.liquidity;
+    }
+
+    /// @notice Sets the max pool difference parameter (onlyOwner)
+    /// @param _maxPoolPriceDifference Set max allowable difference between pool price and derived oracle pool price
+    function setMaxPoolPriceDifference(uint16 _maxPoolPriceDifference) external onlyOwner {
+        if (_maxPoolPriceDifference < MIN_PRICE_DIFFERENCE) {
+            revert InvalidConfig();
+        }
+        maxPoolPriceDifference = _maxPoolPriceDifference;
+        emit SetMaxPoolPriceDifference(_maxPoolPriceDifference);
+    }
+
+    /// @notice Sets or updates the feed configuration for a token (onlyOwner)
+    /// @param token Token to configure
+    /// @param feed Chainlink feed to this token (matching chainlinkReferenceToken)
+    /// @param maxFeedAge Max allowable chainlink feed age
+    /// @param pool TWAP reference pool (matching referenceToken)
+    /// @param twapSeconds TWAP period to use
+    /// @param mode Mode how both oracle should be used
+    /// @param maxDifference Max allowable difference between both oracle prices
+    function setTokenConfig(
+        address token,
+        AggregatorV3Interface feed,
+        uint32 maxFeedAge,
+        IUniswapV3Pool pool,
+        uint32 twapSeconds,
+        Mode mode,
+        uint16 maxDifference
+    ) external onlyOwner {
+        // can not be unset
+        if (mode == Mode.NOT_SET) {
+            revert InvalidConfig();
+        }
+
+        uint8 feedDecimals = feed.decimals();
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+
+        TokenConfig memory config;
+
+        if (token != referenceToken) {
+            if (maxDifference < MIN_PRICE_DIFFERENCE) {
+                revert InvalidConfig();
+            }
+
+            address token0 = pool.token0();
+            address token1 = pool.token1();
+            if (!(token0 == token && token1 == referenceToken || token0 == referenceToken && token1 == token)) {
+                revert InvalidPool();
+            }
+            bool isToken0 = token0 == token;
+            config = TokenConfig(
+                feed, maxFeedAge, feedDecimals, tokenDecimals, pool, isToken0, twapSeconds, mode, maxDifference
+            );
+        } else {
+            config = TokenConfig(
+                feed, maxFeedAge, feedDecimals, tokenDecimals, IUniswapV3Pool(address(0)), false, 0, Mode.CHAINLINK, 0
+            );
+        }
+
+        feedConfigs[token] = config;
+
+        emit TokenConfigUpdated(token, config);
+        emit OracleModeUpdated(token, mode);
+    }
+
+    /// @notice Updates the oracle mode for a given token  - this method can be called by owner OR emergencyAdmin
+    /// @param token Token to configure
+    /// @param mode Mode to set
+    function setOracleMode(address token, Mode mode) external {
+        if (msg.sender != emergencyAdmin && msg.sender != owner()) {
+            revert Unauthorized();
+        }
+
+        // can not be unset
+        if (mode == Mode.NOT_SET) {
+            revert InvalidConfig();
+        }
+
+        feedConfigs[token].mode = mode;
+        emit OracleModeUpdated(token, mode);
+    }
+
+    /// @notice Updates emergency admin address (onlyOwner)
+    /// @param admin Emergency admin address
+    function setEmergencyAdmin(address admin) external onlyOwner {
+        emergencyAdmin = admin;
+        emit SetEmergencyAdmin(admin);
+    }
+
+    // Returns the price for a token using the selected oracle mode given as reference token value
+    // The price is calculated using Chainlink, Uniswap v3 TWAP, or both based on the mode
+    function _getReferenceTokenPriceX96(address token, uint256 cachedChainlinkReferencePriceX96)
+        internal
+        view
+        returns (uint256 priceX96, uint256 chainlinkReferencePriceX96)
+    {
+        if (token == referenceToken) {
+            return (Q96, chainlinkReferencePriceX96);
+        }
+
+        TokenConfig memory feedConfig = feedConfigs[token];
+
+        if (feedConfig.mode == Mode.NOT_SET) {
+            revert NotConfigured();
+        }
+
+        uint256 verifyPriceX96;
+
+        bool usesChainlink = (
+            feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY
+                || feedConfig.mode == Mode.CHAINLINK
+        );
+        bool usesTWAP = (
+            feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY
+                || feedConfig.mode == Mode.TWAP
+        );
+
+        if (usesChainlink) {
+            uint256 chainlinkPriceX96 = _getChainlinkPriceX96(token);
+            chainlinkReferencePriceX96 = cachedChainlinkReferencePriceX96 == 0
+                ? _getChainlinkPriceX96(referenceToken)
+                : cachedChainlinkReferencePriceX96;
+
+            chainlinkPriceX96 = (10 ** referenceTokenDecimals) * chainlinkPriceX96 * Q96 / chainlinkReferencePriceX96
+                / (10 ** feedConfig.tokenDecimals);
+
+            if (feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+                verifyPriceX96 = chainlinkPriceX96;
+            } else {
+                priceX96 = chainlinkPriceX96;
+            }
+        }
+
+        if (usesTWAP) {
+            uint256 twapPriceX96 = _getTWAPPriceX96(feedConfig);
+            if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY) {
+                verifyPriceX96 = twapPriceX96;
+            } else {
+                priceX96 = twapPriceX96;
+            }
+        }
+
+        if (feedConfig.mode == Mode.CHAINLINK_TWAP_VERIFY || feedConfig.mode == Mode.TWAP_CHAINLINK_VERIFY) {
+            _requireMaxDifference(priceX96, verifyPriceX96, feedConfig.maxDifference);
+        }
+    }
+
+    // calculates chainlink price given feedConfig
+    function _getChainlinkPriceX96(address token) internal view returns (uint256) {
+        if (token == chainlinkReferenceToken) {
+            return Q96;
+        }
+
+        TokenConfig memory feedConfig = feedConfigs[token];
+
+        // if stale data - revert
+        (, int256 answer,, uint256 updatedAt,) = feedConfig.feed.latestRoundData();
+        if (updatedAt + feedConfig.maxFeedAge < block.timestamp || answer < 0) {
+            revert ChainlinkPriceError();
+        }
+
+        return uint256(answer) * Q96 / (10 ** feedConfig.feedDecimals);
+    }
+
+    // calculates TWAP price given feedConfig
+    function _getTWAPPriceX96(TokenConfig memory feedConfig) internal view returns (uint256 poolTWAPPriceX96) {
+        // get reference pool price
+        uint256 priceX96 = _getReferencePoolPriceX96(feedConfig.pool, feedConfig.twapSeconds);
+
+        if (feedConfig.isToken0) {
+            poolTWAPPriceX96 = priceX96;
+        } else {
+            poolTWAPPriceX96 = Q96 * Q96 / priceX96;
+        }
+    }
+
+    // Calculates the reference pool price with scaling factor of 2^96
+    // It uses either the latest slot price or TWAP based on twapSeconds
+    function _getReferencePoolPriceX96(IUniswapV3Pool pool, uint32 twapSeconds) internal view returns (uint256) {
+        uint160 sqrtPriceX96;
+        // if twap seconds set to 0 just use pool price
+        if (twapSeconds == 0) {
+            (sqrtPriceX96,,,,,,) = pool.slot0();
+        } else {
+            uint32[] memory secondsAgos = new uint32[](2);
+            secondsAgos[0] = 0; // from (before)
+            secondsAgos[1] = twapSeconds; // from (before)
+            (int56[] memory tickCumulatives,) = pool.observe(secondsAgos); // pool observe may fail when there is not enough history available (only use pool with enough history!)
+            int24 tick = int24((tickCumulatives[0] - tickCumulatives[1]) / int56(uint56(twapSeconds)));
+            sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick);
+        }
+
+        return FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
+    }
+
+    struct PositionState {
+        uint256 tokenId;
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint128 liquidity;
+        uint256 feeGrowthInside0LastX128;
+        uint256 feeGrowthInside1LastX128;
+        uint128 tokensOwed0;
+        uint128 tokensOwed1;
+        IUniswapV3Pool pool;
+        uint160 sqrtPriceX96;
+        int24 tick;
+        uint160 sqrtPriceX96Lower;
+        uint160 sqrtPriceX96Upper;
+    }
+
+    function _initializeState(uint256 tokenId) internal view returns (PositionState memory state) {
+        (
+            ,
+            ,
+            address token0,
+            address token1,
+            uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        ) = nonfungiblePositionManager.positions(tokenId);
+        state.tokenId = tokenId;
+        state.token0 = token0;
+        state.token1 = token1;
+        state.fee = fee;
+        state.tickLower = tickLower;
+        state.tickUpper = tickUpper;
+        state.liquidity = liquidity;
+        state.feeGrowthInside0LastX128 = feeGrowthInside0LastX128;
+        state.feeGrowthInside1LastX128 = feeGrowthInside1LastX128;
+        state.tokensOwed0 = tokensOwed0;
+        state.tokensOwed1 = tokensOwed1;
+        state.pool = _getPool(token0, token1, fee);
+        (state.sqrtPriceX96, state.tick,,,,,) = state.pool.slot0();
+    }
+
+    // calculate position amounts given current price/tick
+    function _getAmounts(PositionState memory state)
+        internal
+        view
+        returns (uint256 amount0, uint256 amount1, uint128 fees0, uint128 fees1)
+    {
+        if (state.liquidity > 0) {
+            state.sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(state.tickLower);
+            state.sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(state.tickUpper);
+            (amount0, amount1) = LiquidityAmounts.getAmountsForLiquidity(
+                state.sqrtPriceX96, state.sqrtPriceX96Lower, state.sqrtPriceX96Upper, state.liquidity
+            );
+        }
+
+        (fees0, fees1) = _getUncollectedFees(state, state.tick);
+        fees0 += state.tokensOwed0;
+        fees1 += state.tokensOwed1;
+    }
+
+    // calculate uncollected fees
+    function _getUncollectedFees(PositionState memory position, int24 tick)
+        internal
+        view
+        returns (uint128 fees0, uint128 fees1)
+    {
+        (uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128) = _getFeeGrowthInside(
+            position.pool,
+            position.tickLower,
+            position.tickUpper,
+            tick,
+            position.pool.feeGrowthGlobal0X128(),
+            position.pool.feeGrowthGlobal1X128()
+        );
+
+        // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
+        uint256 feeGrowth0;
+        uint256 feeGrowth1;
+        unchecked {
+            feeGrowth0 = feeGrowthInside0LastX128 - position.feeGrowthInside0LastX128;
+            feeGrowth1 = feeGrowthInside1LastX128 - position.feeGrowthInside1LastX128;
+        }
+
+        fees0 = uint128(FullMath.mulDiv(feeGrowth0, position.liquidity, Q128));
+        fees1 = uint128(FullMath.mulDiv(feeGrowth1, position.liquidity, Q128));
+    }
+
+    // calculate fee growth for uncollected fees calculation
+    function _getFeeGrowthInside(
+        IUniswapV3Pool pool,
+        int24 tickLower,
+        int24 tickUpper,
+        int24 tickCurrent,
+        uint256 feeGrowthGlobal0X128,
+        uint256 feeGrowthGlobal1X128
+    ) internal view returns (uint256 feeGrowthInside0X128, uint256 feeGrowthInside1X128) {
+        (,, uint256 lowerFeeGrowthOutside0X128, uint256 lowerFeeGrowthOutside1X128,,,,) = pool.ticks(tickLower);
+        (,, uint256 upperFeeGrowthOutside0X128, uint256 upperFeeGrowthOutside1X128,,,,) = pool.ticks(tickUpper);
+
+        // allow overflow - this is as designed by uniswap - see PositionValue library (for solidity < 0.8)
+        unchecked {
+            if (tickCurrent < tickLower) {
+                feeGrowthInside0X128 = lowerFeeGrowthOutside0X128 - upperFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = lowerFeeGrowthOutside1X128 - upperFeeGrowthOutside1X128;
+            } else if (tickCurrent < tickUpper) {
+                feeGrowthInside0X128 = feeGrowthGlobal0X128 - lowerFeeGrowthOutside0X128 - upperFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = feeGrowthGlobal1X128 - lowerFeeGrowthOutside1X128 - upperFeeGrowthOutside1X128;
+            } else {
+                feeGrowthInside0X128 = upperFeeGrowthOutside0X128 - lowerFeeGrowthOutside0X128;
+                feeGrowthInside1X128 = upperFeeGrowthOutside1X128 - lowerFeeGrowthOutside1X128;
+            }
+        }
+    }
+
+    // helper method to get pool for token
+    function _getPool(address tokenA, address tokenB, uint24 fee) internal view returns (IUniswapV3Pool) {
+        return IUniswapV3Pool(PoolAddress.computeAddress(factory, PoolAddress.getPoolKey(tokenA, tokenB, fee)));
+    }
+}
+// ===== END SOURCE FILE: src/V3Oracle.sol =====
+// ===== BEGIN SOURCE FILE: src/V3Vault.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity ^0.8.0;
+
+import "v3-core/interfaces/IUniswapV3Factory.sol";
+import "v3-core/interfaces/IUniswapV3Pool.sol";
+import "v3-core/libraries/TickMath.sol";
+import "v3-core/libraries/FixedPoint128.sol";
+
+import "v3-periphery/libraries/LiquidityAmounts.sol";
+import "v3-periphery/interfaces/INonfungiblePositionManager.sol";
+
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/SafeCast.sol";
+import "@openzeppelin/contracts/utils/Multicall.sol";
+
+import "permit2/interfaces/IPermit2.sol";
+
+import "./interfaces/IVault.sol";
+import "./interfaces/IV3Oracle.sol";
+import "./interfaces/IInterestRateModel.sol";
+import "./interfaces/IErrors.sol";
+
+/// @title Revert Lend Vault for token lending / borrowing using Uniswap V3 LP positions as collateral
+/// @notice The vault manages ONE ERC20 (eg. USDC) asset for lending / borrowing, but collateral positions can be composed of any 2 tokens configured each with a collateralFactor > 0
+/// Vault implements IERC4626 Vault Standard and is itself a ERC20 which represent shares of total lending pool
+contract V3Vault is ERC20, Multicall, Ownable, IVault, IERC721Receiver, IErrors {
+    using Math for uint256;
+
+    uint256 private constant Q32 = 2 ** 32;
+    uint256 private constant Q96 = 2 ** 96;
+
+    uint32 public constant MAX_COLLATERAL_FACTOR_X32 = uint32(Q32 * 90 / 100); // 90%
+
+    uint32 public constant MIN_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 2 / 100); // 2%
+    uint32 public constant MAX_LIQUIDATION_PENALTY_X32 = uint32(Q32 * 10 / 100); // 10%
+
+    uint32 public constant MIN_RESERVE_PROTECTION_FACTOR_X32 = uint32(Q32 / 100); //1%
+
+    uint32 public constant MAX_DAILY_LEND_INCREASE_X32 = uint32(Q32 / 10); //10%
+    uint32 public constant MAX_DAILY_DEBT_INCREASE_X32 = uint32(Q32 / 10); //10%
+
+    /// @notice Uniswap v3 position manager
+    INonfungiblePositionManager public immutable nonfungiblePositionManager;
+
+    /// @notice Uniswap v3 factory
+    IUniswapV3Factory public immutable factory;
+
+    /// @notice interest rate model implementation
+    IInterestRateModel public immutable interestRateModel;
+
+    /// @notice oracle implementation
+    IV3Oracle public immutable oracle;
+
+    /// @notice permit2 contract
+    IPermit2 public immutable permit2;
+
+    /// @notice underlying asset for lending / borrowing
+    address public immutable override asset;
+
+    /// @notice decimals of underlying token (are the same as ERC20 share token)
+    uint8 private immutable assetDecimals;
+
+    // events
+    event ApprovedTransform(uint256 indexed tokenId, address owner, address target, bool isActive);
+
+    event Add(uint256 indexed tokenId, address owner, uint256 oldTokenId); // when a token is added replacing another token - oldTokenId > 0
+    event Remove(uint256 indexed tokenId, address recipient);
+
+    event ExchangeRateUpdate(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96);
+    // Deposit and Withdraw events are defined in IERC4626
+    event WithdrawCollateral(
+        uint256 indexed tokenId, address owner, address recipient, uint128 liquidity, uint256 amount0, uint256 amount1
+    );
+    event Borrow(uint256 indexed tokenId, address owner, uint256 assets, uint256 shares);
+    event Repay(uint256 indexed tokenId, address repayer, address owner, uint256 assets, uint256 shares);
+    event Liquidate(
+        uint256 indexed tokenId,
+        address liquidator,
+        address owner,
+        uint256 value,
+        uint256 cost,
+        uint256 amount0,
+        uint256 amount1,
+        uint256 reserve,
+        uint256 missing
+    ); // shows exactly how liquidation amounts were divided
+
+    // admin events
+    event WithdrawReserves(uint256 amount, address receiver);
+    event SetTransformer(address transformer, bool active);
+    event SetLimits(
+        uint256 minLoanSize,
+        uint256 globalLendLimit,
+        uint256 globalDebtLimit,
+        uint256 dailyLendIncreaseLimitMin,
+        uint256 dailyDebtIncreaseLimitMin
+    );
+    event SetReserveFactor(uint32 reserveFactorX32);
+    event SetReserveProtectionFactor(uint32 reserveProtectionFactorX32);
+    event SetTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32);
+
+    event SetEmergencyAdmin(address emergencyAdmin);
+
+    // configured tokens
+    struct TokenConfig {
+        uint32 collateralFactorX32; // how much this token is valued as collateral
+        uint32 collateralValueLimitFactorX32; // how much asset equivalent may be lent out given this collateral
+        uint192 totalDebtShares; // how much debt shares are theoretically backed by this collateral
+    }
+
+    mapping(address => TokenConfig) public tokenConfigs;
+
+    // percentage of interest which is kept in the protocol for reserves
+    uint32 public reserveFactorX32 = 0;
+
+    // percentage of lend amount which needs to be in reserves before withdrawn
+    uint32 public reserveProtectionFactorX32 = MIN_RESERVE_PROTECTION_FACTOR_X32;
+
+    // total of debt shares - increases when borrow - decreases when repay
+    uint256 public debtSharesTotal = 0;
+
+    // exchange rates are Q96 at the beginning - 1 share token per 1 asset token
+    uint256 public lastExchangeRateUpdate = 0;
+    uint256 public lastDebtExchangeRateX96 = Q96;
+    uint256 public lastLendExchangeRateX96 = Q96;
+
+    uint256 public globalDebtLimit = 0;
+    uint256 public globalLendLimit = 0;
+
+    // minimal size of loan (to protect from non-liquidatable positions because of gas-cost)
+    uint256 public minLoanSize = 0;
+
+    // daily lend increase limit handling
+    uint256 public dailyLendIncreaseLimitMin = 0;
+    uint256 public dailyLendIncreaseLimitLeft = 0;
+    uint256 public dailyLendIncreaseLimitLastReset = 0;
+
+    // daily debt increase limit handling
+    uint256 public dailyDebtIncreaseLimitMin = 0;
+    uint256 public dailyDebtIncreaseLimitLeft = 0;
+    uint256 public dailyDebtIncreaseLimitLastReset = 0;
+
+    // lender balances are handled with ERC-20 mint/burn
+
+    // loans are handled with this struct
+    struct Loan {
+        uint256 debtShares;
+    }
+
+    mapping(uint256 => Loan) public loans; // tokenID -> loan mapping
+
+    // storage variables to handle enumerable token ownership
+    mapping(address => uint256[]) private ownedTokens; // Mapping from owner address to list of owned token IDs
+    mapping(uint256 => uint256) private ownedTokensIndex; // Mapping from token ID to index of the owner tokens list (for removal without loop)
+    mapping(uint256 => address) private tokenOwner; // Mapping from token ID to owner
+
+    uint256 private transformedTokenId = 0; // transient storage (when available in dencun)
+
+    mapping(address => bool) public transformerAllowList; // contracts allowed to transform positions (selected audited contracts e.g. V3Utils)
+    mapping(address => mapping(uint256 => mapping(address => bool))) public transformApprovals; // owners permissions for other addresses to call transform on owners behalf (e.g. AutoRange contract)
+
+    // address which can call special emergency actions without timelock
+    address public emergencyAdmin;
+
+    constructor(
+        string memory name,
+        string memory symbol,
+        address _asset,
+        INonfungiblePositionManager _nonfungiblePositionManager,
+        IInterestRateModel _interestRateModel,
+        IV3Oracle _oracle,
+        IPermit2 _permit2
+    ) ERC20(name, symbol) {
+        asset = _asset;
+        assetDecimals = IERC20Metadata(_asset).decimals();
+        nonfungiblePositionManager = _nonfungiblePositionManager;
+        factory = IUniswapV3Factory(_nonfungiblePositionManager.factory());
+        interestRateModel = _interestRateModel;
+        oracle = _oracle;
+        permit2 = _permit2;
+    }
+
+    ////////////////// EXTERNAL VIEW FUNCTIONS
+
+    /// @notice Retrieves global information about the vault
+    /// @return debt Total amount of debt asset tokens
+    /// @return lent Total amount of lent asset tokens
+    /// @return balance Balance of asset token in contract
+    /// @return available Available balance of asset token in contract (balance - reserves)
+    /// @return reserves Amount of reserves
+    function vaultInfo()
+        external
+        view
+        override
+        returns (
+            uint256 debt,
+            uint256 lent,
+            uint256 balance,
+            uint256 available,
+            uint256 reserves,
+            uint256 debtExchangeRateX96,
+            uint256 lendExchangeRateX96
+        )
+    {
+        (debtExchangeRateX96, lendExchangeRateX96) = _calculateGlobalInterest();
+        (balance, available, reserves) = _getAvailableBalance(debtExchangeRateX96, lendExchangeRateX96);
+
+        debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
+        lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+    }
+
+    /// @notice Retrieves lending information for a specified account.
+    /// @param account The address of the account for which lending info is requested.
+    /// @return amount Amount of lent assets for the account
+    function lendInfo(address account) external view override returns (uint256 amount) {
+        (, uint256 newLendExchangeRateX96) = _calculateGlobalInterest();
+        amount = _convertToAssets(balanceOf(account), newLendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    /// @notice Retrieves details of a loan identified by its token ID.
+    /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
+    /// @return debt Amount of debt for this position
+    /// @return fullValue Current value of the position priced as asset token
+    /// @return collateralValue Current collateral value of the position priced as asset token
+    /// @return liquidationCost If position is liquidatable - cost to liquidate position - otherwise 0
+    /// @return liquidationValue If position is liquidatable - the value of the (partial) position which the liquidator recieves - otherwise 0
+    function loanInfo(uint256 tokenId)
+        external
+        view
+        override
+        returns (
+            uint256 debt,
+            uint256 fullValue,
+            uint256 collateralValue,
+            uint256 liquidationCost,
+            uint256 liquidationValue
+        )
+    {
+        (uint256 newDebtExchangeRateX96,) = _calculateGlobalInterest();
+
+        debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+
+        bool isHealthy;
+        (isHealthy, fullValue, collateralValue,) = _checkLoanIsHealthy(tokenId, debt);
+
+        if (!isHealthy) {
+            (liquidationValue, liquidationCost,) = _calculateLiquidation(debt, fullValue, collateralValue);
+        }
+    }
+
+    /// @notice Retrieves owner of a loan
+    /// @param tokenId The unique identifier of the loan - which is the corresponding UniV3 Position
+    /// @return owner Owner of the loan
+    function ownerOf(uint256 tokenId) external view override returns (address owner) {
+        return tokenOwner[tokenId];
+    }
+
+    /// @notice Retrieves count of loans for owner (for enumerating owners loans)
+    /// @param owner Owner address
+    function loanCount(address owner) external view override returns (uint256) {
+        return ownedTokens[owner].length;
+    }
+
+    /// @notice Retrieves tokenid of loan at given index for owner (for enumerating owners loans)
+    /// @param owner Owner address
+    /// @param index Index
+    function loanAtIndex(address owner, uint256 index) external view override returns (uint256) {
+        return ownedTokens[owner][index];
+    }
+
+    ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC20
+    /// @inheritdoc IERC20Metadata
+    function decimals() public view override(IERC20Metadata, ERC20) returns (uint8) {
+        return assetDecimals;
+    }
+
+    ////////////////// OVERRIDDEN EXTERNAL VIEW FUNCTIONS FROM ERC4626
+
+    /// @inheritdoc IERC4626
+    function totalAssets() public view override returns (uint256) {
+        return IERC20(asset).balanceOf(address(this));
+    }
+
+    /// @inheritdoc IERC4626
+    function convertToShares(uint256 assets) external view override returns (uint256 shares) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    /// @inheritdoc IERC4626
+    function convertToAssets(uint256 shares) external view override returns (uint256 assets) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    /// @inheritdoc IERC4626
+    function maxDeposit(address) external view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        if (value >= globalLendLimit) {
+            return 0;
+        } else {
+            return globalLendLimit - value;
+        }
+    }
+
+    /// @inheritdoc IERC4626
+    function maxMint(address) external view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        uint256 value = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+        if (value >= globalLendLimit) {
+            return 0;
+        } else {
+            return _convertToShares(globalLendLimit - value, lendExchangeRateX96, Math.Rounding.Down);
+        }
+    }
+
+    /// @inheritdoc IERC4626
+    function maxWithdraw(address owner) external view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToAssets(balanceOf(owner), lendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    /// @inheritdoc IERC4626
+    function maxRedeem(address owner) external view override returns (uint256) {
+        return balanceOf(owner);
+    }
+
+    /// @inheritdoc IERC4626
+    function previewDeposit(uint256 assets) public view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    /// @inheritdoc IERC4626
+    function previewMint(uint256 shares) public view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Up);
+    }
+
+    /// @inheritdoc IERC4626
+    function previewWithdraw(uint256 assets) public view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToShares(assets, lendExchangeRateX96, Math.Rounding.Up);
+    }
+
+    /// @inheritdoc IERC4626
+    function previewRedeem(uint256 shares) public view override returns (uint256) {
+        (, uint256 lendExchangeRateX96) = _calculateGlobalInterest();
+        return _convertToAssets(shares, lendExchangeRateX96, Math.Rounding.Down);
+    }
+
+    ////////////////// OVERRIDDEN EXTERNAL FUNCTIONS FROM ERC4626
+
+    /// @inheritdoc IERC4626
+    function deposit(uint256 assets, address receiver) external override returns (uint256) {
+        (, uint256 shares) = _deposit(receiver, assets, false, "");
+        return shares;
+    }
+
+    /// @inheritdoc IERC4626
+    function mint(uint256 shares, address receiver) external override returns (uint256) {
+        (uint256 assets,) = _deposit(receiver, shares, true, "");
+        return assets;
+    }
+
+    /// @inheritdoc IERC4626
+    function withdraw(uint256 assets, address receiver, address owner) external override returns (uint256) {
+        (, uint256 shares) = _withdraw(receiver, owner, assets, false);
+        return shares;
+    }
+
+    /// @inheritdoc IERC4626
+    function redeem(uint256 shares, address receiver, address owner) external override returns (uint256) {
+        (uint256 assets,) = _withdraw(receiver, owner, shares, true);
+        return assets;
+    }
+
+    // deposit using permit2 data
+    function deposit(uint256 assets, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (, uint256 shares) = _deposit(receiver, assets, false, permitData);
+        return shares;
+    }
+
+    // mint using permit2 data
+    function mint(uint256 shares, address receiver, bytes calldata permitData) external override returns (uint256) {
+        (uint256 assets,) = _deposit(receiver, shares, true, permitData);
+        return assets;
+    }
+
+    ////////////////// EXTERNAL FUNCTIONS
+
+    /// @notice Creates a new collateralized position (transfer approved position)
+    /// @param tokenId The token ID associated with the new position.
+    /// @param recipient Address to recieve the position in the vault
+    function create(uint256 tokenId, address recipient) external override {
+        nonfungiblePositionManager.safeTransferFrom(msg.sender, address(this), tokenId, abi.encode(recipient));
+    }
+
+    /// @notice Creates a new collateralized position with a permit for token spending (transfer position with permit)
+    /// @param tokenId The token ID associated with the new position.
+    /// @param owner Current owner of the position (signature owner)
+    /// @param recipient Address to recieve the position in the vault
+    /// @param deadline Timestamp until which the permit is valid.
+    /// @param v, r, s Components of the signature for the permit.
+    function createWithPermit(
+        uint256 tokenId,
+        address owner,
+        address recipient,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external override {
+        if (msg.sender != owner) {
+            revert Unauthorized();
+        }
+
+        nonfungiblePositionManager.permit(address(this), tokenId, deadline, v, r, s);
+        nonfungiblePositionManager.safeTransferFrom(owner, address(this), tokenId, abi.encode(recipient));
+    }
+
+    /// @notice Whenever a token is recieved it either creates a new loan, or modifies an existing one when in transform mode.
+    /// @inheritdoc IERC721Receiver
+    function onERC721Received(address, address from, uint256 tokenId, bytes calldata data)
+        external
+        override
+        returns (bytes4)
+    {
+        // only Uniswap v3 NFTs allowed - sent from other contract
+        if (msg.sender != address(nonfungiblePositionManager) || from == address(this)) {
+            revert WrongContract();
+        }
+
+        (uint256 debtExchangeRateX96, uint256 lendExchangeRateX96) = _updateGlobalInterest();
+
+        if (transformedTokenId == 0) {
+            address owner = from;
+            if (data.length > 0) {
+                owner = abi.decode(data, (address));
+            }
+            loans[tokenId] = Loan(0);
+
+            _addTokenToOwner(owner, tokenId);
+            emit Add(tokenId, owner, 0);
+        } else {
+            uint256 oldTokenId = transformedTokenId;
+
+            // if in transform mode - and a new position is sent - current position is replaced and returned
+            if (tokenId != oldTokenId) {
+                address owner = tokenOwner[oldTokenId];
+
+                // set transformed token to new one
+                transformedTokenId = tokenId;
+
+                // copy debt to new token
+                loans[tokenId] = Loan(loans[oldTokenId].debtShares);
+
+                _addTokenToOwner(owner, tokenId);
+                emit Add(tokenId, owner, oldTokenId);
+
+                // clears data of old loan
+                _cleanupLoan(oldTokenId, debtExchangeRateX96, lendExchangeRateX96, owner);
+
+                // sets data of new loan
+                _updateAndCheckCollateral(
+                    tokenId, debtExchangeRateX96, lendExchangeRateX96, 0, loans[tokenId].debtShares
+                );
+            }
+        }
+
+        return IERC721Receiver.onERC721Received.selector;
+    }
+
+    /// @notice Allows another address to call transform on behalf of owner (on a given token)
+    /// @param tokenId The token to be permitted
+    /// @param target The address to be allowed
+    /// @param isActive If it allowed or not
+    function approveTransform(uint256 tokenId, address target, bool isActive) external override {
+        if (tokenOwner[tokenId] != msg.sender) {
+            revert Unauthorized();
+        }
+        transformApprovals[msg.sender][tokenId][target] = isActive;
+
+        emit ApprovedTransform(tokenId, msg.sender, target, isActive);
+    }
+
+    /// @notice Method which allows a contract to transform a loan by changing it (and only at the end checking collateral)
+    /// @param tokenId The token ID to be processed
+    /// @param transformer The address of a whitelisted transformer contract
+    /// @param data Encoded transformation params
+    /// @return newTokenId Final token ID (may be different than input token ID when the position was replaced by transformation)
+    function transform(uint256 tokenId, address transformer, bytes calldata data)
+        external
+        override
+        returns (uint256 newTokenId)
+    {
+        if (tokenId == 0 || !transformerAllowList[transformer]) {
+            revert TransformNotAllowed();
+        }
+        if (transformedTokenId > 0) {
+            revert Reentrancy();
+        }
+        transformedTokenId = tokenId;
+
+        (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
+
+        address loanOwner = tokenOwner[tokenId];
+
+        // only the owner of the loan, the vault itself or any approved caller can call this
+        if (loanOwner != msg.sender && !transformApprovals[loanOwner][tokenId][msg.sender]) {
+            revert Unauthorized();
+        }
+
+        // give access to transformer
+        nonfungiblePositionManager.approve(transformer, tokenId);
+
+        (bool success,) = transformer.call(data);
+        if (!success) {
+            revert TransformFailed();
+        }
+
+        // may have changed in the meantime
+        tokenId = transformedTokenId;
+
+        // check owner not changed (NEEDED because token could have been moved somewhere else in the meantime)
+        address owner = nonfungiblePositionManager.ownerOf(tokenId);
+        if (owner != address(this)) {
+            revert Unauthorized();
+        }
+
+        // remove access for transformer
+        nonfungiblePositionManager.approve(address(0), tokenId);
+
+        uint256 debt = _convertToAssets(loans[tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        _requireLoanIsHealthy(tokenId, debt);
+
+        transformedTokenId = 0;
+
+        return tokenId;
+    }
+
+    /// @notice Borrows specified amount using token as collateral
+    /// @param tokenId The token ID to use as collateral
+    /// @param assets How much assets to borrow
+    function borrow(uint256 tokenId, uint256 assets) external override {
+        bool isTransformMode =
+            transformedTokenId > 0 && transformedTokenId == tokenId && transformerAllowList[msg.sender];
+
+        (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, false);
+
+        Loan storage loan = loans[tokenId];
+
+        // if not in transfer mode - must be called from owner or the vault itself
+        if (!isTransformMode && tokenOwner[tokenId] != msg.sender && address(this) != msg.sender) {
+            revert Unauthorized();
+        }
+
+        uint256 shares = _convertToShares(assets, newDebtExchangeRateX96, Math.Rounding.Up);
+
+        uint256 loanDebtShares = loan.debtShares + shares;
+        loan.debtShares = loanDebtShares;
+        debtSharesTotal += shares;
+
+        if (debtSharesTotal > _convertToShares(globalDebtLimit, newDebtExchangeRateX96, Math.Rounding.Down)) {
+            revert GlobalDebtLimit();
+        }
+        if (assets > dailyDebtIncreaseLimitLeft) {
+            revert DailyDebtIncreaseLimit();
+        } else {
+            dailyDebtIncreaseLimitLeft -= assets;
+        }
+
+        _updateAndCheckCollateral(
+            tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares - shares, loanDebtShares
+        );
+
+        uint256 debt = _convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+
+        if (debt < minLoanSize) {
+            revert MinLoanSize();
+        }
+
+        // only does check health here if not in transform mode
+        if (!isTransformMode) {
+            _requireLoanIsHealthy(tokenId, debt);
+        }
+
+        address owner = tokenOwner[tokenId];
+
+        // fails if not enough asset available
+        // if called from transform mode - send funds to transformer contract
+        SafeERC20.safeTransfer(IERC20(asset), isTransformMode ? msg.sender : owner, assets);
+
+        emit Borrow(tokenId, owner, assets, shares);
+    }
+
+    /// @dev Decreases the liquidity of a given position and collects the resultant assets (and possibly additional fees)
+    /// This function is not allowed during transformation (if a transformer wants to decreaseLiquidity he can call the methods directly on the NonfungiblePositionManager)
+    /// @param params Struct containing various parameters for the operation. Includes tokenId, liquidity amount, minimum asset amounts, and deadline.
+    /// @return amount0 The amount of the first type of asset collected.
+    /// @return amount1 The amount of the second type of asset collected.
+    function decreaseLiquidityAndCollect(DecreaseLiquidityAndCollectParams calldata params)
+        external
+        override
+        returns (uint256 amount0, uint256 amount1)
+    {
+        // this method is not allowed during transform - can be called directly on nftmanager if needed from transform contract
+        if (transformedTokenId > 0) {
+            revert TransformNotAllowed();
+        }
+
+        address owner = tokenOwner[params.tokenId];
+
+        if (owner != msg.sender) {
+            revert Unauthorized();
+        }
+
+        (uint256 newDebtExchangeRateX96,) = _updateGlobalInterest();
+
+        (amount0, amount1) = nonfungiblePositionManager.decreaseLiquidity(
+            INonfungiblePositionManager.DecreaseLiquidityParams(
+                params.tokenId, params.liquidity, params.amount0Min, params.amount1Min, params.deadline
+            )
+        );
+
+        INonfungiblePositionManager.CollectParams memory collectParams = INonfungiblePositionManager.CollectParams(
+            params.tokenId,
+            params.recipient,
+            params.feeAmount0 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount0 + params.feeAmount0),
+            params.feeAmount1 == type(uint128).max ? type(uint128).max : SafeCast.toUint128(amount1 + params.feeAmount1)
+        );
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(collectParams);
+
+        uint256 debt = _convertToAssets(loans[params.tokenId].debtShares, newDebtExchangeRateX96, Math.Rounding.Up);
+        _requireLoanIsHealthy(params.tokenId, debt);
+
+        emit WithdrawCollateral(params.tokenId, owner, params.recipient, params.liquidity, amount0, amount1);
+    }
+
+    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
+    /// @param tokenId The token ID to use as collateral
+    /// @param amount How many assets/debt shares to repay
+    /// @param isShare Is amount specified in assets or debt shares.
+    function repay(uint256 tokenId, uint256 amount, bool isShare) external override {
+        _repay(tokenId, amount, isShare, "");
+    }
+
+    /// @notice Repays borrowed tokens. Can be denominated in assets or debt share amount
+    /// @param tokenId The token ID to use as collateral
+    /// @param amount How many assets/debt shares to repay
+    /// @param isShare Is amount specified in assets or debt shares.
+    /// @param permitData Permit2 data and signature
+    function repay(uint256 tokenId, uint256 amount, bool isShare, bytes calldata permitData) external override {
+        _repay(tokenId, amount, isShare, permitData);
+    }
+
+    // state used in liquidation function to avoid stack too deep errors
+    struct LiquidateState {
+        uint256 newDebtExchangeRateX96;
+        uint256 newLendExchangeRateX96;
+        uint256 debt;
+        bool isHealthy;
+        uint256 liquidationValue;
+        uint256 liquidatorCost;
+        uint256 reserveCost;
+        uint256 missing;
+        uint256 fullValue;
+        uint256 collateralValue;
+        uint256 feeValue;
+    }
+
+    /// @notice Liquidates position - needed assets are depending on current price.
+    /// Sufficient assets need to be approved to the contract for the liquidation to succeed.
+    /// @param params The params defining liquidation
+    /// @return amount0 The amount of the first type of asset collected.
+    /// @return amount1 The amount of the second type of asset collected.
+    function liquidate(LiquidateParams calldata params) external override returns (uint256 amount0, uint256 amount1) {
+        // liquidation is not allowed during transformer mode
+        if (transformedTokenId > 0) {
+            revert TransformNotAllowed();
+        }
+
+        LiquidateState memory state;
+
+        (state.newDebtExchangeRateX96, state.newLendExchangeRateX96) = _updateGlobalInterest();
+
+        uint256 debtShares = loans[params.tokenId].debtShares;
+        if (debtShares != params.debtShares) {
+            revert DebtChanged();
+        }
+
+        state.debt = _convertToAssets(debtShares, state.newDebtExchangeRateX96, Math.Rounding.Up);
+
+        (state.isHealthy, state.fullValue, state.collateralValue, state.feeValue) =
+            _checkLoanIsHealthy(params.tokenId, state.debt);
+        if (state.isHealthy) {
+            revert NotLiquidatable();
+        }
+
+        (state.liquidationValue, state.liquidatorCost, state.reserveCost) =
+            _calculateLiquidation(state.debt, state.fullValue, state.collateralValue);
+
+        // calculate reserve (before transfering liquidation money - otherwise calculation is off)
+        if (state.reserveCost > 0) {
+            state.missing =
+                _handleReserveLiquidation(state.reserveCost, state.newDebtExchangeRateX96, state.newLendExchangeRateX96);
+        }
+
+        if (params.permitData.length > 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                abi.decode(params.permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+            permit2.permitTransferFrom(
+                permit,
+                ISignatureTransfer.SignatureTransferDetails(address(this), state.liquidatorCost),
+                msg.sender,
+                signature
+            );
+        } else {
+            // take value from liquidator
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), state.liquidatorCost);
+        }
+
+        debtSharesTotal -= debtShares;
+
+        // send promised collateral tokens to liquidator
+        (amount0, amount1) =
+            _sendPositionValue(params.tokenId, state.liquidationValue, state.fullValue, state.feeValue, msg.sender);
+
+        if (amount0 < params.amount0Min || amount1 < params.amount1Min) {
+            revert SlippageError();
+        }
+
+        address owner = tokenOwner[params.tokenId];
+
+        // disarm loan and send remaining position to owner
+        _cleanupLoan(params.tokenId, state.newDebtExchangeRateX96, state.newLendExchangeRateX96, owner);
+
+        emit Liquidate(
+            params.tokenId,
+            msg.sender,
+            owner,
+            state.fullValue,
+            state.liquidatorCost,
+            amount0,
+            amount1,
+            state.reserveCost,
+            state.missing
+        );
+    }
+
+    ////////////////// ADMIN FUNCTIONS only callable by owner
+
+    /// @notice withdraw protocol reserves (onlyOwner)
+    /// only allows to withdraw excess reserves (> globalLendAmount * reserveProtectionFactor)
+    /// @param amount amount to withdraw
+    /// @param receiver receiver address
+    function withdrawReserves(uint256 amount, address receiver) external onlyOwner {
+        (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        uint256 protected =
+            _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up) * reserveProtectionFactorX32 / Q32;
+        (uint256 balance,, uint256 reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+        uint256 unprotected = reserves > protected ? reserves - protected : 0;
+        uint256 available = balance > unprotected ? unprotected : balance;
+
+        if (amount > available) {
+            revert InsufficientLiquidity();
+        }
+
+        if (amount > 0) {
+            SafeERC20.safeTransfer(IERC20(asset), receiver, amount);
+        }
+
+        emit WithdrawReserves(amount, receiver);
+    }
+
+    /// @notice configure transformer contract (onlyOwner)
+    /// @param transformer address of transformer contract
+    /// @param active should the transformer be active?
+    function setTransformer(address transformer, bool active) external onlyOwner {
+        // protects protocol from owner trying to set dangerous transformer
+        if (
+            transformer == address(0) || transformer == address(this) || transformer == asset
+                || transformer == address(nonfungiblePositionManager)
+        ) {
+            revert InvalidConfig();
+        }
+
+        transformerAllowList[transformer] = active;
+        emit SetTransformer(transformer, active);
+    }
+
+    /// @notice set limits (this doesnt affect existing loans) - this method can be called by owner OR emergencyAdmin
+    /// @param _minLoanSize min size of a loan - trying to create smaller loans will revert
+    /// @param _globalLendLimit global limit of lent amount
+    /// @param _globalDebtLimit global limit of debt amount
+    /// @param _dailyLendIncreaseLimitMin min daily increasable amount of lent amount
+    /// @param _dailyDebtIncreaseLimitMin min daily increasable amount of debt amount
+    function setLimits(
+        uint256 _minLoanSize,
+        uint256 _globalLendLimit,
+        uint256 _globalDebtLimit,
+        uint256 _dailyLendIncreaseLimitMin,
+        uint256 _dailyDebtIncreaseLimitMin
+    ) external {
+        if (msg.sender != emergencyAdmin && msg.sender != owner()) {
+            revert Unauthorized();
+        }
+
+        minLoanSize = _minLoanSize;
+        globalLendLimit = _globalLendLimit;
+        globalDebtLimit = _globalDebtLimit;
+        dailyLendIncreaseLimitMin = _dailyLendIncreaseLimitMin;
+        dailyDebtIncreaseLimitMin = _dailyDebtIncreaseLimitMin;
+
+        (, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        // force reset daily limits with new values
+        _resetDailyLendIncreaseLimit(newLendExchangeRateX96, true);
+        _resetDailyDebtIncreaseLimit(newLendExchangeRateX96, true);
+
+        emit SetLimits(
+            _minLoanSize, _globalLendLimit, _globalDebtLimit, _dailyLendIncreaseLimitMin, _dailyDebtIncreaseLimitMin
+        );
+    }
+
+    /// @notice sets reserve factor - percentage difference between debt and lend interest (onlyOwner)
+    /// @param _reserveFactorX32 reserve factor multiplied by Q32
+    function setReserveFactor(uint32 _reserveFactorX32) external onlyOwner {
+        reserveFactorX32 = _reserveFactorX32;
+        emit SetReserveFactor(_reserveFactorX32);
+    }
+
+    /// @notice sets reserve protection factor - percentage of globalLendAmount which can't be withdrawn by owner (onlyOwner)
+    /// @param _reserveProtectionFactorX32 reserve protection factor multiplied by Q32
+    function setReserveProtectionFactor(uint32 _reserveProtectionFactorX32) external onlyOwner {
+        if (_reserveProtectionFactorX32 < MIN_RESERVE_PROTECTION_FACTOR_X32) {
+            revert InvalidConfig();
+        }
+        reserveProtectionFactorX32 = _reserveProtectionFactorX32;
+        emit SetReserveProtectionFactor(_reserveProtectionFactorX32);
+    }
+
+    /// @notice Sets or updates the configuration for a token (onlyOwner)
+    /// @param token Token to configure
+    /// @param collateralFactorX32 collateral factor for this token mutiplied by Q32
+    /// @param collateralValueLimitFactorX32 how much of it maybe used as collateral measured as percentage of total lent assets mutiplied by Q32
+    function setTokenConfig(address token, uint32 collateralFactorX32, uint32 collateralValueLimitFactorX32)
+        external
+        onlyOwner
+    {
+        if (collateralFactorX32 > MAX_COLLATERAL_FACTOR_X32) {
+            revert CollateralFactorExceedsMax();
+        }
+        tokenConfigs[token].collateralFactorX32 = collateralFactorX32;
+        tokenConfigs[token].collateralValueLimitFactorX32 = collateralValueLimitFactorX32;
+        emit SetTokenConfig(token, collateralFactorX32, collateralValueLimitFactorX32);
+    }
+
+    /// @notice Updates emergency admin address (onlyOwner)
+    /// @param admin Emergency admin address
+    function setEmergencyAdmin(address admin) external onlyOwner {
+        emergencyAdmin = admin;
+        emit SetEmergencyAdmin(admin);
+    }
+
+    ////////////////// INTERNAL FUNCTIONS
+
+    function _deposit(address receiver, uint256 amount, bool isShare, bytes memory permitData)
+        internal
+        returns (uint256 assets, uint256 shares)
+    {
+        (, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        _resetDailyLendIncreaseLimit(newLendExchangeRateX96, false);
+
+        if (isShare) {
+            shares = amount;
+            assets = _convertToAssets(shares, newLendExchangeRateX96, Math.Rounding.Up);
+        } else {
+            assets = amount;
+            shares = _convertToShares(assets, newLendExchangeRateX96, Math.Rounding.Down);
+        }
+
+        if (permitData.length > 0) {
+            (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+            permit2.permitTransferFrom(
+                permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
+            );
+        } else {
+            // fails if not enough token approved
+            SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+        }
+
+        _mint(receiver, shares);
+
+        if (totalSupply() > globalLendLimit) {
+            revert GlobalLendLimit();
+        }
+
+        if (assets > dailyLendIncreaseLimitLeft) {
+            revert DailyLendIncreaseLimit();
+        } else {
+            dailyLendIncreaseLimitLeft -= assets;
+        }
+
+        emit Deposit(msg.sender, receiver, assets, shares);
+    }
+
+    // withdraws lent tokens. can be denominated in token or share amount
+    function _withdraw(address receiver, address owner, uint256 amount, bool isShare)
+        internal
+        returns (uint256 assets, uint256 shares)
+    {
+        (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        if (isShare) {
+            shares = amount;
+            assets = _convertToAssets(amount, newLendExchangeRateX96, Math.Rounding.Down);
+        } else {
+            assets = amount;
+            shares = _convertToShares(amount, newLendExchangeRateX96, Math.Rounding.Up);
+        }
+
+        // if caller has allowance for owners shares - may call withdraw
+        if (msg.sender != owner) {
+            _spendAllowance(owner, msg.sender, shares);
+        }
+
+        (, uint256 available,) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+        if (available < assets) {
+            revert InsufficientLiquidity();
+        }
+
+        // fails if not enough shares
+        _burn(owner, shares);
+        SafeERC20.safeTransfer(IERC20(asset), receiver, assets);
+
+        // when amounts are withdrawn - they may be deposited again
+        dailyLendIncreaseLimitLeft += assets;
+
+        emit Withdraw(msg.sender, receiver, owner, assets, shares);
+    }
+
+    function _repay(uint256 tokenId, uint256 amount, bool isShare, bytes memory permitData) internal {
+        (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96) = _updateGlobalInterest();
+
+        Loan storage loan = loans[tokenId];
+
+        uint256 currentShares = loan.debtShares;
+
+        uint256 shares;
+        uint256 assets;
+
+        if (isShare) {
+            shares = amount;
+            assets = _convertToAssets(amount, newDebtExchangeRateX96, Math.Rounding.Up);
+        } else {
+            assets = amount;
+            shares = _convertToShares(amount, newDebtExchangeRateX96, Math.Rounding.Down);
+        }
+
+        // fails if too much repayed
+        if (shares > currentShares) {
+            revert RepayExceedsDebt();
+        }
+
+        if (assets > 0) {
+            if (permitData.length > 0) {
+                (ISignatureTransfer.PermitTransferFrom memory permit, bytes memory signature) =
+                    abi.decode(permitData, (ISignatureTransfer.PermitTransferFrom, bytes));
+                permit2.permitTransferFrom(
+                    permit, ISignatureTransfer.SignatureTransferDetails(address(this), assets), msg.sender, signature
+                );
+            } else {
+                // fails if not enough token approved
+                SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), assets);
+            }
+        }
+
+        uint256 loanDebtShares = loan.debtShares - shares;
+        loan.debtShares = loanDebtShares;
+        debtSharesTotal -= shares;
+
+        // when amounts are repayed - they maybe borrowed again
+        dailyDebtIncreaseLimitLeft += assets;
+
+        _updateAndCheckCollateral(
+            tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, loanDebtShares + shares, loanDebtShares
+        );
+
+        address owner = tokenOwner[tokenId];
+
+        // if fully repayed
+        if (currentShares == shares) {
+            _cleanupLoan(tokenId, newDebtExchangeRateX96, newLendExchangeRateX96, owner);
+        } else {
+            // if resulting loan is too small - revert
+            if (_convertToAssets(loanDebtShares, newDebtExchangeRateX96, Math.Rounding.Up) < minLoanSize) {
+                revert MinLoanSize();
+            }
+        }
+
+        emit Repay(tokenId, msg.sender, owner, assets, shares);
+    }
+
+    // checks how much balance is available - excluding reserves
+    function _getAvailableBalance(uint256 debtExchangeRateX96, uint256 lendExchangeRateX96)
+        internal
+        view
+        returns (uint256 balance, uint256 available, uint256 reserves)
+    {
+        balance = totalAssets();
+
+        uint256 debt = _convertToAssets(debtSharesTotal, debtExchangeRateX96, Math.Rounding.Up);
+        uint256 lent = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Down);
+
+        reserves = balance + debt > lent ? balance + debt - lent : 0;
+        available = balance > reserves ? balance - reserves : 0;
+    }
+
+    // removes correct amount from position to send to liquidator
+    function _sendPositionValue(
+        uint256 tokenId,
+        uint256 liquidationValue,
+        uint256 fullValue,
+        uint256 feeValue,
+        address recipient
+    ) internal returns (uint256 amount0, uint256 amount1) {
+        uint128 liquidity;
+        uint128 fees0;
+        uint128 fees1;
+
+        // if full position is liquidated - no analysis needed
+        if (liquidationValue == fullValue) {
+            (,,,,,,, liquidity,,,,) = nonfungiblePositionManager.positions(tokenId);
+            fees0 = type(uint128).max;
+            fees1 = type(uint128).max;
+        } else {
+            (,,, liquidity,,, fees0, fees1) = oracle.getPositionBreakdown(tokenId);
+
+            // only take needed fees
+            if (liquidationValue < feeValue) {
+                liquidity = 0;
+                fees0 = uint128(liquidationValue * fees0 / feeValue);
+                fees1 = uint128(liquidationValue * fees1 / feeValue);
+            } else {
+                // take all fees and needed liquidity
+                fees0 = type(uint128).max;
+                fees1 = type(uint128).max;
+                liquidity = uint128((liquidationValue - feeValue) * liquidity / (fullValue - feeValue));
+            }
+        }
+
+        if (liquidity > 0) {
+            nonfungiblePositionManager.decreaseLiquidity(
+                INonfungiblePositionManager.DecreaseLiquidityParams(tokenId, liquidity, 0, 0, block.timestamp)
+            );
+        }
+
+        (amount0, amount1) = nonfungiblePositionManager.collect(
+            INonfungiblePositionManager.CollectParams(tokenId, recipient, fees0, fees1)
+        );
+    }
+
+    // cleans up loan when it is closed because of replacement, repayment or liquidation
+    // send the position in its current state to owner
+    function _cleanupLoan(uint256 tokenId, uint256 debtExchangeRateX96, uint256 lendExchangeRateX96, address owner)
+        internal
+    {
+        _removeTokenFromOwner(owner, tokenId);
+        _updateAndCheckCollateral(tokenId, debtExchangeRateX96, lendExchangeRateX96, loans[tokenId].debtShares, 0);
+        delete loans[tokenId];
+        nonfungiblePositionManager.safeTransferFrom(address(this), owner, tokenId);
+        emit Remove(tokenId, owner);
+    }
+
+    // calculates amount which needs to be payed to liquidate position
+    //  if position is too valuable - not all of the position is liquididated - only needed amount
+    //  if position is not valuable enough - missing part is covered by reserves - if not enough reserves - collectively by other borrowers
+    function _calculateLiquidation(uint256 debt, uint256 fullValue, uint256 collateralValue)
+        internal
+        pure
+        returns (uint256 liquidationValue, uint256 liquidatorCost, uint256 reserveCost)
+    {
+        // in a standard liquidation - liquidator pays complete debt (and get part or all of position)
+        // if position has less than enough value - liquidation cost maybe less - rest is payed by protocol or lenders collectively
+        liquidatorCost = debt;
+
+        // position value needed to pay debt at max penalty
+        uint256 maxPenaltyValue = debt * (Q32 + MAX_LIQUIDATION_PENALTY_X32) / Q32;
+
+        // if position is more valuable than debt with max penalty
+        if (fullValue >= maxPenaltyValue) {
+            // position value when position started to be liquidatable
+            uint256 startLiquidationValue = debt * fullValue / collateralValue;
+            uint256 penaltyFractionX96 =
+                (Q96 - ((fullValue - maxPenaltyValue) * Q96 / (startLiquidationValue - maxPenaltyValue)));
+            uint256 penaltyX32 = MIN_LIQUIDATION_PENALTY_X32
+                + (MAX_LIQUIDATION_PENALTY_X32 - MIN_LIQUIDATION_PENALTY_X32) * penaltyFractionX96 / Q96;
+
+            liquidationValue = debt * (Q32 + penaltyX32) / Q32;
+        } else {
+            // all position value
+            liquidationValue = fullValue;
+
+            uint256 penaltyValue = fullValue * (Q32 - MAX_LIQUIDATION_PENALTY_X32) / Q32;
+            liquidatorCost = penaltyValue;
+            reserveCost = debt - penaltyValue;
+        }
+    }
+
+    // calculates if there are enough reserves to cover liquidaton - if not its shared between lenders
+    function _handleReserveLiquidation(
+        uint256 reserveCost,
+        uint256 newDebtExchangeRateX96,
+        uint256 newLendExchangeRateX96
+    ) internal returns (uint256 missing) {
+        (,, uint256 reserves) = _getAvailableBalance(newDebtExchangeRateX96, newLendExchangeRateX96);
+
+        // if not enough - democratize debt
+        if (reserveCost > reserves) {
+            missing = reserveCost - reserves;
+
+            uint256 totalLent = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up);
+
+            // this lines distribute missing amount and remove it from all lent amount proportionally
+            newLendExchangeRateX96 = (totalLent - missing) * newLendExchangeRateX96 / totalLent;
+            lastLendExchangeRateX96 = newLendExchangeRateX96;
+            emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
+        }
+    }
+
+    function _calculateTokenCollateralFactorX32(uint256 tokenId) internal view returns (uint32) {
+        (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+        uint32 factor0X32 = tokenConfigs[token0].collateralFactorX32;
+        uint32 factor1X32 = tokenConfigs[token1].collateralFactorX32;
+        return factor0X32 > factor1X32 ? factor1X32 : factor0X32;
+    }
+
+    function _updateGlobalInterest()
+        internal
+        returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96)
+    {
+        // only needs to be updated once per block (when needed)
+        if (block.timestamp > lastExchangeRateUpdate) {
+            (newDebtExchangeRateX96, newLendExchangeRateX96) = _calculateGlobalInterest();
+            lastDebtExchangeRateX96 = newDebtExchangeRateX96;
+            lastLendExchangeRateX96 = newLendExchangeRateX96;
+            lastExchangeRateUpdate = block.timestamp;
+            emit ExchangeRateUpdate(newDebtExchangeRateX96, newLendExchangeRateX96);
+        } else {
+            newDebtExchangeRateX96 = lastDebtExchangeRateX96;
+            newLendExchangeRateX96 = lastLendExchangeRateX96;
+        }
+    }
+
+    function _calculateGlobalInterest()
+        internal
+        view
+        returns (uint256 newDebtExchangeRateX96, uint256 newLendExchangeRateX96)
+    {
+        uint256 oldDebtExchangeRateX96 = lastDebtExchangeRateX96;
+        uint256 oldLendExchangeRateX96 = lastLendExchangeRateX96;
+
+        (, uint256 available,) = _getAvailableBalance(oldDebtExchangeRateX96, oldLendExchangeRateX96);
+
+        uint256 debt = _convertToAssets(debtSharesTotal, oldDebtExchangeRateX96, Math.Rounding.Up);
+
+        (uint256 borrowRateX96, uint256 supplyRateX96) = interestRateModel.getRatesPerSecondX96(available, debt);
+
+        supplyRateX96 = supplyRateX96.mulDiv(Q32 - reserveFactorX32, Q32);
+
+        // always growing or equal
+        uint256 lastRateUpdate = lastExchangeRateUpdate;
+
+        if (lastRateUpdate > 0) {
+            newDebtExchangeRateX96 = oldDebtExchangeRateX96
+                + oldDebtExchangeRateX96 * (block.timestamp - lastRateUpdate) * borrowRateX96 / Q96;
+            newLendExchangeRateX96 = oldLendExchangeRateX96
+                + oldLendExchangeRateX96 * (block.timestamp - lastRateUpdate) * supplyRateX96 / Q96;
+        } else {
+            newDebtExchangeRateX96 = oldDebtExchangeRateX96;
+            newLendExchangeRateX96 = oldLendExchangeRateX96;
+        }
+    }
+
+    function _requireLoanIsHealthy(uint256 tokenId, uint256 debt) internal view {
+        (bool isHealthy,,,) = _checkLoanIsHealthy(tokenId, debt);
+        if (!isHealthy) {
+            revert CollateralFail();
+        }
+    }
+
+    // updates collateral token configs - and check if limit is not surpassed (check is only done on increasing debt shares)
+    function _updateAndCheckCollateral(
+        uint256 tokenId,
+        uint256 debtExchangeRateX96,
+        uint256 lendExchangeRateX96,
+        uint256 oldShares,
+        uint256 newShares
+    ) internal {
+        if (oldShares != newShares) {
+            (,, address token0, address token1,,,,,,,,) = nonfungiblePositionManager.positions(tokenId);
+
+            // remove previous collateral - add new collateral
+            if (oldShares > newShares) {
+                tokenConfigs[token0].totalDebtShares -= SafeCast.toUint192(oldShares - newShares);
+                tokenConfigs[token1].totalDebtShares -= SafeCast.toUint192(oldShares - newShares);
+            } else {
+                tokenConfigs[token0].totalDebtShares += SafeCast.toUint192(newShares - oldShares);
+                tokenConfigs[token1].totalDebtShares += SafeCast.toUint192(newShares - oldShares);
+
+                // check if current value of used collateral is more than allowed limit
+                // if collateral is decreased - never revert
+                uint256 lentAssets = _convertToAssets(totalSupply(), lendExchangeRateX96, Math.Rounding.Up);
+                uint256 collateralValueLimitFactorX32 = tokenConfigs[token0].collateralValueLimitFactorX32;
+                if (
+                    collateralValueLimitFactorX32 < type(uint32).max
+                        && _convertToAssets(tokenConfigs[token0].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up)
+                            > lentAssets * collateralValueLimitFactorX32 / Q32
+                ) {
+                    revert CollateralValueLimit();
+                }
+                collateralValueLimitFactorX32 = tokenConfigs[token1].collateralValueLimitFactorX32;
+                if (
+                    collateralValueLimitFactorX32 < type(uint32).max
+                        && _convertToAssets(tokenConfigs[token1].totalDebtShares, debtExchangeRateX96, Math.Rounding.Up)
+                            > lentAssets * collateralValueLimitFactorX32 / Q32
+                ) {
+                    revert CollateralValueLimit();
+                }
+            }
+        }
+    }
+
+    function _resetDailyLendIncreaseLimit(uint256 newLendExchangeRateX96, bool force) internal {
+        // daily lend limit reset handling
+        uint256 time = block.timestamp / 1 days;
+        if (force || time > dailyLendIncreaseLimitLastReset) {
+            uint256 lendIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+                * (Q32 + MAX_DAILY_LEND_INCREASE_X32) / Q32;
+            dailyLendIncreaseLimitLeft =
+                dailyLendIncreaseLimitMin > lendIncreaseLimit ? dailyLendIncreaseLimitMin : lendIncreaseLimit;
+            dailyLendIncreaseLimitLastReset = time;
+        }
+    }
+
+    function _resetDailyDebtIncreaseLimit(uint256 newLendExchangeRateX96, bool force) internal {
+        // daily debt limit reset handling
+        uint256 time = block.timestamp / 1 days;
+        if (force || time > dailyDebtIncreaseLimitLastReset) {
+            uint256 debtIncreaseLimit = _convertToAssets(totalSupply(), newLendExchangeRateX96, Math.Rounding.Up)
+                * (Q32 + MAX_DAILY_DEBT_INCREASE_X32) / Q32;
+            dailyDebtIncreaseLimitLeft =
+                dailyDebtIncreaseLimitMin > debtIncreaseLimit ? dailyDebtIncreaseLimitMin : debtIncreaseLimit;
+            dailyDebtIncreaseLimitLastReset = time;
+        }
+    }
+
+    function _checkLoanIsHealthy(uint256 tokenId, uint256 debt)
+        internal
+        view
+        returns (bool isHealthy, uint256 fullValue, uint256 collateralValue, uint256 feeValue)
+    {
+        (fullValue, feeValue,,) = oracle.getValue(tokenId, address(asset));
+        uint256 collateralFactorX32 = _calculateTokenCollateralFactorX32(tokenId);
+        collateralValue = fullValue.mulDiv(collateralFactorX32, Q32);
+        isHealthy = collateralValue >= debt;
+    }
+
+    function _convertToShares(uint256 amount, uint256 exchangeRateX96, Math.Rounding rounding)
+        internal
+        pure
+        returns (uint256)
+    {
+        return amount.mulDiv(Q96, exchangeRateX96, rounding);
+    }
+
+    function _convertToAssets(uint256 shares, uint256 exchangeRateX96, Math.Rounding rounding)
+        internal
+        pure
+        returns (uint256)
+    {
+        return shares.mulDiv(exchangeRateX96, Q96, rounding);
+    }
+
+    function _addTokenToOwner(address to, uint256 tokenId) internal {
+        ownedTokensIndex[tokenId] = ownedTokens[to].length;
+        ownedTokens[to].push(tokenId);
+        tokenOwner[tokenId] = to;
+    }
+
+    function _removeTokenFromOwner(address from, uint256 tokenId) internal {
+        uint256 lastTokenIndex = ownedTokens[from].length - 1;
+        uint256 tokenIndex = ownedTokensIndex[tokenId];
+        if (tokenIndex != lastTokenIndex) {
+            uint256 lastTokenId = ownedTokens[from][lastTokenIndex];
+            ownedTokens[from][tokenIndex] = lastTokenId;
+            ownedTokensIndex[lastTokenId] = tokenIndex;
+        }
+        ownedTokens[from].pop();
+        // Note that ownedTokensIndex[tokenId] is not deleted. There is no need to delete it - gas optimization
+        delete tokenOwner[tokenId]; // Remove the token from the token owner mapping
+    }
+}
+// ===== END SOURCE FILE: src/V3Vault.sol =====

@@ -1,0 +1,1231 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2021-08-notional",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "774f07ef5cb61c85f3ea9cb77b42da380f9a313a",
+  "actual_git_head": "774f07ef5cb61c85f3ea9cb77b42da380f9a313a",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 72,
+  "excluded_solidity_file_count": 27,
+  "bundle_count": 4,
+  "estimated_total_bundle_tokens": 160297,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 49632,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/external/actions/AccountAction.sol",
+          "sha256": "7e7c7e8adafad9e37b2b6d815b7746d996c744120972c87b27b98e5ff2321552",
+          "source_bytes_utf8": 8643,
+          "source_line_count": 170,
+          "imports": [
+            "../SettleAssetsExternal.sol",
+            "../FreeCollateralExternal.sol",
+            "../../math/SafeInt256.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/AccountContextHandler.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 171
+        },
+        {
+          "file": "contracts/external/actions/BatchAction.sol",
+          "sha256": "7ec5f1585a8ee4adad096a4684df2cfa3b09eee930d9c89c2cb4c58d75ec562d",
+          "source_bytes_utf8": 15811,
+          "source_line_count": 404,
+          "imports": [
+            "./TradingAction.sol",
+            "./nTokenMintAction.sol",
+            "./nTokenRedeemAction.sol",
+            "../SettleAssetsExternal.sol",
+            "../FreeCollateralExternal.sol",
+            "../../math/SafeInt256.sol",
+            "../../global/StorageLayoutV1.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "../../internal/AccountContextHandler.sol",
+            "interfaces/notional/NotionalCallback.sol"
+          ],
+          "bundle_marker_line": 173,
+          "bundle_source_start_line": 174,
+          "bundle_source_end_line": 577
+        },
+        {
+          "file": "contracts/external/actions/ERC1155Action.sol",
+          "sha256": "f9326da2505da168327be68a233297b4507ffe5dcbbd1792a59ea8dae8494b33",
+          "source_bytes_utf8": 15853,
+          "source_line_count": 381,
+          "imports": [
+            "./BatchAction.sol",
+            "./nTokenRedeemAction.sol",
+            "../FreeCollateralExternal.sol",
+            "../../global/StorageLayoutV1.sol",
+            "../../internal/AccountContextHandler.sol",
+            "../../internal/portfolio/TransferAssets.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "interfaces/IERC1155TokenReceiver.sol",
+            "interfaces/notional/nERC1155Interface.sol"
+          ],
+          "bundle_marker_line": 579,
+          "bundle_source_start_line": 580,
+          "bundle_source_end_line": 960
+        },
+        {
+          "file": "contracts/external/actions/GovernanceAction.sol",
+          "sha256": "f0007e35bfefdbcb11be434469059c2fa05f391a5f9bf5e5514da45ef4045d2a",
+          "source_bytes_utf8": 19007,
+          "source_line_count": 399,
+          "imports": [
+            "../../internal/valuation/ExchangeRate.sol",
+            "../../internal/markets/CashGroup.sol",
+            "../../internal/nTokenHandler.sol",
+            "../../internal/balances/TokenHandler.sol",
+            "../../global/StorageLayoutV1.sol",
+            "../../proxy/utils/UUPSUpgradeable.sol",
+            "../adapters/nTokenERC20Proxy.sol",
+            "interfaces/notional/AssetRateAdapter.sol",
+            "interfaces/notional/NotionalGovernance.sol",
+            "@openzeppelin/contracts/utils/Create2.sol"
+          ],
+          "bundle_marker_line": 962,
+          "bundle_source_start_line": 963,
+          "bundle_source_end_line": 1361
+        },
+        {
+          "file": "contracts/external/actions/InitializeMarketsAction.sol",
+          "sha256": "fa3a12953d67c435d7519d8e5ba2d7e6a2c233038527b56eef3ec304181f585b",
+          "source_bytes_utf8": 33377,
+          "source_line_count": 725,
+          "imports": [
+            "./nTokenMintAction.sol",
+            "../../internal/markets/Market.sol",
+            "../../internal/markets/CashGroup.sol",
+            "../../internal/markets/AssetRate.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "../../internal/settlement/SettlePortfolioAssets.sol",
+            "../../internal/settlement/SettleBitmapAssets.sol",
+            "../../internal/nTokenHandler.sol",
+            "../../math/SafeInt256.sol",
+            "../../math/Bitmap.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 1363,
+          "bundle_source_start_line": 1364,
+          "bundle_source_end_line": 2088
+        },
+        {
+          "file": "contracts/external/actions/LiquidateCurrencyAction.sol",
+          "sha256": "8eb45ba680a2b47a7da2fc70e6b3206358fbdb7fb36ae8dd545ce11c670a951e",
+          "source_bytes_utf8": 14204,
+          "source_line_count": 399,
+          "imports": [
+            "../../internal/AccountContextHandler.sol",
+            "../../internal/liquidation/LiquidateCurrency.sol",
+            "../../internal/liquidation/LiquidationHelpers.sol",
+            "../../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 2090,
+          "bundle_source_start_line": 2091,
+          "bundle_source_end_line": 2489
+        },
+        {
+          "file": "contracts/external/actions/LiquidatefCashAction.sol",
+          "sha256": "9c597fb4c1d54e2a0feb043105f9170e6b1e436db8db2c989376d4eeb8c66ba2",
+          "source_bytes_utf8": 9097,
+          "source_line_count": 243,
+          "imports": [
+            "../../internal/AccountContextHandler.sol",
+            "../../internal/liquidation/LiquidatefCash.sol",
+            "../../internal/liquidation/LiquidationHelpers.sol",
+            "../../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 2491,
+          "bundle_source_start_line": 2492,
+          "bundle_source_end_line": 2734
+        },
+        {
+          "file": "contracts/external/actions/nTokenAction.sol",
+          "sha256": "4477aa93452188fd5f686f611161b117aa1b71f7e6e5593009043ca99cd46a43",
+          "source_bytes_utf8": 10938,
+          "source_line_count": 290,
+          "imports": [
+            "../../internal/nTokenHandler.sol",
+            "../../internal/markets/AssetRate.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/balances/Incentives.sol",
+            "../../math/SafeInt256.sol",
+            "../../global/StorageLayoutV1.sol",
+            "interfaces/notional/nTokenERC20.sol",
+            "@openzeppelin/contracts/utils/SafeCast.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 2736,
+          "bundle_source_start_line": 2737,
+          "bundle_source_end_line": 3026
+        },
+        {
+          "file": "contracts/external/actions/nTokenMintAction.sol",
+          "sha256": "236090c18fa4c68d42085764d00a873ebe76375c07a38b456abfc9ee88bff408",
+          "source_bytes_utf8": 12888,
+          "source_line_count": 303,
+          "imports": [
+            "../../global/Constants.sol",
+            "../../internal/nTokenHandler.sol",
+            "../../internal/markets/Market.sol",
+            "../../internal/markets/CashGroup.sol",
+            "../../internal/markets/AssetRate.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "../../math/SafeInt256.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3028,
+          "bundle_source_start_line": 3029,
+          "bundle_source_end_line": 3331
+        },
+        {
+          "file": "contracts/external/actions/nTokenRedeemAction.sol",
+          "sha256": "fa0fcb33af5857dc221cac3d1d3ce0319e03faf3303446db87a7d6349ee4e018",
+          "source_bytes_utf8": 13432,
+          "source_line_count": 308,
+          "imports": [
+            "../../internal/markets/Market.sol",
+            "../../internal/nTokenHandler.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "../../internal/portfolio/TransferAssets.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../external/FreeCollateralExternal.sol",
+            "../../external/SettleAssetsExternal.sol",
+            "../../math/SafeInt256.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3333,
+          "bundle_source_start_line": 3334,
+          "bundle_source_end_line": 3641
+        },
+        {
+          "file": "contracts/external/actions/TradingAction.sol",
+          "sha256": "9357e50fd8dc77a3124b2ee3033531de618a9d27a9166ece09aa316a07289ae8",
+          "source_bytes_utf8": 20547,
+          "source_line_count": 571,
+          "imports": [
+            "../FreeCollateralExternal.sol",
+            "../SettleAssetsExternal.sol",
+            "../../internal/markets/Market.sol",
+            "../../internal/markets/CashGroup.sol",
+            "../../internal/markets/AssetRate.sol",
+            "../../internal/balances/BalanceHandler.sol",
+            "../../internal/portfolio/PortfolioHandler.sol",
+            "../../internal/portfolio/TransferAssets.sol",
+            "../../math/SafeInt256.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3643,
+          "bundle_source_start_line": 3644,
+          "bundle_source_end_line": 4214
+        },
+        {
+          "file": "contracts/external/adapters/CompoundToNotionalV2.sol",
+          "sha256": "aa1b206f37307fc2b4782e217f8928cabd433c78b27596b0d96baefad8cc9d20",
+          "source_bytes_utf8": 4143,
+          "source_line_count": 99,
+          "imports": [
+            "interfaces/compound/CTokenInterface.sol",
+            "interfaces/compound/CErc20Interface.sol",
+            "interfaces/notional/NotionalProxy.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 4216,
+          "bundle_source_start_line": 4217,
+          "bundle_source_end_line": 4315
+        },
+        {
+          "file": "contracts/external/adapters/cTokenAggregator.sol",
+          "sha256": "87b098f3292d5e209741d24fe90a53dbbedb02936be76e4ad5b9591c5b302b7a",
+          "source_bytes_utf8": 2559,
+          "source_line_count": 59,
+          "imports": [
+            "interfaces/notional/AssetRateAdapter.sol",
+            "interfaces/compound/CTokenInterface.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 4317,
+          "bundle_source_start_line": 4318,
+          "bundle_source_end_line": 4376
+        },
+        {
+          "file": "contracts/external/adapters/NotionalV1ToNotionalV2.sol",
+          "sha256": "1fef032c8f5f101b31fb9851207c636f6c46df075c05e9cf4906be3b8f59e26c",
+          "source_bytes_utf8": 6694,
+          "source_line_count": 203,
+          "imports": [
+            "../../global/Types.sol",
+            "interfaces/notional/NotionalProxy.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 4378,
+          "bundle_source_start_line": 4379,
+          "bundle_source_end_line": 4581
+        },
+        {
+          "file": "contracts/external/adapters/nTokenERC20Proxy.sol",
+          "sha256": "634bec77576f8b591c9e6a0e71e4f54615abb6825b94208484bb4a9cfab3b677",
+          "source_bytes_utf8": 5619,
+          "source_line_count": 136,
+          "imports": [
+            "interfaces/notional/nTokenERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 4583,
+          "bundle_source_start_line": 4584,
+          "bundle_source_end_line": 4719
+        },
+        {
+          "file": "contracts/external/FreeCollateralExternal.sol",
+          "sha256": "f28516c6cba50bd1d5b2c5dd90625e7e14187c536001b0de797d5f50e367d315",
+          "source_bytes_utf8": 3095,
+          "source_line_count": 77,
+          "imports": [
+            "../internal/AccountContextHandler.sol",
+            "../internal/valuation/FreeCollateral.sol"
+          ],
+          "bundle_marker_line": 4721,
+          "bundle_source_start_line": 4722,
+          "bundle_source_end_line": 4798
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0002",
+      "path": "bundles/bundle-0002.txt",
+      "estimated_tokens": 49747,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/external/governance/GovernorAlpha.sol",
+          "sha256": "f17e8b4db6e69b8a18c4b237ea79be4772190667d9f85d5cd5e1352b949c14b9",
+          "source_bytes_utf8": 22453,
+          "source_line_count": 546,
+          "imports": [
+            "interfaces/notional/INoteERC20.sol",
+            "@openzeppelin/contracts/access/TimelockController.sol",
+            "@openzeppelin/contracts/cryptography/ECDSA.sol",
+            "@openzeppelin/contracts/utils/Address.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 547
+        },
+        {
+          "file": "contracts/external/governance/NoteERC20.sol",
+          "sha256": "1376e137dc338c7f631ea5e7cc4d6b3f82c87ce075ee44e6f8beafee016df636",
+          "source_bytes_utf8": 18171,
+          "source_line_count": 456,
+          "imports": [
+            "interfaces/notional/NotionalProxy.sol",
+            "@openzeppelin/contracts/proxy/Initializable.sol",
+            "@openzeppelin/contracts/cryptography/ECDSA.sol",
+            "../../proxy/utils/UUPSUpgradeable.sol"
+          ],
+          "bundle_marker_line": 549,
+          "bundle_source_start_line": 550,
+          "bundle_source_end_line": 1005
+        },
+        {
+          "file": "contracts/external/governance/Reservoir.sol",
+          "sha256": "9fbbc11bb8dde3eded9d3aa429721f4e730a58d056cb3231fdd69e62a05f9d5d",
+          "source_bytes_utf8": 2911,
+          "source_line_count": 73,
+          "imports": [
+            "@openzeppelin/contracts/math/SafeMath.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1007,
+          "bundle_source_start_line": 1008,
+          "bundle_source_end_line": 1080
+        },
+        {
+          "file": "contracts/external/PausedRouter.sol",
+          "sha256": "cabdd1466aabaed94a4177c2d01f5050e1397054a3bee86a11cca8ed1cb03649",
+          "source_bytes_utf8": 2357,
+          "source_line_count": 65,
+          "imports": [
+            "../global/StorageLayoutV1.sol",
+            "../proxy/utils/UUPSUpgradeable.sol"
+          ],
+          "bundle_marker_line": 1082,
+          "bundle_source_start_line": 1083,
+          "bundle_source_end_line": 1147
+        },
+        {
+          "file": "contracts/external/Router.sol",
+          "sha256": "d942723dbfd56b437fe2624bc1028d0f6c4d20d872553d88d3d1ad62f4a5f2f8",
+          "source_bytes_utf8": 9832,
+          "source_line_count": 239,
+          "imports": [
+            "./actions/AccountAction.sol",
+            "./actions/BatchAction.sol",
+            "./actions/nTokenAction.sol",
+            "./actions/nTokenMintAction.sol",
+            "./actions/nTokenRedeemAction.sol",
+            "./actions/GovernanceAction.sol",
+            "./actions/InitializeMarketsAction.sol",
+            "./actions/ERC1155Action.sol",
+            "./actions/LiquidatefCashAction.sol",
+            "./actions/LiquidateCurrencyAction.sol",
+            "../global/StorageLayoutV1.sol",
+            "../global/Types.sol",
+            "../proxy/utils/UUPSUpgradeable.sol"
+          ],
+          "bundle_marker_line": 1149,
+          "bundle_source_start_line": 1150,
+          "bundle_source_end_line": 1388
+        },
+        {
+          "file": "contracts/external/SettleAssetsExternal.sol",
+          "sha256": "e8565b2384f8659d709764249ac298e5cbc5753d66f8d775b8f6eb3fc1fb8f86",
+          "source_bytes_utf8": 4563,
+          "source_line_count": 127,
+          "imports": [
+            "../internal/portfolio/PortfolioHandler.sol",
+            "../internal/balances/BalanceHandler.sol",
+            "../internal/settlement/SettlePortfolioAssets.sol",
+            "../internal/settlement/SettleBitmapAssets.sol",
+            "../internal/AccountContextHandler.sol"
+          ],
+          "bundle_marker_line": 1390,
+          "bundle_source_start_line": 1391,
+          "bundle_source_end_line": 1517
+        },
+        {
+          "file": "contracts/external/Views.sol",
+          "sha256": "c3792112de023cc263c5a2eb67019f18b35a29518e99a675313fa6b82013577c",
+          "source_bytes_utf8": 19677,
+          "source_line_count": 564,
+          "imports": [
+            "../external/FreeCollateralExternal.sol",
+            "./actions/nTokenMintAction.sol",
+            "../internal/valuation/ExchangeRate.sol",
+            "../internal/markets/CashGroup.sol",
+            "../internal/markets/AssetRate.sol",
+            "../internal/nTokenHandler.sol",
+            "../internal/balances/TokenHandler.sol",
+            "../global/StorageLayoutV1.sol",
+            "../math/SafeInt256.sol",
+            "@openzeppelin/contracts/utils/SafeCast.sol",
+            "interfaces/notional/NotionalViews.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 1519,
+          "bundle_source_start_line": 1520,
+          "bundle_source_end_line": 2083
+        },
+        {
+          "file": "contracts/global/Constants.sol",
+          "sha256": "20aabe048618b2c113109ac89a3a0d8ed8fc540238b53607114b247ec8a7d855",
+          "source_bytes_utf8": 6044,
+          "source_line_count": 116,
+          "imports": [],
+          "bundle_marker_line": 2085,
+          "bundle_source_start_line": 2086,
+          "bundle_source_end_line": 2201
+        },
+        {
+          "file": "contracts/global/StorageLayoutV1.sol",
+          "sha256": "d458c611d319b3876983af47be70c68ab92267df2cbdd8983984fadd9ae8ac73",
+          "source_bytes_utf8": 2437,
+          "source_line_count": 49,
+          "imports": [
+            "./Types.sol"
+          ],
+          "bundle_marker_line": 2203,
+          "bundle_source_start_line": 2204,
+          "bundle_source_end_line": 2252
+        },
+        {
+          "file": "contracts/global/Types.sol",
+          "sha256": "2c6d3d27699a78baf2c32100e268a09e03a2f463c410a99ed1e95f298999b852",
+          "source_bytes_utf8": 14278,
+          "source_line_count": 347,
+          "imports": [],
+          "bundle_marker_line": 2254,
+          "bundle_source_start_line": 2255,
+          "bundle_source_end_line": 2601
+        },
+        {
+          "file": "contracts/internal/AccountContextHandler.sol",
+          "sha256": "ba84a4751fffb1bfede18366efc2cd39ab43c7db562f2bacec822eb21fcc3d36",
+          "source_bytes_utf8": 11158,
+          "source_line_count": 262,
+          "imports": [
+            "./balances/BalanceHandler.sol",
+            "./portfolio/BitmapAssetsHandler.sol",
+            "./portfolio/PortfolioHandler.sol"
+          ],
+          "bundle_marker_line": 2603,
+          "bundle_source_start_line": 2604,
+          "bundle_source_end_line": 2865
+        },
+        {
+          "file": "contracts/internal/balances/BalanceHandler.sol",
+          "sha256": "89f4268be371402f82fd7aa28e7789494cd2602947dc31ba7a0ffd1eb9a1322a",
+          "source_bytes_utf8": 20407,
+          "source_line_count": 470,
+          "imports": [
+            "./Incentives.sol",
+            "./TokenHandler.sol",
+            "../AccountContextHandler.sol",
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "../../math/SafeInt256.sol",
+            "../../math/FloatingPoint56.sol"
+          ],
+          "bundle_marker_line": 2867,
+          "bundle_source_start_line": 2868,
+          "bundle_source_end_line": 3337
+        },
+        {
+          "file": "contracts/internal/balances/Incentives.sol",
+          "sha256": "54db75a493226a57b4bb39587ec6682cbf46ee914c3e15470c9f36527625b7c3",
+          "source_bytes_utf8": 3751,
+          "source_line_count": 98,
+          "imports": [
+            "./TokenHandler.sol",
+            "../nTokenHandler.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3339,
+          "bundle_source_start_line": 3340,
+          "bundle_source_end_line": 3437
+        },
+        {
+          "file": "contracts/internal/balances/TokenHandler.sol",
+          "sha256": "0648adc5e0b174847bab6396a33f0b15ee1810f4f412b077f44fdb65b19cf297",
+          "source_bytes_utf8": 10050,
+          "source_line_count": 260,
+          "imports": [
+            "../../math/SafeInt256.sol",
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "interfaces/compound/CErc20Interface.sol",
+            "interfaces/compound/CEtherInterface.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 3439,
+          "bundle_source_start_line": 3440,
+          "bundle_source_end_line": 3699
+        },
+        {
+          "file": "contracts/internal/liquidation/LiquidateCurrency.sol",
+          "sha256": "8ce3c661764170144900b5d61344f79f3627d587f0b08ed66e2c740c89b78578",
+          "source_bytes_utf8": 25011,
+          "source_line_count": 539,
+          "imports": [
+            "./LiquidationHelpers.sol",
+            "../AccountContextHandler.sol",
+            "../valuation/ExchangeRate.sol",
+            "../markets/CashGroup.sol",
+            "../markets/AssetRate.sol",
+            "../portfolio/BitmapAssetsHandler.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../balances/BalanceHandler.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3701,
+          "bundle_source_start_line": 3702,
+          "bundle_source_end_line": 4240
+        },
+        {
+          "file": "contracts/internal/liquidation/LiquidatefCash.sol",
+          "sha256": "fcdfd69dfe651ef03393a83d6c71583a17fd3048fa7aa2969c1d09397cc0f174",
+          "source_bytes_utf8": 23524,
+          "source_line_count": 506,
+          "imports": [
+            "./LiquidationHelpers.sol",
+            "../AccountContextHandler.sol",
+            "../valuation/AssetHandler.sol",
+            "../markets/CashGroup.sol",
+            "../markets/AssetRate.sol",
+            "../valuation/ExchangeRate.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../portfolio/BitmapAssetsHandler.sol",
+            "../../external/FreeCollateralExternal.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 4242,
+          "bundle_source_start_line": 4243,
+          "bundle_source_end_line": 4748
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0003",
+      "path": "bundles/bundle-0003.txt",
+      "estimated_tokens": 49669,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/internal/liquidation/LiquidationHelpers.sol",
+          "sha256": "8713f89b31a47e1818ecd1625907c3c6d35042f59eda6de82166e9eb293ac377",
+          "source_bytes_utf8": 10361,
+          "source_line_count": 236,
+          "imports": [
+            "./LiquidatefCash.sol",
+            "../AccountContextHandler.sol",
+            "../valuation/ExchangeRate.sol",
+            "../portfolio/BitmapAssetsHandler.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../balances/BalanceHandler.sol",
+            "../balances/TokenHandler.sol",
+            "../markets/AssetRate.sol",
+            "../../external/FreeCollateralExternal.sol",
+            "../../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 237
+        },
+        {
+          "file": "contracts/internal/markets/AssetRate.sol",
+          "sha256": "bf8132788bc79dde8c1cf24f4e6c08d49b51a0e4fb563ecf578f2c60063fff65",
+          "source_bytes_utf8": 9495,
+          "source_line_count": 263,
+          "imports": [
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "../../math/SafeInt256.sol",
+            "interfaces/notional/AssetRateAdapter.sol"
+          ],
+          "bundle_marker_line": 239,
+          "bundle_source_start_line": 240,
+          "bundle_source_end_line": 502
+        },
+        {
+          "file": "contracts/internal/markets/CashGroup.sol",
+          "sha256": "7c4a1dbae8cc0982078844f6ea1d7c74069aacc09e1f232016d692803f3db1c1",
+          "source_bytes_utf8": 16155,
+          "source_line_count": 387,
+          "imports": [
+            "./Market.sol",
+            "./AssetRate.sol",
+            "./DateTime.sol",
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "../../math/SafeInt256.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 504,
+          "bundle_source_start_line": 505,
+          "bundle_source_end_line": 891
+        },
+        {
+          "file": "contracts/internal/markets/DateTime.sol",
+          "sha256": "bf2dd008d3c4318d6e2bdd7f698d318334bdea0968ce7107b46b7840382b82cc",
+          "source_bytes_utf8": 7181,
+          "source_line_count": 190,
+          "imports": [
+            "../../global/Constants.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 893,
+          "bundle_source_start_line": 894,
+          "bundle_source_end_line": 1083
+        },
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "sha256": "65fbc84ed254119257fb637389d3fdf3a711aa2ea9746bfa4cc8ff2f1ae40785",
+          "source_bytes_utf8": 35682,
+          "source_line_count": 835,
+          "imports": [
+            "./AssetRate.sol",
+            "./CashGroup.sol",
+            "./DateTime.sol",
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "../../math/SafeInt256.sol",
+            "../../math/ABDKMath64x64.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 1085,
+          "bundle_source_start_line": 1086,
+          "bundle_source_end_line": 1920
+        },
+        {
+          "file": "contracts/internal/nTokenHandler.sol",
+          "sha256": "692ff52334f5250b676d1f7ab49da5ff817b4eb761cb60ada3680a97e5f33d88",
+          "source_bytes_utf8": 20970,
+          "source_line_count": 535,
+          "imports": [
+            "./markets/CashGroup.sol",
+            "./markets/AssetRate.sol",
+            "./valuation/AssetHandler.sol",
+            "./portfolio/BitmapAssetsHandler.sol",
+            "./portfolio/PortfolioHandler.sol",
+            "./balances/BalanceHandler.sol",
+            "../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 1922,
+          "bundle_source_start_line": 1923,
+          "bundle_source_end_line": 2457
+        },
+        {
+          "file": "contracts/internal/portfolio/BitmapAssetsHandler.sol",
+          "sha256": "a58cb72addd27160b868a00772f9763e3150d7cf583c845252aa309e77e5756a",
+          "source_bytes_utf8": 10823,
+          "source_line_count": 310,
+          "imports": [
+            "../AccountContextHandler.sol",
+            "../markets/CashGroup.sol",
+            "../valuation/AssetHandler.sol",
+            "../../math/Bitmap.sol",
+            "../../math/SafeInt256.sol",
+            "../../global/Constants.sol",
+            "../../global/Types.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 2459,
+          "bundle_source_start_line": 2460,
+          "bundle_source_end_line": 2769
+        },
+        {
+          "file": "contracts/internal/portfolio/PortfolioHandler.sol",
+          "sha256": "c9ea58a435cf3cdd4f4465f8cf7df87b278951497e7b6e98890c7614eddc3b6a",
+          "source_bytes_utf8": 16020,
+          "source_line_count": 400,
+          "imports": [
+            "./TransferAssets.sol",
+            "../valuation/AssetHandler.sol",
+            "../../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 2771,
+          "bundle_source_start_line": 2772,
+          "bundle_source_end_line": 3171
+        },
+        {
+          "file": "contracts/internal/portfolio/TransferAssets.sol",
+          "sha256": "17401be4602193d362701b6260d9dd14c32741ed76b77e175733d7a226fa3daf",
+          "source_bytes_utf8": 3694,
+          "source_line_count": 106,
+          "imports": [
+            "./PortfolioHandler.sol",
+            "./BitmapAssetsHandler.sol",
+            "../AccountContextHandler.sol",
+            "../../external/SettleAssetsExternal.sol"
+          ],
+          "bundle_marker_line": 3173,
+          "bundle_source_start_line": 3174,
+          "bundle_source_end_line": 3279
+        },
+        {
+          "file": "contracts/internal/settlement/SettleBitmapAssets.sol",
+          "sha256": "227c80f484e6284528014a5931319d287a30280c9b264fe5624f6e9beb0ce3f1",
+          "source_bytes_utf8": 4651,
+          "source_line_count": 106,
+          "imports": [
+            "../markets/AssetRate.sol",
+            "../portfolio/BitmapAssetsHandler.sol",
+            "../../math/SafeInt256.sol",
+            "../../math/Bitmap.sol",
+            "../../global/Constants.sol",
+            "../../global/Types.sol"
+          ],
+          "bundle_marker_line": 3281,
+          "bundle_source_start_line": 3282,
+          "bundle_source_end_line": 3387
+        },
+        {
+          "file": "contracts/internal/settlement/SettlePortfolioAssets.sol",
+          "sha256": "6b9152e90da9441d73c415d28986f979bd66f1b0cb22969558be911f689c0456",
+          "source_bytes_utf8": 7577,
+          "source_line_count": 181,
+          "imports": [
+            "../valuation/AssetHandler.sol",
+            "../markets/Market.sol",
+            "../markets/AssetRate.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../../math/SafeInt256.sol",
+            "../../global/Constants.sol",
+            "../../global/Types.sol"
+          ],
+          "bundle_marker_line": 3389,
+          "bundle_source_start_line": 3390,
+          "bundle_source_end_line": 3570
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "sha256": "c2c1bbb87b4c33eda9a9c16a55d77cbbdb03a08ca865393af723824819a05f24",
+          "source_bytes_utf8": 11444,
+          "source_line_count": 275,
+          "imports": [
+            "../../global/Types.sol",
+            "../../global/Constants.sol",
+            "../markets/CashGroup.sol",
+            "../markets/AssetRate.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../../math/SafeInt256.sol",
+            "../../math/ABDKMath64x64.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol"
+          ],
+          "bundle_marker_line": 3572,
+          "bundle_source_start_line": 3573,
+          "bundle_source_end_line": 3847
+        },
+        {
+          "file": "contracts/internal/valuation/ExchangeRate.sol",
+          "sha256": "2efdf38a14d285ab438fb440dac6913cece3bb2d081ed6f8ba58e6432b09f1f2",
+          "source_bytes_utf8": 4285,
+          "source_line_count": 108,
+          "imports": [
+            "../balances/TokenHandler.sol",
+            "../../math/SafeInt256.sol",
+            "interfaces/chainlink/AggregatorV2V3Interface.sol"
+          ],
+          "bundle_marker_line": 3849,
+          "bundle_source_start_line": 3850,
+          "bundle_source_end_line": 3957
+        },
+        {
+          "file": "contracts/internal/valuation/FreeCollateral.sol",
+          "sha256": "c514f0f27bd93e4839252046d361af67e2ceb2f3d2bf0c4d3e5cca54f213153d",
+          "source_bytes_utf8": 20294,
+          "source_line_count": 495,
+          "imports": [
+            "./AssetHandler.sol",
+            "./ExchangeRate.sol",
+            "../markets/CashGroup.sol",
+            "../AccountContextHandler.sol",
+            "../balances/BalanceHandler.sol",
+            "../portfolio/PortfolioHandler.sol",
+            "../../math/SafeInt256.sol"
+          ],
+          "bundle_marker_line": 3959,
+          "bundle_source_start_line": 3960,
+          "bundle_source_end_line": 4454
+        },
+        {
+          "file": "contracts/math/ABDKMath64x64.sol",
+          "sha256": "ad486aa84df03158e199725257695f8cb35277f398bfd5f57f663a841cebb83e",
+          "source_bytes_utf8": 12836,
+          "source_line_count": 250,
+          "imports": [],
+          "bundle_marker_line": 4456,
+          "bundle_source_start_line": 4457,
+          "bundle_source_end_line": 4706
+        },
+        {
+          "file": "contracts/math/Bitmap.sol",
+          "sha256": "b246fa63daf1eafcbfc1db9c57142ce614bddd40c957e8aaab8330c2db8c5072",
+          "source_bytes_utf8": 3150,
+          "source_line_count": 87,
+          "imports": [
+            "../global/Types.sol",
+            "../global/Constants.sol"
+          ],
+          "bundle_marker_line": 4708,
+          "bundle_source_start_line": 4709,
+          "bundle_source_end_line": 4795
+        },
+        {
+          "file": "contracts/math/FloatingPoint56.sol",
+          "sha256": "7543ef131172678ea47afaae50fdb8f325c39a9a38aa00497ca8feb470ef4342",
+          "source_bytes_utf8": 1447,
+          "source_line_count": 34,
+          "imports": [
+            "./Bitmap.sol"
+          ],
+          "bundle_marker_line": 4797,
+          "bundle_source_start_line": 4798,
+          "bundle_source_end_line": 4831
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0004",
+      "path": "bundles/bundle-0004.txt",
+      "estimated_tokens": 11249,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/math/SafeInt256.sol",
+          "sha256": "b3f6784f5859026e25c325f70cf057f42f03c3e5e7dee7f6a78aba8a732a0faf",
+          "source_bytes_utf8": 2695,
+          "source_line_count": 87,
+          "imports": [
+            "../global/Constants.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 88
+        },
+        {
+          "file": "contracts/proxy/ERC1967/ERC1967Proxy.sol",
+          "sha256": "81867812ed4b3840b2feb6dcc2d77cfa5344aa882450d4b583dda4039418dd93",
+          "source_bytes_utf8": 1317,
+          "source_line_count": 32,
+          "imports": [
+            "../Proxy.sol",
+            "./ERC1967Upgrade.sol"
+          ],
+          "bundle_marker_line": 90,
+          "bundle_source_start_line": 91,
+          "bundle_source_end_line": 122
+        },
+        {
+          "file": "contracts/proxy/ERC1967/ERC1967Upgrade.sol",
+          "sha256": "a62b89c2ec9402fd47c86daae16fba3a7849808fc66822ec85c4b5a843ab1fe9",
+          "source_bytes_utf8": 3691,
+          "source_line_count": 107,
+          "imports": [
+            "@openzeppelin/contracts/utils/Address.sol",
+            "../utils/StorageSlot.sol"
+          ],
+          "bundle_marker_line": 124,
+          "bundle_source_start_line": 125,
+          "bundle_source_end_line": 231
+        },
+        {
+          "file": "contracts/proxy/nProxy.sol",
+          "sha256": "11336e3f46594d43ec8cde25de52fde93a86e3f9775aa1e35e64a6b274b23a71",
+          "source_bytes_utf8": 391,
+          "source_line_count": 18,
+          "imports": [
+            "./ERC1967/ERC1967Proxy.sol"
+          ],
+          "bundle_marker_line": 233,
+          "bundle_source_start_line": 234,
+          "bundle_source_end_line": 251
+        },
+        {
+          "file": "contracts/proxy/Proxy.sol",
+          "sha256": "f6dfcc247f6860657328f38dab2d86b036bd2f37e641fc53714769a5b2de77e0",
+          "source_bytes_utf8": 3180,
+          "source_line_count": 85,
+          "imports": [],
+          "bundle_marker_line": 253,
+          "bundle_source_start_line": 254,
+          "bundle_source_end_line": 338
+        },
+        {
+          "file": "contracts/proxy/utils/StorageSlot.sol",
+          "sha256": "18a3064231c7506833f56202a176b760e29e84c8f961527afb65f31b47061813",
+          "source_bytes_utf8": 2427,
+          "source_line_count": 83,
+          "imports": [],
+          "bundle_marker_line": 340,
+          "bundle_source_start_line": 341,
+          "bundle_source_end_line": 423
+        },
+        {
+          "file": "contracts/proxy/utils/UUPSUpgradeable.sol",
+          "sha256": "12fa45c992569eadcd21777a959745166c8f8b3a53ec1be05b733b7207681b1b",
+          "source_bytes_utf8": 2111,
+          "source_line_count": 56,
+          "imports": [
+            "../ERC1967/ERC1967Upgrade.sol"
+          ],
+          "bundle_marker_line": 425,
+          "bundle_source_start_line": 426,
+          "bundle_source_end_line": 481
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorInterface.sol",
+          "sha256": "8cf2680e5486931c34ece48afc3e109233512c41a2291af41cb3b27f035604b7",
+          "source_bytes_utf8": 594,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 483,
+          "bundle_source_start_line": 484,
+          "bundle_source_end_line": 496
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorV2V3Interface.sol",
+          "sha256": "cc8a0b23dcb393e0de01b86b18982516e5e12b01d52b01659512307385248c26",
+          "source_bytes_utf8": 216,
+          "source_line_count": 9,
+          "imports": [
+            "./AggregatorInterface.sol",
+            "./AggregatorV3Interface.sol"
+          ],
+          "bundle_marker_line": 498,
+          "bundle_source_start_line": 499,
+          "bundle_source_end_line": 507
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorV3Interface.sol",
+          "sha256": "d4b1b5d99ebd31ee10542ec10305c7404a2f52ec98a6b8903664f0914b0e6ff6",
+          "source_bytes_utf8": 879,
+          "source_line_count": 35,
+          "imports": [],
+          "bundle_marker_line": 509,
+          "bundle_source_start_line": 510,
+          "bundle_source_end_line": 544
+        },
+        {
+          "file": "interfaces/compound/CErc20Interface.sol",
+          "sha256": "4c3342558fea1b560631750191373f253738c43b08b630f1e4f8cf517695962d",
+          "source_bytes_utf8": 706,
+          "source_line_count": 17,
+          "imports": [
+            "./CTokenInterface.sol"
+          ],
+          "bundle_marker_line": 546,
+          "bundle_source_start_line": 547,
+          "bundle_source_end_line": 563
+        },
+        {
+          "file": "interfaces/compound/CEtherInterface.sol",
+          "sha256": "ca7432dba73d5e8a1ee6ddd05d60e9a3a343b6213d16a65aa510b01f1704872d",
+          "source_bytes_utf8": 133,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 565,
+          "bundle_source_start_line": 566,
+          "bundle_source_end_line": 571
+        },
+        {
+          "file": "interfaces/compound/CTokenInterface.sol",
+          "sha256": "dcfa8a85d3a79e51c518e28f2ba8b3aae3cafa6b6271f396a1da96df24b500cc",
+          "source_bytes_utf8": 1423,
+          "source_line_count": 26,
+          "imports": [],
+          "bundle_marker_line": 573,
+          "bundle_source_start_line": 574,
+          "bundle_source_end_line": 599
+        },
+        {
+          "file": "interfaces/IERC1155TokenReceiver.sol",
+          "sha256": "48fc30066c9721267266f95e1ac539c47250e684152e80f28597e37f1ad51475",
+          "source_bytes_utf8": 2964,
+          "source_line_count": 55,
+          "imports": [],
+          "bundle_marker_line": 601,
+          "bundle_source_start_line": 602,
+          "bundle_source_end_line": 656
+        },
+        {
+          "file": "interfaces/notional/AssetRateAdapter.sol",
+          "sha256": "5c123c43f45fa2a6a504c27d7e36323f4a6ca37be72e61e79a6440899df3c453",
+          "source_bytes_utf8": 783,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 658,
+          "bundle_source_start_line": 659,
+          "bundle_source_end_line": 681
+        },
+        {
+          "file": "interfaces/notional/CashMarketInterface.sol",
+          "sha256": "8652ca74e222d6e8c0a3cf18b493de2e22af529b1a9c6a3e573e8cbfbea778ca",
+          "source_bytes_utf8": 168,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 683,
+          "bundle_source_start_line": 684,
+          "bundle_source_end_line": 689
+        },
+        {
+          "file": "interfaces/notional/INoteERC20.sol",
+          "sha256": "c445368aafca6442bacbbf95c6a3880a8f34ccadfcdc78108b645204794cfbeb",
+          "source_bytes_utf8": 188,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 691,
+          "bundle_source_start_line": 692,
+          "bundle_source_end_line": 697
+        },
+        {
+          "file": "interfaces/notional/nERC1155Interface.sol",
+          "sha256": "ae750a00722b94ce1e217bcbdf1452c7c8ec249fa825aa1bc3a0438a2d9d57da",
+          "source_bytes_utf8": 1905,
+          "source_line_count": 65,
+          "imports": [
+            "../../contracts/global/Types.sol",
+            "@openzeppelin/contracts/introspection/IERC165.sol"
+          ],
+          "bundle_marker_line": 699,
+          "bundle_source_start_line": 700,
+          "bundle_source_end_line": 764
+        },
+        {
+          "file": "interfaces/notional/NotionalCallback.sol",
+          "sha256": "959f4838844be975e07bb241789e5172ba85b96f8f4eff2b52bccaa11f757a5e",
+          "source_bytes_utf8": 199,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 766,
+          "bundle_source_start_line": 767,
+          "bundle_source_end_line": 772
+        },
+        {
+          "file": "interfaces/notional/NotionalGovernance.sol",
+          "sha256": "743c6d397f596b6534ead72312fd86638c5c72874292283d988aebabab05dcee",
+          "source_bytes_utf8": 2977,
+          "source_line_count": 83,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 774,
+          "bundle_source_start_line": 775,
+          "bundle_source_end_line": 857
+        },
+        {
+          "file": "interfaces/notional/NotionalProxy.sol",
+          "sha256": "ce1032e63c335d75487b524154c884e03f74ceb7ca4c440529f0b1b1660e8cb4",
+          "source_bytes_utf8": 6707,
+          "source_line_count": 209,
+          "imports": [
+            "../../contracts/global/Types.sol",
+            "./nTokenERC20.sol",
+            "./nERC1155Interface.sol",
+            "./NotionalGovernance.sol",
+            "./NotionalViews.sol"
+          ],
+          "bundle_marker_line": 859,
+          "bundle_source_start_line": 860,
+          "bundle_source_end_line": 1068
+        },
+        {
+          "file": "interfaces/notional/NotionalViews.sol",
+          "sha256": "e840fa6a41a2e25e074a1e644ffb83f23144fb1b909190674bb6d0d3ddacc210",
+          "source_bytes_utf8": 4481,
+          "source_line_count": 142,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 1070,
+          "bundle_source_start_line": 1071,
+          "bundle_source_end_line": 1212
+        },
+        {
+          "file": "interfaces/notional/nTokenERC20.sol",
+          "sha256": "b410d54a9ee2f3acd64310e88505befa0ddc5c1902fc948123d5ba036d809551",
+          "source_bytes_utf8": 1530,
+          "source_line_count": 52,
+          "imports": [],
+          "bundle_marker_line": 1214,
+          "bundle_source_start_line": 1215,
+          "bundle_source_end_line": 1266
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mocks/BaseMockLiquidation.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/CompoundImports.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockAccountContextHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockAggregator.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockAssetHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockAssetRate.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockBalanceHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockBitmap.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockBitmapAssetsHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockCashGroup.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockCToken.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockERC20.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockExchange.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockExchangeRate.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockFlashLender.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockFloatingPoint56.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockFreeCollateral.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockIncentives.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockLiquidation.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockMarket.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockNTokenHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockPortfolioHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockSettleAssets.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockTokenHandler.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockTransferOperator.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockWETH.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/OpenZeppelinImports.sol",
+      "reason": "out_of_scope_directory:mocks"
+    }
+  ],
+  "source_repo_dir": "2021-08-notional"
+}

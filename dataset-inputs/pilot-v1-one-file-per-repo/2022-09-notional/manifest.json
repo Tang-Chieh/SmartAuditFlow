@@ -1,0 +1,1362 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2022-09-notional",
+  "source_repo_dir": "2022-09-notional",
+  "working_directory": "leveraged-vaults",
+  "source_root_relative_to_repo": "leveraged-vaults",
+  "expected_resolved_commit": "0c729086ccba2816212e4a6046c8a581a622c117",
+  "actual_git_head": "0c729086ccba2816212e4a6046c8a581a622c117",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 95,
+  "excluded_solidity_file_count": 5,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 87224,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 87224,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/global/Constants.sol",
+          "sha256": "f9faee399d33e0fdf95d6611b2fa6de1e0b34f36b6db0f2d7108368598f04e67",
+          "source_bytes_utf8": 5739,
+          "source_line_count": 116,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 117
+        },
+        {
+          "file": "contracts/global/DateTime.sol",
+          "sha256": "e6fe3cfdb81505f170da3183960e709c13d10d6d1986f329551078dfb9562758",
+          "source_bytes_utf8": 5890,
+          "source_line_count": 139,
+          "imports": [
+            "./Constants.sol"
+          ],
+          "bundle_marker_line": 119,
+          "bundle_source_start_line": 120,
+          "bundle_source_end_line": 258
+        },
+        {
+          "file": "contracts/global/Deployments.sol",
+          "sha256": "ea74e5b7207f919c9ab70782cd83cba806f318db59d4089b26162281813ea1b0",
+          "source_bytes_utf8": 1826,
+          "source_line_count": 30,
+          "imports": [
+            "../../interfaces/notional/NotionalProxy.sol",
+            "../../interfaces/IWstETH.sol",
+            "../../interfaces/balancer/IBalancerVault.sol",
+            "../../interfaces/WETH9.sol",
+            "../../interfaces/uniswap/v3/ISwapRouter.sol",
+            "../../interfaces/uniswap/v2/IUniV2Router2.sol",
+            "../../interfaces/curve/ICurveRouter.sol",
+            "../../interfaces/curve/ICurveRegistry.sol"
+          ],
+          "bundle_marker_line": 260,
+          "bundle_source_start_line": 261,
+          "bundle_source_end_line": 290
+        },
+        {
+          "file": "contracts/global/Errors.sol",
+          "sha256": "014c14903b48325bd8c998846c5a3cbff0359043fd001ebb238d8fea4b031bbd",
+          "source_bytes_utf8": 861,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 292,
+          "bundle_source_start_line": 293,
+          "bundle_source_end_line": 313
+        },
+        {
+          "file": "contracts/global/TypeConvert.sol",
+          "sha256": "de093dd9dce1a6f61c4d4d634a9860f102f93431cc991479a91c114a366f6b33",
+          "source_bytes_utf8": 729,
+          "source_line_count": 25,
+          "imports": [],
+          "bundle_marker_line": 315,
+          "bundle_source_start_line": 316,
+          "bundle_source_end_line": 340
+        },
+        {
+          "file": "contracts/global/Types.sol",
+          "sha256": "1178153c8e33ebb085ddde1050854bfc5969e11cc7d0ab35f4096cab788fc86f",
+          "source_bytes_utf8": 22888,
+          "source_line_count": 586,
+          "imports": [
+            "../../interfaces/chainlink/AggregatorV2V3Interface.sol",
+            "../../interfaces/notional/AssetRateAdapter.sol"
+          ],
+          "bundle_marker_line": 342,
+          "bundle_source_start_line": 343,
+          "bundle_source_end_line": 928
+        },
+        {
+          "file": "contracts/proxy/nBeaconProxy.sol",
+          "sha256": "68cbfed64d7184e299004788e0c1a6986069638eb4b73482ca34fd36ddaf24b1",
+          "source_bytes_utf8": 342,
+          "source_line_count": 12,
+          "imports": [
+            "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol"
+          ],
+          "bundle_marker_line": 930,
+          "bundle_source_start_line": 931,
+          "bundle_source_end_line": 942
+        },
+        {
+          "file": "contracts/proxy/nProxy.sol",
+          "sha256": "46c1aa3db6e12e8b646653fd1a5ee89a09bc703b646ebab1976c883a193bc6f6",
+          "source_bytes_utf8": 465,
+          "source_line_count": 19,
+          "imports": [
+            "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol"
+          ],
+          "bundle_marker_line": 944,
+          "bundle_source_start_line": 945,
+          "bundle_source_end_line": 963
+        },
+        {
+          "file": "contracts/proxy/nUpgradeableBeacon.sol",
+          "sha256": "a16577f3873ceede6ca4a91e962921148157204137565dad3949dc1523a2f277",
+          "source_bytes_utf8": 373,
+          "source_line_count": 10,
+          "imports": [
+            "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol"
+          ],
+          "bundle_marker_line": 965,
+          "bundle_source_start_line": 966,
+          "bundle_source_end_line": 975
+        },
+        {
+          "file": "contracts/trading/adapters/BalancerV2Adapter.sol",
+          "sha256": "501c5ac19b90822a954af445ee6f189b399eeae89280b6c3953102c84eaf3347",
+          "source_bytes_utf8": 3208,
+          "source_line_count": 91,
+          "imports": [
+            "../../global/Deployments.sol",
+            "../../../interfaces/trading/ITradingModule.sol",
+            "../../../interfaces/balancer/IBalancerVault.sol"
+          ],
+          "bundle_marker_line": 977,
+          "bundle_source_start_line": 978,
+          "bundle_source_end_line": 1068
+        },
+        {
+          "file": "contracts/trading/adapters/CurveAdapter.sol",
+          "sha256": "0d681f8db8c7fb5c70bcfd2fb47609b1ba814b7db95bdc206e3cc3b91fb9411a",
+          "source_bytes_utf8": 3215,
+          "source_line_count": 92,
+          "imports": [
+            "../../global/Deployments.sol",
+            "../../../interfaces/trading/ITradingModule.sol",
+            "../../../interfaces/curve/ICurvePool.sol",
+            "../../../interfaces/curve/ICurveRegistryProvider.sol",
+            "../../../interfaces/curve/ICurveRouter.sol",
+            "../../../interfaces/curve/ICurveRegistry.sol"
+          ],
+          "bundle_marker_line": 1070,
+          "bundle_source_start_line": 1071,
+          "bundle_source_end_line": 1162
+        },
+        {
+          "file": "contracts/trading/adapters/UniV2Adapter.sol",
+          "sha256": "6a736b45780eb9a670f636c1aedb53369bd95bdf4237f93dab6e68bec8fc34dc",
+          "source_bytes_utf8": 1661,
+          "source_line_count": 53,
+          "imports": [
+            "../../../interfaces/trading/ITradingModule.sol",
+            "../../../interfaces/uniswap/v2/IUniV2Router2.sol",
+            "../../global/Deployments.sol"
+          ],
+          "bundle_marker_line": 1164,
+          "bundle_source_start_line": 1165,
+          "bundle_source_end_line": 1217
+        },
+        {
+          "file": "contracts/trading/adapters/UniV3Adapter.sol",
+          "sha256": "6d3063e350c0addad53866255b1ab07c61cf38a36560d163f83530a5d1bde2a1",
+          "source_bytes_utf8": 3629,
+          "source_line_count": 89,
+          "imports": [
+            "../../global/Deployments.sol",
+            "../TradeHandler.sol",
+            "../../../interfaces/trading/ITradingModule.sol",
+            "../../../interfaces/uniswap/v3/ISwapRouter.sol"
+          ],
+          "bundle_marker_line": 1219,
+          "bundle_source_start_line": 1220,
+          "bundle_source_end_line": 1308
+        },
+        {
+          "file": "contracts/trading/adapters/ZeroExAdapter.sol",
+          "sha256": "92d0d5edd8b27fae8a0c08e0b0725f60b8215940a6f2f537957060c33a17a8cb",
+          "source_bytes_utf8": 884,
+          "source_line_count": 25,
+          "imports": [
+            "../../global/Deployments.sol",
+            "../../../interfaces/trading/ITradingModule.sol"
+          ],
+          "bundle_marker_line": 1310,
+          "bundle_source_start_line": 1311,
+          "bundle_source_end_line": 1335
+        },
+        {
+          "file": "contracts/trading/oracles/wstETHChainlinkOracle.sol",
+          "sha256": "59d7c0214b0b8472bd3e37e98f5bb74b9c41370f35507ed978c3ed72424ed724",
+          "source_bytes_utf8": 2583,
+          "source_line_count": 80,
+          "imports": [
+            "../../../interfaces/chainlink/AggregatorV2V3Interface.sol",
+            "../../../interfaces/IWstETH.sol",
+            "../../global/TypeConvert.sol"
+          ],
+          "bundle_marker_line": 1337,
+          "bundle_source_start_line": 1338,
+          "bundle_source_end_line": 1417
+        },
+        {
+          "file": "contracts/trading/TradeHandler.sol",
+          "sha256": "30371d3e8da0edadbdae0a7c4474e29eb939c3553d4c73767701ae5672d42d0f",
+          "source_bytes_utf8": 1745,
+          "source_line_count": 41,
+          "imports": [
+            "../../interfaces/trading/ITradingModule.sol",
+            "../proxy/nProxy.sol"
+          ],
+          "bundle_marker_line": 1419,
+          "bundle_source_start_line": 1420,
+          "bundle_source_end_line": 1460
+        },
+        {
+          "file": "contracts/trading/TradingModule.sol",
+          "sha256": "e204b07119b891087c70d60a2cde9e20ab77af149d71e87554c03b8de8440351",
+          "source_bytes_utf8": 9852,
+          "source_line_count": 257,
+          "imports": [
+            "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol",
+            "@openzeppelin/contracts/proxy/utils/Initializable.sol",
+            "../global/Deployments.sol",
+            "../global/Constants.sol",
+            "./adapters/BalancerV2Adapter.sol",
+            "./adapters/CurveAdapter.sol",
+            "./adapters/UniV2Adapter.sol",
+            "./adapters/UniV3Adapter.sol",
+            "./adapters/ZeroExAdapter.sol",
+            "./TradingUtils.sol",
+            "../utils/TokenUtils.sol",
+            "../../interfaces/notional/NotionalProxy.sol",
+            "../../interfaces/trading/ITradingModule.sol",
+            "../../interfaces/trading/IVaultExchange.sol",
+            "../../interfaces/chainlink/AggregatorV2V3Interface.sol"
+          ],
+          "bundle_marker_line": 1462,
+          "bundle_source_start_line": 1463,
+          "bundle_source_end_line": 1719
+        },
+        {
+          "file": "contracts/trading/TradingUtils.sol",
+          "sha256": "64fc1cb744580aa58e8f6ecd39d666b61dff65f14fd168abbd55427a2815ffe8",
+          "source_bytes_utf8": 9285,
+          "source_line_count": 222,
+          "imports": [
+            "../global/Deployments.sol",
+            "../global/Constants.sol",
+            "../utils/TokenUtils.sol",
+            "../../interfaces/trading/IVaultExchange.sol",
+            "../../interfaces/trading/ITradingModule.sol",
+            "../proxy/nProxy.sol"
+          ],
+          "bundle_marker_line": 1721,
+          "bundle_source_start_line": 1722,
+          "bundle_source_end_line": 1943
+        },
+        {
+          "file": "contracts/utils/BoringOwnable.sol",
+          "sha256": "0c70dcc1d9f39e5144232ba1d92f6f9f10d1c442c97ddcc8ea02aa0980589590",
+          "source_bytes_utf8": 2027,
+          "source_line_count": 58,
+          "imports": [],
+          "bundle_marker_line": 1945,
+          "bundle_source_start_line": 1946,
+          "bundle_source_end_line": 2003
+        },
+        {
+          "file": "contracts/utils/EmptyProxy.sol",
+          "sha256": "2ca08802fe32af6013d8b2f62bd7b992d7af92a76bfb44008e16730cc6c870f0",
+          "source_bytes_utf8": 519,
+          "source_line_count": 18,
+          "imports": [
+            "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol"
+          ],
+          "bundle_marker_line": 2005,
+          "bundle_source_start_line": 2006,
+          "bundle_source_end_line": 2023
+        },
+        {
+          "file": "contracts/utils/TokenUtils.sol",
+          "sha256": "2d537e47438d59ec2b7714049f749818b93fd1c7f561b8cb3f47d5dbf59fe895",
+          "source_bytes_utf8": 2009,
+          "source_line_count": 60,
+          "imports": [
+            "../../interfaces/IERC20.sol",
+            "../../interfaces/IEIP20NonStandard.sol",
+            "../global/Deployments.sol"
+          ],
+          "bundle_marker_line": 2025,
+          "bundle_source_start_line": 2026,
+          "bundle_source_end_line": 2085
+        },
+        {
+          "file": "contracts/vaults/balancer/BalancerEvents.sol",
+          "sha256": "930bad6b6950fc048849f02b552c97308864cecfa895558e95aec970b57b04d5",
+          "source_bytes_utf8": 747,
+          "source_line_count": 24,
+          "imports": [
+            "./BalancerVaultTypes.sol",
+            "../../../interfaces/IERC20.sol"
+          ],
+          "bundle_marker_line": 2087,
+          "bundle_source_start_line": 2088,
+          "bundle_source_end_line": 2111
+        },
+        {
+          "file": "contracts/vaults/balancer/BalancerStrategyBase.sol",
+          "sha256": "b0fc07f16f166ae7e022fbc86d0a8f585d135f27f3406c924056790859c059f5",
+          "source_bytes_utf8": 1125,
+          "source_line_count": 32,
+          "imports": [
+            "../BaseStrategyVault.sol",
+            "./BalancerVaultTypes.sol",
+            "../../../interfaces/notional/NotionalProxy.sol",
+            "@openzeppelin/contracts/proxy/utils/UUPSUpgradeable.sol"
+          ],
+          "bundle_marker_line": 2113,
+          "bundle_source_start_line": 2114,
+          "bundle_source_end_line": 2145
+        },
+        {
+          "file": "contracts/vaults/balancer/BalancerVaultTypes.sol",
+          "sha256": "d1bfafb757ab55526341a38539d8a967b08d48646915b8984b33671d57bcace8",
+          "source_bytes_utf8": 6087,
+          "source_line_count": 208,
+          "imports": [
+            "../../../interfaces/notional/IStrategyVault.sol",
+            "../../../interfaces/notional/IVaultController.sol",
+            "../../../interfaces/aura/IAuraBooster.sol",
+            "../../../interfaces/aura/IAuraRewardPool.sol",
+            "../../../interfaces/notional/NotionalProxy.sol",
+            "../../../interfaces/balancer/ILiquidityGauge.sol",
+            "../../../interfaces/balancer/IBalancerVault.sol",
+            "../../../interfaces/balancer/IBalancerMinter.sol",
+            "../../../interfaces/balancer/IPriceOracle.sol",
+            "../../../interfaces/balancer/IBalancerVault.sol",
+            "../../../interfaces/trading/ITradingModule.sol",
+            "../../../interfaces/IERC20.sol"
+          ],
+          "bundle_marker_line": 2147,
+          "bundle_source_start_line": 2148,
+          "bundle_source_end_line": 2355
+        },
+        {
+          "file": "contracts/vaults/balancer/external/Boosted3TokenAuraHelper.sol",
+          "sha256": "57f8000c0a890037eca35feac58d5c3debee80b426ba5b0410b50863be16ad7e",
+          "source_bytes_utf8": 5698,
+          "source_line_count": 144,
+          "imports": [
+            "../BalancerVaultTypes.sol",
+            "../internal/BalancerConstants.sol",
+            "../BalancerEvents.sol",
+            "../internal/settlement/SettlementUtils.sol",
+            "../internal/strategy/StrategyUtils.sol",
+            "../internal/pool/Boosted3TokenPoolUtils.sol",
+            "../internal/reward/Boosted3TokenAuraRewardUtils.sol",
+            "../internal/BalancerVaultStorage.sol",
+            "../internal/math/StableMath.sol"
+          ],
+          "bundle_marker_line": 2357,
+          "bundle_source_start_line": 2358,
+          "bundle_source_end_line": 2501
+        },
+        {
+          "file": "contracts/vaults/balancer/external/MetaStable2TokenAuraHelper.sol",
+          "sha256": "a1832b7bda451af3f2aa5ea9b6affbd5c8fd37b0c1ab029da76b2efabb73779c",
+          "source_bytes_utf8": 6033,
+          "source_line_count": 153,
+          "imports": [
+            "../BalancerVaultTypes.sol",
+            "../BalancerEvents.sol",
+            "../internal/settlement/SettlementUtils.sol",
+            "../internal/strategy/StrategyUtils.sol",
+            "../internal/pool/TwoTokenPoolUtils.sol",
+            "../internal/reward/TwoTokenAuraRewardUtils.sol",
+            "../internal/math/Stable2TokenOracleMath.sol",
+            "../internal/BalancerVaultStorage.sol",
+            "../../../../interfaces/IERC20.sol"
+          ],
+          "bundle_marker_line": 2503,
+          "bundle_source_start_line": 2504,
+          "bundle_source_end_line": 2656
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/BalancerConstants.sol",
+          "sha256": "5a283350b05359e241f5050e23186bd10f4f0f07bb594477ec85f14fbab4c62e",
+          "source_bytes_utf8": 897,
+          "source_line_count": 18,
+          "imports": [],
+          "bundle_marker_line": 2658,
+          "bundle_source_start_line": 2659,
+          "bundle_source_end_line": 2676
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/BalancerVaultStorage.sol",
+          "sha256": "583214c777fee1c156b6dd37374938955165292beb974447d1313dfde0d7a627",
+          "source_bytes_utf8": 3096,
+          "source_line_count": 64,
+          "imports": [
+            "../BalancerVaultTypes.sol",
+            "../BalancerEvents.sol",
+            "./BalancerConstants.sol"
+          ],
+          "bundle_marker_line": 2678,
+          "bundle_source_start_line": 2679,
+          "bundle_source_end_line": 2742
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/math/FixedPoint.sol",
+          "sha256": "c82f18022893a8506017cb60fb1156e0dde0f1cfd00fe7f458086c7cfaf2b511",
+          "source_bytes_utf8": 3322,
+          "source_line_count": 94,
+          "imports": [],
+          "bundle_marker_line": 2744,
+          "bundle_source_start_line": 2745,
+          "bundle_source_end_line": 2838
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/math/Math.sol",
+          "sha256": "f55a7b8ad3b71ce992b04188f257ca43205b3bbe899ac98124d7cd3bf08c122d",
+          "source_bytes_utf8": 1981,
+          "source_line_count": 75,
+          "imports": [],
+          "bundle_marker_line": 2840,
+          "bundle_source_start_line": 2841,
+          "bundle_source_end_line": 2915
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/math/Stable2TokenOracleMath.sol",
+          "sha256": "6e1029c5e0ef5802e4d482c8ea0c41530159962926bdba879a31a5cc6d5cfd96",
+          "source_bytes_utf8": 5849,
+          "source_line_count": 120,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../BalancerConstants.sol",
+            "../../../../global/Errors.sol",
+            "../../../../global/TypeConvert.sol",
+            "../../../../../interfaces/balancer/IPriceOracle.sol",
+            "./StableMath.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol"
+          ],
+          "bundle_marker_line": 2917,
+          "bundle_source_start_line": 2918,
+          "bundle_source_end_line": 3037
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/math/StableMath.sol",
+          "sha256": "02070c89e9d5190986d7729daec319256df062ad5952f123b05b8f28c57d415f",
+          "source_bytes_utf8": 16856,
+          "source_line_count": 333,
+          "imports": [
+            "./Math.sol",
+            "./FixedPoint.sol"
+          ],
+          "bundle_marker_line": 3039,
+          "bundle_source_start_line": 3040,
+          "bundle_source_end_line": 3372
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/pool/BalancerUtils.sol",
+          "sha256": "4b9e11b4531a74fd136f34798845089f7a118d915e961feb1a5353048a4e9efc",
+          "source_bytes_utf8": 5606,
+          "source_line_count": 153,
+          "imports": [
+            "../../../../../interfaces/balancer/IBalancerVault.sol",
+            "../../BalancerVaultTypes.sol",
+            "../../../../../interfaces/balancer/IPriceOracle.sol",
+            "../../../../global/Constants.sol",
+            "../../../../global/Deployments.sol",
+            "../BalancerConstants.sol",
+            "../../../../utils/TokenUtils.sol"
+          ],
+          "bundle_marker_line": 3374,
+          "bundle_source_start_line": 3375,
+          "bundle_source_end_line": 3527
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol",
+          "sha256": "8c802b1ee1de386da08336d4351fdfe47c61cb88df154522bcd77c17b37b18f6",
+          "source_bytes_utf8": 18984,
+          "source_line_count": 433,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../../../global/TypeConvert.sol",
+            "../BalancerConstants.sol",
+            "../../../../global/Deployments.sol",
+            "../../../../global/Errors.sol",
+            "../pool/BalancerUtils.sol",
+            "../pool/Boosted3TokenPoolUtils.sol",
+            "../math/StableMath.sol",
+            "../staking/AuraStakingUtils.sol",
+            "../strategy/StrategyUtils.sol",
+            "../BalancerVaultStorage.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol",
+            "../../../../../interfaces/balancer/IBalancerPool.sol",
+            "../../../../utils/TokenUtils.sol",
+            "./TwoTokenPoolUtils.sol",
+            "../math/FixedPoint.sol"
+          ],
+          "bundle_marker_line": 3529,
+          "bundle_source_start_line": 3530,
+          "bundle_source_end_line": 3962
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol",
+          "sha256": "92b0fd07c29fdac1d5be9618932b7c25ccc2a4e042c329463ea4c5cdff419939",
+          "source_bytes_utf8": 14944,
+          "source_line_count": 341,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../../../global/Deployments.sol",
+            "../BalancerConstants.sol",
+            "../../../../global/Errors.sol",
+            "../../../../global/Constants.sol",
+            "../../../../global/TypeConvert.sol",
+            "../../../../../interfaces/balancer/IBalancerVault.sol",
+            "../../../../trading/TradeHandler.sol",
+            "../pool/BalancerUtils.sol",
+            "../staking/AuraStakingUtils.sol",
+            "../BalancerVaultStorage.sol",
+            "../strategy/StrategyUtils.sol",
+            "../pool/TwoTokenPoolUtils.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol",
+            "../../../../../interfaces/balancer/IPriceOracle.sol",
+            "../../../../utils/TokenUtils.sol"
+          ],
+          "bundle_marker_line": 3964,
+          "bundle_source_start_line": 3965,
+          "bundle_source_end_line": 4305
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/reward/Boosted3TokenAuraRewardUtils.sol",
+          "sha256": "3b30ab2e19e4039685db3c8d20541827c0ce4319be0c39c53d68c52a6d440044",
+          "source_bytes_utf8": 2359,
+          "source_line_count": 61,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../BalancerEvents.sol",
+            "../../../../global/Errors.sol",
+            "../BalancerConstants.sol",
+            "../pool/Boosted3TokenPoolUtils.sol",
+            "../strategy/StrategyUtils.sol",
+            "../staking/AuraStakingUtils.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol",
+            "../../../../../interfaces/balancer/IBalancerPool.sol"
+          ],
+          "bundle_marker_line": 4307,
+          "bundle_source_start_line": 4308,
+          "bundle_source_end_line": 4368
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/reward/TwoTokenAuraRewardUtils.sol",
+          "sha256": "915f324606d3b23b0e397520a6e67aff87cf769a1c5f3e19af2822ee28a0e0be",
+          "source_bytes_utf8": 3462,
+          "source_line_count": 89,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../../../global/Errors.sol",
+            "../../BalancerEvents.sol",
+            "../BalancerConstants.sol",
+            "../pool/BalancerUtils.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol",
+            "../pool/TwoTokenPoolUtils.sol",
+            "../strategy/StrategyUtils.sol",
+            "../staking/AuraStakingUtils.sol"
+          ],
+          "bundle_marker_line": 4370,
+          "bundle_source_start_line": 4371,
+          "bundle_source_end_line": 4459
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/settlement/SettlementUtils.sol",
+          "sha256": "7824d1e58e4cfddc1a38d2a629dd6306a01e63b0d4d8618a63932816defa65fb",
+          "source_bytes_utf8": 7306,
+          "source_line_count": 166,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../../../global/Types.sol",
+            "../../../../global/Errors.sol",
+            "../../../../global/Deployments.sol",
+            "../../../../global/Constants.sol",
+            "../BalancerConstants.sol",
+            "../../../../global/TypeConvert.sol",
+            "../strategy/StrategyUtils.sol",
+            "../BalancerVaultStorage.sol"
+          ],
+          "bundle_marker_line": 4461,
+          "bundle_source_start_line": 4462,
+          "bundle_source_end_line": 4627
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/staking/AuraStakingUtils.sol",
+          "sha256": "6a7c9d15728b967f176e458feec4410fd61448d8fa8e228ca79762f43165c409",
+          "source_bytes_utf8": 484,
+          "source_line_count": 15,
+          "imports": [
+            "../../BalancerVaultTypes.sol"
+          ],
+          "bundle_marker_line": 4629,
+          "bundle_source_start_line": 4630,
+          "bundle_source_end_line": 4644
+        },
+        {
+          "file": "contracts/vaults/balancer/internal/strategy/StrategyUtils.sol",
+          "sha256": "384020cb1e65ceab31af8a6de7f6e7c4ef44a7184f5f30257474a0fb1f5b5600",
+          "source_bytes_utf8": 4311,
+          "source_line_count": 92,
+          "imports": [
+            "../../BalancerVaultTypes.sol",
+            "../../../../utils/TokenUtils.sol",
+            "../../../../trading/TradeHandler.sol",
+            "../pool/BalancerUtils.sol",
+            "../../../../global/Deployments.sol",
+            "../../../../global/Constants.sol",
+            "../BalancerConstants.sol",
+            "../../../../../interfaces/trading/ITradingModule.sol"
+          ],
+          "bundle_marker_line": 4646,
+          "bundle_source_start_line": 4647,
+          "bundle_source_end_line": 4738
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/AuraStakingMixin.sol",
+          "sha256": "d1bba5e756260e74e5a6fecde1b9a77fdb4471fcaf6f6b486d32899979dd9e36",
+          "source_bytes_utf8": 3873,
+          "source_line_count": 85,
+          "imports": [
+            "../BalancerVaultTypes.sol",
+            "../../../../interfaces/balancer/ILiquidityGauge.sol",
+            "../../../../interfaces/aura/IAuraBooster.sol",
+            "../../../../interfaces/aura/IAuraRewardPool.sol",
+            "../../../../interfaces/aura/IAuraStakingProxy.sol",
+            "../../../utils/TokenUtils.sol",
+            "../internal/BalancerVaultStorage.sol",
+            "../internal/BalancerConstants.sol",
+            "../BalancerEvents.sol"
+          ],
+          "bundle_marker_line": 4740,
+          "bundle_source_start_line": 4741,
+          "bundle_source_end_line": 4825
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/BalancerOracleMixin.sol",
+          "sha256": "45efa43dfddb61b6f5d9cf1e7a6033572779f1f9ac7894ebf1e7c84345b1ec32",
+          "source_bytes_utf8": 1239,
+          "source_line_count": 28,
+          "imports": [
+            "../../../../interfaces/balancer/IPriceOracle.sol",
+            "../BalancerVaultTypes.sol",
+            "../../../global/Deployments.sol",
+            "../internal/BalancerVaultStorage.sol"
+          ],
+          "bundle_marker_line": 4827,
+          "bundle_source_start_line": 4828,
+          "bundle_source_end_line": 4855
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/Boosted3TokenPoolMixin.sol",
+          "sha256": "fcb5360b35a936646d9facfec5d9585336c049b4eeab6110bb31fec24d3a1869",
+          "source_bytes_utf8": 5239,
+          "source_line_count": 138,
+          "imports": [
+            "../BalancerVaultTypes.sol",
+            "../../../../interfaces/IERC20.sol",
+            "../../../../interfaces/balancer/IBalancerPool.sol",
+            "../internal/pool/BalancerUtils.sol",
+            "../../../global/Deployments.sol",
+            "./PoolMixin.sol",
+            "../../../../interfaces/notional/NotionalProxy.sol"
+          ],
+          "bundle_marker_line": 4857,
+          "bundle_source_start_line": 4858,
+          "bundle_source_end_line": 4995
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/MetaStable2TokenVaultMixin.sol",
+          "sha256": "339a17e1406faf98b713d3c6d4ef79bb29ab73b93bb9cdb316befd2160fa0716",
+          "source_bytes_utf8": 1435,
+          "source_line_count": 34,
+          "imports": [
+            "../../../../interfaces/balancer/IBalancerPool.sol",
+            "../BalancerVaultTypes.sol",
+            "./BalancerOracleMixin.sol",
+            "./TwoTokenPoolMixin.sol",
+            "../BalancerVaultTypes.sol",
+            "../../../../interfaces/notional/NotionalProxy.sol"
+          ],
+          "bundle_marker_line": 4997,
+          "bundle_source_start_line": 4998,
+          "bundle_source_end_line": 5031
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/PoolMixin.sol",
+          "sha256": "8e584f65e488fc9ca2894c9cba9e184d52018480655f0e91a0d80bfeffc35b7e",
+          "source_bytes_utf8": 2734,
+          "source_line_count": 63,
+          "imports": [
+            "../../../../interfaces/IERC20.sol",
+            "../BalancerVaultTypes.sol",
+            "../../../global/Deployments.sol",
+            "../BalancerStrategyBase.sol",
+            "../../../../interfaces/notional/NotionalProxy.sol",
+            "./AuraStakingMixin.sol",
+            "../internal/BalancerVaultStorage.sol",
+            "../internal/strategy/StrategyUtils.sol"
+          ],
+          "bundle_marker_line": 5033,
+          "bundle_source_start_line": 5034,
+          "bundle_source_end_line": 5096
+        },
+        {
+          "file": "contracts/vaults/balancer/mixins/TwoTokenPoolMixin.sol",
+          "sha256": "cc89214ddf926485134a11681261192225df5e9a06dbbdba1fc6169252354117",
+          "source_bytes_utf8": 3574,
+          "source_line_count": 88,
+          "imports": [
+            "../../../../interfaces/IERC20.sol",
+            "../../../global/Deployments.sol",
+            "../BalancerVaultTypes.sol",
+            "../internal/BalancerConstants.sol",
+            "../internal/pool/BalancerUtils.sol",
+            "./PoolMixin.sol",
+            "../../../../interfaces/notional/NotionalProxy.sol"
+          ],
+          "bundle_marker_line": 5098,
+          "bundle_source_start_line": 5099,
+          "bundle_source_end_line": 5186
+        },
+        {
+          "file": "contracts/vaults/BaseStrategyVault.sol",
+          "sha256": "f6f2323904fc39f831c03a0788ae1189d4fc7df82f8907714797a9339201bb08",
+          "source_bytes_utf8": 7947,
+          "source_line_count": 197,
+          "imports": [
+            "../global/Types.sol",
+            "@openzeppelin/contracts/proxy/utils/Initializable.sol",
+            "../../interfaces/notional/IStrategyVault.sol",
+            "../../interfaces/notional/NotionalProxy.sol",
+            "../../interfaces/trading/ITradingModule.sol",
+            "../../interfaces/IERC20.sol",
+            "../utils/TokenUtils.sol",
+            "../trading/TradeHandler.sol",
+            "../proxy/nProxy.sol"
+          ],
+          "bundle_marker_line": 5188,
+          "bundle_source_start_line": 5189,
+          "bundle_source_end_line": 5385
+        },
+        {
+          "file": "contracts/vaults/Boosted3TokenAuraVault.sol",
+          "sha256": "17ab8df8d7e662b65c416e4ef7b04ac8527a67d64ba3ee049a07d00eca34dffc",
+          "source_bytes_utf8": 8207,
+          "source_line_count": 208,
+          "imports": [
+            "../global/Errors.sol",
+            "../global/Deployments.sol",
+            "./balancer/BalancerVaultTypes.sol",
+            "./balancer/BalancerStrategyBase.sol",
+            "./balancer/mixins/Boosted3TokenPoolMixin.sol",
+            "./balancer/mixins/AuraStakingMixin.sol",
+            "../../interfaces/notional/NotionalProxy.sol",
+            "./balancer/internal/BalancerVaultStorage.sol",
+            "./balancer/internal/strategy/StrategyUtils.sol",
+            "./balancer/internal/settlement/SettlementUtils.sol",
+            "./balancer/internal/pool/Boosted3TokenPoolUtils.sol",
+            "./balancer/external/Boosted3TokenAuraHelper.sol"
+          ],
+          "bundle_marker_line": 5387,
+          "bundle_source_start_line": 5388,
+          "bundle_source_end_line": 5595
+        },
+        {
+          "file": "contracts/vaults/CrossCurrencyfCashVault.sol",
+          "sha256": "17e97668848d8c7285718a150fa394d592586a154a2f4010a4779a45c1e65c52",
+          "source_bytes_utf8": 14276,
+          "source_line_count": 320,
+          "imports": [
+            "@openzeppelin/contracts/utils/math/SafeCast.sol",
+            "../../interfaces/notional/NotionalProxy.sol",
+            "../../interfaces/notional/IWrappedfCashFactory.sol",
+            "../../interfaces/WETH9.sol",
+            "../../interfaces/notional/IWrappedfCash.sol",
+            "./BaseStrategyVault.sol",
+            "../utils/TokenUtils.sol",
+            "../global/Types.sol",
+            "../global/Constants.sol",
+            "../global/DateTime.sol",
+            "../global/TypeConvert.sol",
+            "../../interfaces/trading/ITradingModule.sol",
+            "../trading/TradeHandler.sol"
+          ],
+          "bundle_marker_line": 5597,
+          "bundle_source_start_line": 5598,
+          "bundle_source_end_line": 5917
+        },
+        {
+          "file": "contracts/vaults/MetaStable2TokenAuraVault.sol",
+          "sha256": "8b81836ee0a623e6402b7e6cdd18f1d90e9255d6aef7762808063d7539c255bb",
+          "source_bytes_utf8": 7667,
+          "source_line_count": 191,
+          "imports": [
+            "./balancer/internal/BalancerConstants.sol",
+            "../global/Errors.sol",
+            "./balancer/BalancerVaultTypes.sol",
+            "./balancer/BalancerStrategyBase.sol",
+            "./balancer/mixins/MetaStable2TokenVaultMixin.sol",
+            "./balancer/mixins/AuraStakingMixin.sol",
+            "../../interfaces/notional/NotionalProxy.sol",
+            "./balancer/internal/BalancerVaultStorage.sol",
+            "./balancer/internal/strategy/StrategyUtils.sol",
+            "./balancer/internal/settlement/SettlementUtils.sol",
+            "./balancer/internal/pool/TwoTokenPoolUtils.sol",
+            "./balancer/external/MetaStable2TokenAuraHelper.sol"
+          ],
+          "bundle_marker_line": 5919,
+          "bundle_source_start_line": 5920,
+          "bundle_source_end_line": 6110
+        },
+        {
+          "file": "interfaces/aave/ILendingPool.sol",
+          "sha256": "12df57d57b52f1af0fe823e9acaf137a447da2aefbf22fd23bcde23c370b03c1",
+          "source_bytes_utf8": 3788,
+          "source_line_count": 104,
+          "imports": [],
+          "bundle_marker_line": 6112,
+          "bundle_source_start_line": 6113,
+          "bundle_source_end_line": 6216
+        },
+        {
+          "file": "interfaces/aura/IAuraBooster.sol",
+          "sha256": "b68c7491e63a8ce5c480dc3dcc7fced80b7f3ef6adb9e3e98e12ad37fafc1980",
+          "source_bytes_utf8": 203,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 6218,
+          "bundle_source_start_line": 6219,
+          "bundle_source_end_line": 6225
+        },
+        {
+          "file": "interfaces/aura/IAuraRewardPool.sol",
+          "sha256": "f105d8e5a052b6758424bd592508909206a3fd11dd53664a162f7bee82145536",
+          "source_bytes_utf8": 403,
+          "source_line_count": 10,
+          "imports": [],
+          "bundle_marker_line": 6227,
+          "bundle_source_start_line": 6228,
+          "bundle_source_end_line": 6237
+        },
+        {
+          "file": "interfaces/aura/IAuraStakingProxy.sol",
+          "sha256": "cd05ba03ba7753e4dcc0c21b4ec8e3a2e052955d872c257a17260e19e5a51a22",
+          "source_bytes_utf8": 160,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 6239,
+          "bundle_source_start_line": 6240,
+          "bundle_source_end_line": 6246
+        },
+        {
+          "file": "interfaces/balancer/IBalancerMinter.sol",
+          "sha256": "b76c98619dfc428a29ebb5c445cdf2033bae0f592309f558c10ad73cd1260686",
+          "source_bytes_utf8": 159,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 6248,
+          "bundle_source_start_line": 6249,
+          "bundle_source_end_line": 6255
+        },
+        {
+          "file": "interfaces/balancer/IBalancerPool.sol",
+          "sha256": "a3e81ff3213588bf8972c960080ef7fe7788554946fe104283d6037c6879cd83",
+          "source_bytes_utf8": 1377,
+          "source_line_count": 45,
+          "imports": [
+            "../IERC20.sol"
+          ],
+          "bundle_marker_line": 6257,
+          "bundle_source_start_line": 6258,
+          "bundle_source_end_line": 6302
+        },
+        {
+          "file": "interfaces/balancer/IBalancerVault.sol",
+          "sha256": "96dd52049671c51f03e98577e0829e8fa74de4cf2a903b48bf772e84854b209d",
+          "source_bytes_utf8": 2630,
+          "source_line_count": 115,
+          "imports": [],
+          "bundle_marker_line": 6304,
+          "bundle_source_start_line": 6305,
+          "bundle_source_end_line": 6419
+        },
+        {
+          "file": "interfaces/balancer/ILiquidityGauge.sol",
+          "sha256": "6267fff5cde12baf6681f8819528e83ee77866bb0408e462cb5f7a2d9a53c079",
+          "source_bytes_utf8": 879,
+          "source_line_count": 28,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 6421,
+          "bundle_source_start_line": 6422,
+          "bundle_source_end_line": 6449
+        },
+        {
+          "file": "interfaces/balancer/IPriceOracle.sol",
+          "sha256": "d829c9a50a801005c6349f975ef8822f7a657ab46f89086f180bc4babef1ebf8",
+          "source_bytes_utf8": 4250,
+          "source_line_count": 96,
+          "imports": [],
+          "bundle_marker_line": 6451,
+          "bundle_source_start_line": 6452,
+          "bundle_source_end_line": 6547
+        },
+        {
+          "file": "interfaces/balancer/ISmartWalletChecker.sol",
+          "sha256": "b56e1aeba4382eb7ac2fc9a5bd310d1a0214542d9a6bdecbda647740e94528a8",
+          "source_bytes_utf8": 124,
+          "source_line_count": 5,
+          "imports": [],
+          "bundle_marker_line": 6549,
+          "bundle_source_start_line": 6550,
+          "bundle_source_end_line": 6554
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorInterface.sol",
+          "sha256": "8cf2680e5486931c34ece48afc3e109233512c41a2291af41cb3b27f035604b7",
+          "source_bytes_utf8": 594,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 6556,
+          "bundle_source_start_line": 6557,
+          "bundle_source_end_line": 6569
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorV2V3Interface.sol",
+          "sha256": "cc8a0b23dcb393e0de01b86b18982516e5e12b01d52b01659512307385248c26",
+          "source_bytes_utf8": 216,
+          "source_line_count": 9,
+          "imports": [
+            "./AggregatorInterface.sol",
+            "./AggregatorV3Interface.sol"
+          ],
+          "bundle_marker_line": 6571,
+          "bundle_source_start_line": 6572,
+          "bundle_source_end_line": 6580
+        },
+        {
+          "file": "interfaces/chainlink/AggregatorV3Interface.sol",
+          "sha256": "d4b1b5d99ebd31ee10542ec10305c7404a2f52ec98a6b8903664f0914b0e6ff6",
+          "source_bytes_utf8": 879,
+          "source_line_count": 35,
+          "imports": [],
+          "bundle_marker_line": 6582,
+          "bundle_source_start_line": 6583,
+          "bundle_source_end_line": 6617
+        },
+        {
+          "file": "interfaces/compound/CErc20Interface.sol",
+          "sha256": "38e8652d03d5ace317a30c3725a72f033e6da7bd402b21bb7f61edc74c7e396d",
+          "source_bytes_utf8": 707,
+          "source_line_count": 17,
+          "imports": [
+            "./CTokenInterface.sol"
+          ],
+          "bundle_marker_line": 6619,
+          "bundle_source_start_line": 6620,
+          "bundle_source_end_line": 6636
+        },
+        {
+          "file": "interfaces/compound/CEtherInterface.sol",
+          "sha256": "db4b348b7288518c0419dcc3b9620155d8d2d1515920dcd0712b84a23712559e",
+          "source_bytes_utf8": 134,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 6638,
+          "bundle_source_start_line": 6639,
+          "bundle_source_end_line": 6644
+        },
+        {
+          "file": "interfaces/compound/CTokenInterface.sol",
+          "sha256": "7cb3bc50c6ad1b6368d37957d9c9a5984fce3e6c8949c244fbaf41f3ebaa5493",
+          "source_bytes_utf8": 1424,
+          "source_line_count": 26,
+          "imports": [],
+          "bundle_marker_line": 6646,
+          "bundle_source_start_line": 6647,
+          "bundle_source_end_line": 6672
+        },
+        {
+          "file": "interfaces/curve/ICurvePool.sol",
+          "sha256": "e20fb4398b0d38df37cd19062b0c6a28d164b55f57a045eb5d6c4d90c4d7a2df",
+          "source_bytes_utf8": 809,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 6674,
+          "bundle_source_start_line": 6675,
+          "bundle_source_end_line": 6695
+        },
+        {
+          "file": "interfaces/curve/ICurveRegistry.sol",
+          "sha256": "ec313f3a080c72aa485335a1e8f063372a36cc7f6d7d2dee41317211cf4ab195",
+          "source_bytes_utf8": 217,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 6697,
+          "bundle_source_start_line": 6698,
+          "bundle_source_end_line": 6706
+        },
+        {
+          "file": "interfaces/curve/ICurveRegistryProvider.sol",
+          "sha256": "2a18988b693f2716fae7d46fbdae071ed185a6658cefd2f408e91543644ed149",
+          "source_bytes_utf8": 168,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 6708,
+          "bundle_source_start_line": 6709,
+          "bundle_source_end_line": 6714
+        },
+        {
+          "file": "interfaces/curve/ICurveRouter.sol",
+          "sha256": "004d70421cbd6f3868a0826f061a386f64aef660cc97d60136b267d459e9c864",
+          "source_bytes_utf8": 615,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 6716,
+          "bundle_source_start_line": 6717,
+          "bundle_source_end_line": 6739
+        },
+        {
+          "file": "interfaces/IEIP20NonStandard.sol",
+          "sha256": "98706ff1f1e51400093ff908fbf0e840db943ab39285affc78c0bfc2cfa1e4ee",
+          "source_bytes_utf8": 2850,
+          "source_line_count": 76,
+          "imports": [],
+          "bundle_marker_line": 6741,
+          "bundle_source_start_line": 6742,
+          "bundle_source_end_line": 6817
+        },
+        {
+          "file": "interfaces/IERC20.sol",
+          "sha256": "38b7ca3956d59d4b1151c4c70f0f947283d68d3b5fb79dfba1dddd4a489e225c",
+          "source_bytes_utf8": 2752,
+          "source_line_count": 78,
+          "imports": [],
+          "bundle_marker_line": 6819,
+          "bundle_source_start_line": 6820,
+          "bundle_source_end_line": 6897
+        },
+        {
+          "file": "interfaces/IERC4626.sol",
+          "sha256": "4788965b931269735fc2c173a79e46cfef2a2510c00b1c0f0065e42e79ea658d",
+          "source_bytes_utf8": 11820,
+          "source_line_count": 228,
+          "imports": [],
+          "bundle_marker_line": 6899,
+          "bundle_source_start_line": 6900,
+          "bundle_source_end_line": 7127
+        },
+        {
+          "file": "interfaces/IWstETH.sol",
+          "sha256": "d92375cbbf094a0b9c45f28d80c534add7e98bf42d00ce5f110ca0ef8266c1fc",
+          "source_bytes_utf8": 468,
+          "source_line_count": 12,
+          "imports": [
+            "./IERC20.sol"
+          ],
+          "bundle_marker_line": 7129,
+          "bundle_source_start_line": 7130,
+          "bundle_source_end_line": 7141
+        },
+        {
+          "file": "interfaces/notional/AssetRateAdapter.sol",
+          "sha256": "5c123c43f45fa2a6a504c27d7e36323f4a6ca37be72e61e79a6440899df3c453",
+          "source_bytes_utf8": 783,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 7143,
+          "bundle_source_start_line": 7144,
+          "bundle_source_end_line": 7166
+        },
+        {
+          "file": "interfaces/notional/IBoostController.sol",
+          "sha256": "98a22a8f42d1a55990b0d1388fc5c454deb93526f587a7c9a9b46dbcf788a299",
+          "source_bytes_utf8": 671,
+          "source_line_count": 21,
+          "imports": [
+            "./IVeBalDelegator.sol",
+            "../balancer/ILiquidityGauge.sol"
+          ],
+          "bundle_marker_line": 7168,
+          "bundle_source_start_line": 7169,
+          "bundle_source_end_line": 7189
+        },
+        {
+          "file": "interfaces/notional/INTokenAction.sol",
+          "sha256": "fe783c2df8eda8d6edf6f408fe53188aaf27e8c50135409432c03389eebafa2f",
+          "source_bytes_utf8": 1843,
+          "source_line_count": 62,
+          "imports": [],
+          "bundle_marker_line": 7191,
+          "bundle_source_start_line": 7192,
+          "bundle_source_end_line": 7253
+        },
+        {
+          "file": "interfaces/notional/IRewarder.sol",
+          "sha256": "32f97954b1216f1f414d42a66af761f98ff8a86c853b4bcfb00fab7cd40530b0",
+          "source_bytes_utf8": 331,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 7255,
+          "bundle_source_start_line": 7256,
+          "bundle_source_end_line": 7268
+        },
+        {
+          "file": "interfaces/notional/IStrategyVault.sol",
+          "sha256": "4e28e5c07361333c23f5010c4f77c8c2f5942ea52d1505832862bbd753027aca",
+          "source_bytes_utf8": 1318,
+          "source_line_count": 39,
+          "imports": [],
+          "bundle_marker_line": 7270,
+          "bundle_source_start_line": 7271,
+          "bundle_source_end_line": 7309
+        },
+        {
+          "file": "interfaces/notional/IVaultController.sol",
+          "sha256": "73c249abaf0c027742bd303778bf4ba28cb5f7396303c211075a7c22089f8033",
+          "source_bytes_utf8": 13395,
+          "source_line_count": 356,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 7311,
+          "bundle_source_start_line": 7312,
+          "bundle_source_end_line": 7667
+        },
+        {
+          "file": "interfaces/notional/IVeBalDelegator.sol",
+          "sha256": "d3348a458cccb2d3ae95f3a1881ae501632c36310385633c6097940b51f82b86",
+          "source_bytes_utf8": 906,
+          "source_line_count": 36,
+          "imports": [],
+          "bundle_marker_line": 7669,
+          "bundle_source_start_line": 7670,
+          "bundle_source_end_line": 7705
+        },
+        {
+          "file": "interfaces/notional/IWrappedfCash.sol",
+          "sha256": "fc7336e51d73b045cab92a776265c5a5f679d2e56665cf85efb7bcafd146ab4c",
+          "source_bytes_utf8": 2747,
+          "source_line_count": 68,
+          "imports": [
+            "../../contracts/global/Types.sol",
+            "../IERC4626.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC777/IERC777.sol"
+          ],
+          "bundle_marker_line": 7707,
+          "bundle_source_start_line": 7708,
+          "bundle_source_end_line": 7775
+        },
+        {
+          "file": "interfaces/notional/IWrappedfCashFactory.sol",
+          "sha256": "59cd94c315e274c84d7807331195d3c22a5b9adfc30eca0a4503e24ae1384013",
+          "source_bytes_utf8": 289,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 7777,
+          "bundle_source_start_line": 7778,
+          "bundle_source_end_line": 7784
+        },
+        {
+          "file": "interfaces/notional/nERC1155Interface.sol",
+          "sha256": "6f8ca82a91664a67517e923f017429a3d31e92ceeab68155c785c0b62aa0124e",
+          "source_bytes_utf8": 2041,
+          "source_line_count": 71,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 7786,
+          "bundle_source_start_line": 7787,
+          "bundle_source_end_line": 7857
+        },
+        {
+          "file": "interfaces/notional/NotionalCalculations.sol",
+          "sha256": "c5de68583c5a752e3fcb8fd001bd44ee99ac973515d9e3de636f37860a0594fb",
+          "source_bytes_utf8": 2740,
+          "source_line_count": 102,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 7859,
+          "bundle_source_start_line": 7860,
+          "bundle_source_end_line": 7961
+        },
+        {
+          "file": "interfaces/notional/NotionalGovernance.sol",
+          "sha256": "0179d1d749128a9f286057bc89ad63d42cff8429dbc05e7c3a649661bb908894",
+          "source_bytes_utf8": 3897,
+          "source_line_count": 103,
+          "imports": [
+            "../../contracts/global/Types.sol",
+            "../../interfaces/chainlink/AggregatorV2V3Interface.sol",
+            "../../interfaces/notional/NotionalGovernance.sol",
+            "../../interfaces/notional/IRewarder.sol",
+            "../../interfaces/aave/ILendingPool.sol"
+          ],
+          "bundle_marker_line": 7963,
+          "bundle_source_start_line": 7964,
+          "bundle_source_end_line": 8066
+        },
+        {
+          "file": "interfaces/notional/NotionalProxy.sol",
+          "sha256": "05a5fd2d4fb5317047971149d013a0c6b8d475f1f0b800a38459259b564dae7d",
+          "source_bytes_utf8": 7612,
+          "source_line_count": 248,
+          "imports": [
+            "../../contracts/global/Types.sol",
+            "./INTokenAction.sol",
+            "./nERC1155Interface.sol",
+            "./NotionalGovernance.sol",
+            "./NotionalCalculations.sol",
+            "./NotionalViews.sol",
+            "./NotionalTreasury.sol",
+            "./IVaultController.sol"
+          ],
+          "bundle_marker_line": 8068,
+          "bundle_source_start_line": 8069,
+          "bundle_source_end_line": 8316
+        },
+        {
+          "file": "interfaces/notional/NotionalTreasury.sol",
+          "sha256": "9e68856d1ccc3138451b97fa9f8d00624762e6bd14440cfd117330e567985af0",
+          "source_bytes_utf8": 1120,
+          "source_line_count": 27,
+          "imports": [],
+          "bundle_marker_line": 8318,
+          "bundle_source_start_line": 8319,
+          "bundle_source_end_line": 8345
+        },
+        {
+          "file": "interfaces/notional/NotionalViews.sol",
+          "sha256": "a8cd742349114d916ca1d6c5cab332567bb3debfeaa1977539c957631d68cdb9",
+          "source_bytes_utf8": 4664,
+          "source_line_count": 146,
+          "imports": [
+            "../../contracts/global/Types.sol"
+          ],
+          "bundle_marker_line": 8347,
+          "bundle_source_start_line": 8348,
+          "bundle_source_end_line": 8493
+        },
+        {
+          "file": "interfaces/trading/ITradingModule.sol",
+          "sha256": "9a556467ae7f0601d4ab3a061dc6c99c70f3e0d1d29c327ef980e7602d652e8b",
+          "source_bytes_utf8": 1904,
+          "source_line_count": 78,
+          "imports": [
+            "../chainlink/AggregatorV2V3Interface.sol"
+          ],
+          "bundle_marker_line": 8495,
+          "bundle_source_start_line": 8496,
+          "bundle_source_end_line": 8573
+        },
+        {
+          "file": "interfaces/trading/IVaultExchange.sol",
+          "sha256": "c14efb6b48553c5955e0140d178cfab2fca860b9184a1ebb62d0ef910c578b22",
+          "source_bytes_utf8": 633,
+          "source_line_count": 26,
+          "imports": [
+            "./ITradingModule.sol"
+          ],
+          "bundle_marker_line": 8575,
+          "bundle_source_start_line": 8576,
+          "bundle_source_end_line": 8601
+        },
+        {
+          "file": "interfaces/uniswap/v2/IUniV2Router2.sol",
+          "sha256": "4373eba4d06279c372d5fb57f709125ce2dec1ce7e69369ea4e2c46dab6bf92b",
+          "source_bytes_utf8": 563,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 8603,
+          "bundle_source_start_line": 8604,
+          "bundle_source_end_line": 8624
+        },
+        {
+          "file": "interfaces/uniswap/v3/ISwapRouter.sol",
+          "sha256": "d61d2c84e159a644b27c848686a8bc84ae8871a6321fd5d8580ae451542bf9f8",
+          "source_bytes_utf8": 2670,
+          "source_line_count": 67,
+          "imports": [
+            "./IUniswapV3SwapCallback.sol"
+          ],
+          "bundle_marker_line": 8626,
+          "bundle_source_start_line": 8627,
+          "bundle_source_end_line": 8693
+        },
+        {
+          "file": "interfaces/uniswap/v3/IUniswapV3SwapCallback.sol",
+          "sha256": "9cab29064d7ee871511a6378503ef83d4dbee2f22f0d5c02214af11c493fbed1",
+          "source_bytes_utf8": 1288,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 8695,
+          "bundle_source_start_line": 8696,
+          "bundle_source_end_line": 8716
+        },
+        {
+          "file": "interfaces/WETH9.sol",
+          "sha256": "237ea202a07800d958e3ca6dac2251c8e11b6fff09156630e4cbc5f8e11281a6",
+          "source_bytes_utf8": 233,
+          "source_line_count": 10,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 8718,
+          "bundle_source_start_line": 8719,
+          "bundle_source_end_line": 8728
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mocks/MockAggregator.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockBoosted3TokenAuraVault.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockDelegateRegistry.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockMetaStable2TokenAuraVault.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockZeroEx.sol",
+      "reason": "out_of_scope_directory:mocks"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "repo_id": "2023-06-tokemak",
+  "ground_truth": [
+    {
+      "title": "H-15: Maverick oracle can be manipulated",
+      "description": "MavEthOracle.getPriceInEth() reads the current token reserves of a Maverick boosted position, multiplies them by externally sourced token prices, and divides by boosted-position total supply. A flash-loan-funded swap can move the Maverick pool, alter getReserves(), and raise or lower the oracle LP-token value before reversing the swap.",
+      "impact": "Decreasing the oracle price can lower the totalDebt of LMPVault and let a user receive more LMPVault shares. Increasing the oracle price can raise the totalDebt of LMPVault and let a user receive more withdrawn tokens. Manipulating the oracle price can also cause protocol miscalculations in the Stats contracts.",
+      "vulnerable_code": [
+        {
+          "file": "v2-core-audit-2023-07-14/src/oracles/providers/MavEthOracle.sol",
+          "contract": "MavEthOracle",
+          "function": "getPriceInEth(address)",
+          "start_line": 58,
+          "end_line": 75
+        }
+      ],
+      "mitigation": "Replace the transaction-local reserve-sum valuation with a Maverick-specific fair-LP calculation that derives fair reserves from trusted component prices and the position's applicable invariant.",
+      "finding_id": "H-15",
+      "review_status": "gold_verified"
+    }
+  ]
+}

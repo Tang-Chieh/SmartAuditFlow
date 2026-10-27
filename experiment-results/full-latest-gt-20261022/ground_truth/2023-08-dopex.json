@@ -1,0 +1,53 @@
+{
+  "repo_id": "2023-08-dopex",
+  "ground_truth": [
+    {
+      "title": "[M-08] `reLPContract.reLP()` is susceptible to sandwich attack due to user control over `bond()`",
+      "description": "RdpxV2Core.bond() accepts a user-controlled bonding amount and, when reLP is active, passes that amount to ReLPContract.reLP(). The reLP operation then removes liquidity, swaps part of the removed WETH for rDPX, and adds liquidity again through Uniswap V2. Because the caller can control the size of this transaction-local liquidity operation through bond(), an attacker can manipulate the pool before bond() and profit from the resulting reLP sequence.",
+      "impact": "An attacker can steal value from RdpxV2Core by crafting a profitable sandwich attack around bond() and its indirectly triggered reLP operation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/core/RdpxV2Core.sol",
+          "contract": "RdpxV2Core",
+          "function": "bond(uint256,uint256,address)",
+          "start_line": 894,
+          "end_line": 930
+        },
+        {
+          "file": "contracts/reLP/ReLPContract.sol",
+          "contract": "ReLPContract",
+          "function": "reLP(uint256)",
+          "start_line": 202,
+          "end_line": 295
+        }
+      ],
+      "mitigation": "Remove ReLPContract.reLP() from bond() and trigger it separately to prevent users from controlling the reLP operation indirectly.",
+      "finding_id": "M-08",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-09] A malicious early depositor can manipulate the LP-Token price per share to take an unfair share of future user deposits",
+      "description": "PerpetualAtlanticVaultLP.deposit() mints LP shares through convertToShares(). When the vault is empty, the initial deposit receives shares directly from the deposited assets, while later deposits calculate shares from totalSupply and totalVaultCollateral. Option settlement can add RDPX collateral to the vault and increase totalVaultCollateral without minting corresponding shares, so a malicious early depositor can make future deposits receive too few shares and then redeem an unfair portion of the vault assets.",
+      "impact": "A malicious early depositor can profit from future deposits, causing later depositors to lose part of their deposited collateral.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/perp-vault/PerpetualAtlanticVaultLP.sol",
+          "contract": "PerpetualAtlanticVaultLP",
+          "function": "deposit(uint256,address)",
+          "start_line": 118,
+          "end_line": 135
+        },
+        {
+          "file": "contracts/perp-vault/PerpetualAtlanticVaultLP.sol",
+          "contract": "PerpetualAtlanticVaultLP",
+          "function": "convertToShares(uint256)",
+          "start_line": 274,
+          "end_line": 284
+        }
+      ],
+      "mitigation": "Require a non-trivial minimum initial share supply, for example by minting and permanently locking dead shares, so a small first deposit cannot disproportionately influence the share exchange rate.",
+      "finding_id": "M-09",
+      "review_status": "gold_verified"
+    }
+  ]
+}

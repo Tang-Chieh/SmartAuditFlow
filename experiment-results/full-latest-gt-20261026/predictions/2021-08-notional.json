@@ -1,0 +1,99 @@
+{
+  "repo_id": "2021-08-notional",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": [
+    {
+      "finding_id": "SAF-bundle-0001-001",
+      "title": "nToken redemption executes against manipulable AMM state without output protection",
+      "description": "The nToken redemption paths derive proceeds from current market state that can be changed by preceding Notional trades. `nTokenRedeem` and `nTokenRedeemViaBatch` share `_redeem`, which loads each market and calls `Market.removeLiquidity`. That calculation uses the current `totalAssetCash`, `totalfCash`, and `totalLiquidity` to determine the liquidity-token cash and fCash claims. When fCash is sold, `_sellfCashAssets` calls `Market.calculateTrade`, which prices the sale from the current AMM curve and state, including `totalfCash`, `totalAssetCash`, and `lastImpliedRate`. Public trading actions persist changes to these values through `market.setMarketStorage()`. The redemption interfaces provide no minimum asset-cash output, maximum execution-rate or price-impact bound, or deviation check against the lagged `oracleRate`. Consequently, an attacker can trade before a redemption, cause the redemption to remove liquidity and sell fCash at the altered state, and optionally trade back afterward. The same exposure exists in batch redemption, which forces `sellTokenAssets = true`. The ERC1155 post-transfer action can additionally invoke redemption after a callback has changed market state, but the underlying root cause is the unbounded AMM-priced redemption.",
+      "impact": "A redeemer may receive materially less asset cash than expected, or a favorable manipulated redemption may transfer value from remaining nToken holders and the market to the redeemer. The output is finalized directly into the redeemer's cash balance, so the unfavorable or favorable execution is not merely a quoted view result.",
+      "mitigation": "Add a caller-supplied minimum redemption output, denominated in the requested asset or underlying, and enforce it after all liquidity removal and fCash sales but before finalizing balances. For stronger protocol-level protection, bound each execution price against the lagged oracle or another manipulation-resistant reference using a governance-configured maximum deviation, and apply equivalent checks to `nTokenRedeemViaBatch` and callback-triggered redemption.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/external/actions/nTokenRedeemAction.sol",
+          "contract": "nTokenRedeemAction",
+          "function": "nTokenRedeem",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/external/actions/nTokenRedeemAction.sol",
+          "contract": "nTokenRedeemAction",
+          "function": "_removeLiquidityTokens",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/external/actions/nTokenRedeemAction.sol",
+          "contract": "nTokenRedeemAction",
+          "function": "_sellfCashAssets",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "removeLiquidity",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "calculateTrade",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-bundle-0001-002",
+      "title": "Callback-composed nToken minting values liquidity positions from manipulable spot reserves",
+      "description": "The nToken mint calculation uses current AMM reserve state for the cash component of nToken portfolio value. `nTokenMintAction.calculateTokensToMint` computes `tokensToMint` as `amountToDepositInternal * nToken.totalSupply / assetCashPV`. The portfolio valuation calls `AssetHandler.getLiquidityTokenValue`, which loads the current market and calculates the liquidity-token cash claim as `market.totalAssetCash * token.notional / market.totalLiquidity`. These market values can be changed by trades or liquidity operations through `TradingAction` and persisted with `market.setMarketStorage()`. The ERC1155 flow makes this manipulation composable in one transaction: `safeTransferFrom` calls the recipient's `onERC1155Received` callback before the asset transfer and then permits a post-transfer `batchBalanceAction` or `batchBalanceAndTradeAction`. A controlled recipient can therefore change the relevant market state in the callback, receive the transferred assets, and execute nToken minting against the altered spot-derived valuation. The lagged `oracleRate` is used for fCash present-value components but does not constrain the spot-derived cash claim, and no mint-specific deviation or minimum-mint protection is shown.",
+      "impact": "An attacker may receive more nTokens than justified by the unmanipulated value of the deposited assets, diluting existing nToken holders or extracting value from the nToken portfolio after restoring the market state. The exact economic gain depends on market composition, liquidity, and execution costs, but the supplied code shows the complete path from mutable AMM state to mint quantity.",
+      "mitigation": "Value liquidity-token cash claims using a manipulation-resistant TWAP or independent reference rather than unbounded current reserve ratios, or reject minting when spot-derived valuation deviates beyond a configured threshold from that reference. Add a caller-supplied minimum nToken output or equivalent maximum accepted valuation, and consider preventing callback-initiated market-state changes from being combined with sensitive minting unless the relevant market state is snapshotted and deviation-checked.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/external/actions/nTokenMintAction.sol",
+          "contract": "nTokenMintAction",
+          "function": "calculateTokensToMint",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/nTokenHandler.sol",
+          "contract": "nTokenHandler",
+          "function": "getNTokenAssetPV",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getLiquidityTokenValue",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/external/actions/ERC1155Action.sol",
+          "contract": "ERC1155Action",
+          "function": "safeTransferFrom",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/external/actions/ERC1155Action.sol",
+          "contract": "ERC1155Action",
+          "function": "_checkPostTransferEvent",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ]
+}

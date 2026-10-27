@@ -1,0 +1,1122 @@
+// ===== BEGIN SOURCE FILE: contracts/ui/UiPoolDataProvider.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+import {IERC20Detailed} from "../dependencies/openzeppelin/contracts/IERC20Detailed.sol";
+import {IERC721Metadata} from "../dependencies/openzeppelin/contracts/IERC721Metadata.sol";
+import {IERC721} from "../dependencies/openzeppelin/contracts/IERC721.sol";
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {IUiPoolDataProvider} from "./interfaces/IUiPoolDataProvider.sol";
+import {IPool} from "../interfaces/IPool.sol";
+import {IParaSpaceOracle} from "../interfaces/IParaSpaceOracle.sol";
+import {IPToken} from "../interfaces/IPToken.sol";
+import {ICollateralizableERC721} from "../interfaces/ICollateralizableERC721.sol";
+import {IAuctionableERC721} from "../interfaces/IAuctionableERC721.sol";
+import {INToken} from "../interfaces/INToken.sol";
+import {IVariableDebtToken} from "../interfaces/IVariableDebtToken.sol";
+import {WadRayMath} from "../protocol/libraries/math/WadRayMath.sol";
+import {ReserveConfiguration} from "../protocol/libraries/configuration/ReserveConfiguration.sol";
+import {UserConfiguration} from "../protocol/libraries/configuration/UserConfiguration.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {DefaultReserveInterestRateStrategy} from "../protocol/pool/DefaultReserveInterestRateStrategy.sol";
+import {IEACAggregatorProxy} from "./interfaces/IEACAggregatorProxy.sol";
+import {IERC20DetailedBytes} from "./interfaces/IERC20DetailedBytes.sol";
+import {ProtocolDataProvider} from "../misc/ProtocolDataProvider.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {IUniswapV3OracleWrapper} from "../interfaces/IUniswapV3OracleWrapper.sol";
+import {UinswapV3PositionData} from "../interfaces/IUniswapV3PositionInfoProvider.sol";
+
+contract UiPoolDataProvider is IUiPoolDataProvider {
+    using WadRayMath for uint256;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+
+    IEACAggregatorProxy
+        public immutable networkBaseTokenPriceInUsdProxyAggregator;
+    IEACAggregatorProxy
+        public immutable marketReferenceCurrencyPriceInUsdProxyAggregator;
+    uint256 public constant ETH_CURRENCY_UNIT = 1 ether;
+    address public constant MKR_ADDRESS =
+        0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2;
+    address public constant SAPE_ADDRESS = address(0x1);
+
+    constructor(
+        IEACAggregatorProxy _networkBaseTokenPriceInUsdProxyAggregator,
+        IEACAggregatorProxy _marketReferenceCurrencyPriceInUsdProxyAggregator
+    ) {
+        networkBaseTokenPriceInUsdProxyAggregator = _networkBaseTokenPriceInUsdProxyAggregator;
+        marketReferenceCurrencyPriceInUsdProxyAggregator = _marketReferenceCurrencyPriceInUsdProxyAggregator;
+    }
+
+    function getInterestRateStrategySlopes(
+        DefaultReserveInterestRateStrategy interestRateStrategy
+    ) internal view returns (InterestRates memory) {
+        InterestRates memory interestRates;
+        interestRates.variableRateSlope1 = interestRateStrategy
+            .getVariableRateSlope1();
+        interestRates.variableRateSlope2 = interestRateStrategy
+            .getVariableRateSlope2();
+        interestRates.baseVariableBorrowRate = interestRateStrategy
+            .getBaseVariableBorrowRate();
+        interestRates.optimalUsageRatio = interestRateStrategy
+            .OPTIMAL_USAGE_RATIO();
+
+        return interestRates;
+    }
+
+    function getReservesList(IPoolAddressesProvider provider)
+        public
+        view
+        override
+        returns (address[] memory)
+    {
+        IPool pool = IPool(provider.getPool());
+        return pool.getReservesList();
+    }
+
+    function getReservesData(IPoolAddressesProvider provider)
+        public
+        view
+        override
+        returns (AggregatedReserveData[] memory, BaseCurrencyInfo memory)
+    {
+        IParaSpaceOracle oracle = IParaSpaceOracle(provider.getPriceOracle());
+        IPool pool = IPool(provider.getPool());
+
+        address[] memory reserves = pool.getReservesList();
+        AggregatedReserveData[]
+            memory reservesData = new AggregatedReserveData[](reserves.length);
+
+        for (uint256 i = 0; i < reserves.length; i++) {
+            AggregatedReserveData memory reserveData = reservesData[i];
+            reserveData.underlyingAsset = reserves[i];
+
+            // reserve current state
+            DataTypes.ReserveData memory baseData = pool.getReserveData(
+                reserveData.underlyingAsset
+            );
+            //the liquidity index. Expressed in ray
+            reserveData.liquidityIndex = baseData.liquidityIndex;
+            //variable borrow index. Expressed in ray
+            reserveData.variableBorrowIndex = baseData.variableBorrowIndex;
+            //the current supply rate. Expressed in ray
+            reserveData.liquidityRate = baseData.currentLiquidityRate;
+            //the current variable borrow rate. Expressed in ray
+            reserveData.variableBorrowRate = baseData.currentVariableBorrowRate;
+            reserveData.lastUpdateTimestamp = baseData.lastUpdateTimestamp;
+            reserveData.xTokenAddress = baseData.xTokenAddress;
+            reserveData.variableDebtTokenAddress = baseData
+                .variableDebtTokenAddress;
+
+            reserveData.interestRateStrategyAddress = baseData
+                .interestRateStrategyAddress;
+            reserveData.auctionStrategyAddress = baseData
+                .auctionStrategyAddress;
+            reserveData.auctionEnabled =
+                reserveData.auctionStrategyAddress != address(0);
+
+            try oracle.getAssetPrice(reserveData.underlyingAsset) returns (
+                uint256 price
+            ) {
+                reserveData.priceInMarketReferenceCurrency = price;
+            } catch {}
+            reserveData.priceOracle = oracle.getSourceOfAsset(
+                reserveData.underlyingAsset
+            );
+
+            reserveData.totalScaledVariableDebt = IVariableDebtToken(
+                reserveData.variableDebtTokenAddress
+            ).scaledTotalSupply();
+            DataTypes.ReserveConfigurationMap
+                memory reserveConfigurationMap = baseData.configuration;
+            bool isPaused;
+            DataTypes.AssetType assetType;
+            (
+                reserveData.isActive,
+                reserveData.isFrozen,
+                reserveData.borrowingEnabled,
+                isPaused,
+                assetType
+            ) = reserveConfigurationMap.getFlags();
+
+            if (assetType == DataTypes.AssetType.ERC20) {
+                // Due we take the symbol from underlying token we need a special case for $MKR as symbol() returns bytes32
+                if (
+                    address(reserveData.underlyingAsset) == address(MKR_ADDRESS)
+                ) {
+                    bytes32 symbol = IERC20DetailedBytes(
+                        reserveData.underlyingAsset
+                    ).symbol();
+                    reserveData.symbol = bytes32ToString(symbol);
+                    bytes32 name = IERC20DetailedBytes(
+                        reserveData.underlyingAsset
+                    ).name();
+                    reserveData.name = bytes32ToString(name);
+                } else if (reserveData.underlyingAsset == SAPE_ADDRESS) {
+                    reserveData.symbol = "SApe";
+                    reserveData.name = "SApe";
+                } else {
+                    reserveData.symbol = IERC20Detailed(
+                        reserveData.underlyingAsset
+                    ).symbol();
+                    reserveData.name = IERC20Detailed(
+                        reserveData.underlyingAsset
+                    ).name();
+                }
+
+                reserveData.isAtomicPricing = false;
+                if (reserveData.underlyingAsset != SAPE_ADDRESS) {
+                    reserveData.availableLiquidity = IERC20Detailed(
+                        reserveData.underlyingAsset
+                    ).balanceOf(reserveData.xTokenAddress);
+                }
+            } else {
+                reserveData.symbol = IERC721Metadata(
+                    reserveData.underlyingAsset
+                ).symbol();
+                reserveData.name = IERC721Metadata(reserveData.underlyingAsset)
+                    .name();
+
+                reserveData.availableLiquidity = IERC721(
+                    reserveData.underlyingAsset
+                ).balanceOf(reserveData.xTokenAddress);
+                reserveData.isAtomicPricing = INToken(reserveData.xTokenAddress)
+                    .getAtomicPricingConfig();
+            }
+
+            (
+                reserveData.baseLTVasCollateral,
+                reserveData.reserveLiquidationThreshold,
+                reserveData.reserveLiquidationBonus,
+                reserveData.decimals,
+                reserveData.reserveFactor
+            ) = reserveConfigurationMap.getParams();
+            reserveData.usageAsCollateralEnabled =
+                reserveData.baseLTVasCollateral != 0;
+
+            InterestRates memory interestRates = getInterestRateStrategySlopes(
+                DefaultReserveInterestRateStrategy(
+                    reserveData.interestRateStrategyAddress
+                )
+            );
+
+            reserveData.variableRateSlope1 = interestRates.variableRateSlope1;
+            reserveData.variableRateSlope2 = interestRates.variableRateSlope2;
+            reserveData.baseVariableBorrowRate = interestRates
+                .baseVariableBorrowRate;
+            reserveData.optimalUsageRatio = interestRates.optimalUsageRatio;
+
+            (
+                reserveData.borrowCap,
+                reserveData.supplyCap
+            ) = reserveConfigurationMap.getCaps();
+
+            reserveData.isPaused = isPaused;
+            reserveData.assetType = assetType;
+            reserveData.accruedToTreasury = baseData.accruedToTreasury;
+        }
+
+        BaseCurrencyInfo memory baseCurrencyInfo;
+        baseCurrencyInfo
+            .networkBaseTokenPriceInUsd = networkBaseTokenPriceInUsdProxyAggregator
+            .latestAnswer();
+        baseCurrencyInfo
+            .networkBaseTokenPriceDecimals = networkBaseTokenPriceInUsdProxyAggregator
+            .decimals();
+
+        try oracle.BASE_CURRENCY_UNIT() returns (uint256 baseCurrencyUnit) {
+            if (ETH_CURRENCY_UNIT == baseCurrencyUnit) {
+                baseCurrencyInfo
+                    .marketReferenceCurrencyUnit = ETH_CURRENCY_UNIT;
+                baseCurrencyInfo
+                    .marketReferenceCurrencyPriceInUsd = marketReferenceCurrencyPriceInUsdProxyAggregator
+                    .latestAnswer();
+            } else {
+                baseCurrencyInfo.marketReferenceCurrencyUnit = baseCurrencyUnit;
+                baseCurrencyInfo.marketReferenceCurrencyPriceInUsd = int256(
+                    baseCurrencyUnit
+                );
+            }
+        } catch (
+            bytes memory /*lowLevelData*/
+        ) {
+            baseCurrencyInfo.marketReferenceCurrencyUnit = ETH_CURRENCY_UNIT;
+            baseCurrencyInfo
+                .marketReferenceCurrencyPriceInUsd = marketReferenceCurrencyPriceInUsdProxyAggregator
+                .latestAnswer();
+        }
+
+        return (reservesData, baseCurrencyInfo);
+    }
+
+    function getAuctionData(
+        IPoolAddressesProvider provider,
+        address[] memory nTokenAddresses,
+        uint256[][] memory tokenIds
+    ) external view override returns (DataTypes.AuctionData[][] memory) {
+        DataTypes.AuctionData[][]
+            memory tokenData = new DataTypes.AuctionData[][](
+                nTokenAddresses.length
+            );
+        IPool pool = IPool(provider.getPool());
+
+        for (uint256 i = 0; i < nTokenAddresses.length; i++) {
+            address asset = nTokenAddresses[i];
+            uint256 size = tokenIds[i].length;
+            tokenData[i] = new DataTypes.AuctionData[](size);
+
+            for (uint256 j = 0; j < size; j++) {
+                tokenData[i][j] = pool.getAuctionData(asset, tokenIds[i][j]);
+            }
+        }
+
+        return (tokenData);
+    }
+
+    function getNTokenData(
+        address[] memory nTokenAddresses,
+        uint256[][] memory tokenIds
+    ) external view override returns (DataTypes.NTokenData[][] memory) {
+        DataTypes.NTokenData[][]
+            memory tokenData = new DataTypes.NTokenData[][](
+                nTokenAddresses.length
+            );
+
+        for (uint256 i = 0; i < nTokenAddresses.length; i++) {
+            address asset = nTokenAddresses[i];
+            uint256 size = tokenIds[i].length;
+            tokenData[i] = new DataTypes.NTokenData[](size);
+
+            for (uint256 j = 0; j < size; j++) {
+                tokenData[i][j].tokenId = tokenIds[i][j];
+                tokenData[i][j].useAsCollateral = ICollateralizableERC721(asset)
+                    .isUsedAsCollateral(tokenIds[i][j]);
+                tokenData[i][j].isAuctioned = IAuctionableERC721(asset)
+                    .isAuctioned(tokenIds[i][j]);
+            }
+        }
+
+        return (tokenData);
+    }
+
+    function getUniswapV3LpTokenData(
+        IPoolAddressesProvider provider,
+        address lpTokenAddress,
+        uint256 tokenId
+    ) external view override returns (UniswapV3LpTokenInfo memory) {
+        UniswapV3LpTokenInfo memory lpTokenInfo;
+
+        IUniswapV3OracleWrapper source;
+        //avoid stack too deep
+        {
+            IParaSpaceOracle oracle = IParaSpaceOracle(
+                provider.getPriceOracle()
+            );
+            address sourceAddress = oracle.getSourceOfAsset(lpTokenAddress);
+            if (sourceAddress == address(0)) {
+                return lpTokenInfo;
+            }
+            source = IUniswapV3OracleWrapper(sourceAddress);
+
+            IPool pool = IPool(provider.getPool());
+            (
+                lpTokenInfo.baseLTVasCollateral,
+                lpTokenInfo.reserveLiquidationThreshold
+            ) = pool.getAssetLtvAndLT(lpTokenAddress, tokenId);
+        }
+
+        //try to catch invalid tokenId
+        try source.getTokenPrice(tokenId) returns (uint256 tokenPrice) {
+            lpTokenInfo.tokenPrice = tokenPrice;
+
+            UinswapV3PositionData memory positionData = source
+                .getOnchainPositionData(tokenId);
+            lpTokenInfo.token0 = positionData.token0;
+            lpTokenInfo.token1 = positionData.token1;
+            lpTokenInfo.feeRate = positionData.fee;
+            lpTokenInfo.liquidity = positionData.liquidity;
+            lpTokenInfo.positionTickLower = positionData.tickLower;
+            lpTokenInfo.positionTickUpper = positionData.tickUpper;
+            lpTokenInfo.currentTick = positionData.currentTick;
+
+            (
+                lpTokenInfo.liquidityToken0Amount,
+                lpTokenInfo.liquidityToken1Amount
+            ) = source.getLiquidityAmountFromPositionData(positionData);
+
+            (
+                lpTokenInfo.lpFeeToken0Amount,
+                lpTokenInfo.lpFeeToken1Amount
+            ) = source.getLpFeeAmountFromPositionData(positionData);
+        } catch {}
+
+        return lpTokenInfo;
+    }
+
+    function getUserReservesData(IPoolAddressesProvider provider, address user)
+        external
+        view
+        override
+        returns (UserReserveData[] memory)
+    {
+        IPool pool = IPool(provider.getPool());
+        address[] memory reserves = pool.getReservesList();
+        DataTypes.UserConfigurationMap memory userConfig = pool
+            .getUserConfiguration(user);
+
+        UserReserveData[] memory userReservesData = new UserReserveData[](
+            user != address(0) ? reserves.length : 0
+        );
+
+        for (uint256 i = 0; i < reserves.length; i++) {
+            DataTypes.ReserveData memory baseData = pool.getReserveData(
+                reserves[i]
+            );
+
+            // user reserve data
+            userReservesData[i].underlyingAsset = reserves[i];
+            userReservesData[i].usageAsCollateralEnabledOnUser = userConfig
+                .isUsingAsCollateral(i);
+
+            if (
+                baseData.configuration.getAssetType() ==
+                DataTypes.AssetType.ERC20
+            ) {
+                userReservesData[i].currentXTokenBalance = IPToken(
+                    baseData.xTokenAddress
+                ).balanceOf(user);
+                userReservesData[i].scaledXTokenBalance = IPToken(
+                    baseData.xTokenAddress
+                ).scaledBalanceOf(user);
+            } else {
+                userReservesData[i].currentXTokenBalance = INToken(
+                    baseData.xTokenAddress
+                ).balanceOf(user);
+                userReservesData[i].scaledXTokenBalance = INToken(
+                    baseData.xTokenAddress
+                ).balanceOf(user);
+                userReservesData[i]
+                    .collateralizedBalance = ICollateralizableERC721(
+                    baseData.xTokenAddress
+                ).collateralizedBalanceOf(user);
+            }
+
+            if (userConfig.isBorrowing(i)) {
+                userReservesData[i].scaledVariableDebt = IVariableDebtToken(
+                    baseData.variableDebtTokenAddress
+                ).scaledBalanceOf(user);
+            }
+        }
+
+        return userReservesData;
+    }
+
+    function bytes32ToString(bytes32 _bytes32)
+        public
+        pure
+        returns (string memory)
+    {
+        uint8 i = 0;
+        while (i < 32 && _bytes32[i] != 0) {
+            i++;
+        }
+        bytes memory bytesArray = new bytes(i);
+        for (i = 0; i < 32 && _bytes32[i] != 0; i++) {
+            bytesArray[i] = _bytes32[i];
+        }
+        return string(bytesArray);
+    }
+
+    function getUserInLiquidationNFTData(
+        IPoolAddressesProvider provider,
+        address user,
+        address[] memory assets,
+        uint256[][] memory tokenIds
+    )
+        external
+        view
+        returns (UserGlobalData memory, TokenInLiquidationData[][] memory)
+    {
+        // make sure that these tokens all belong to the user supplied
+        IParaSpaceOracle oracle = IParaSpaceOracle(provider.getPriceOracle());
+        IPool pool = IPool(provider.getPool());
+
+        TokenInLiquidationData[][]
+            memory tokensData = new TokenInLiquidationData[][](assets.length);
+        UserGlobalData memory userData;
+
+        // getUserAccountData
+        (
+            userData.totalCollateralBase,
+            userData.totalDebtBase,
+            userData.availableBorrowsBase,
+            userData.currentLiquidationThreshold,
+            userData.ltv,
+            userData.healthFactor,
+            userData.erc721HealthFactor
+        ) = pool.getUserAccountData(user);
+
+        DataTypes.UserConfigurationMap memory userConfig = pool
+            .getUserConfiguration(user);
+        userData.auctionValidityTime = userConfig.auctionValidityTime;
+
+        for (uint256 i = 0; i < assets.length; i++) {
+            uint256 tokenLength = tokenIds[i].length;
+            tokensData[i] = new TokenInLiquidationData[](tokenLength);
+            // reserve current state
+            DataTypes.ReserveData memory baseData = pool.getReserveData(
+                assets[i]
+            );
+
+            uint256 reserveBaseLTVasCollateral;
+            (reserveBaseLTVasCollateral, , , , ) = baseData
+                .configuration
+                .getParams();
+
+            uint256 collectionPrice;
+            try oracle.getAssetPrice(assets[i]) returns (uint256 price) {
+                collectionPrice = price;
+            } catch {}
+
+            for (uint256 j = 0; j < tokenLength; j++) {
+                TokenInLiquidationData memory tokenData;
+                tokenData.asset = assets[i];
+                tokenData.tokenId = tokenIds[i][j];
+
+                tokenData.isCollateralized =
+                    reserveBaseLTVasCollateral != 0 && // reserve collateral
+                    userConfig.isUsingAsCollateral(baseData.id) && // user collection collateral
+                    ICollateralizableERC721(baseData.xTokenAddress)
+                        .isUsedAsCollateral(tokenData.tokenId); // token collateral
+
+                tokenData.isAuctioned =
+                    baseData.auctionStrategyAddress != address(0) &&
+                    IAuctionableERC721(baseData.xTokenAddress).isAuctioned(
+                        tokenData.tokenId
+                    );
+                // token price
+                if (INToken(baseData.xTokenAddress).getAtomicPricingConfig()) {
+                    try
+                        oracle.getTokenPrice(tokenData.asset, tokenData.tokenId)
+                    returns (uint256 price) {
+                        tokenData.tokenPrice = price;
+                    } catch {}
+                } else {
+                    tokenData.tokenPrice = collectionPrice;
+                }
+                // token auction data
+                tokenData.auctionData = pool.getAuctionData(
+                    baseData.xTokenAddress,
+                    tokenData.tokenId
+                );
+
+                tokensData[i][j] = tokenData;
+            }
+        }
+        return (userData, tokensData);
+    }
+}
+// ===== END SOURCE FILE: contracts/ui/UiPoolDataProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/ui/WalletBalanceProvider.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+import {Address} from "../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC20} from "../dependencies/openzeppelin/contracts/IERC20.sol";
+
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {IPool} from "../interfaces/IPool.sol";
+import {GPv2SafeERC20} from "../dependencies/gnosis/contracts/GPv2SafeERC20.sol";
+import {ReserveConfiguration} from "../protocol/libraries/configuration/ReserveConfiguration.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title WalletBalanceProvider contract
+ * , influenced by https://github.com/wbobeirne/eth-balance-checker/blob/master/contracts/BalanceChecker.sol
+ * @notice Implements a logic of getting multiple tokens balance for one user address
+ * @dev NOTE: THIS CONTRACT IS NOT USED WITHIN THE ParaSpace PROTOCOL. It's an accessory contract used to reduce the number of calls
+ * towards the blockchain from the ParaSpace backend.
+ **/
+contract WalletBalanceProvider {
+    using Address for address payable;
+    using Address for address;
+    using GPv2SafeERC20 for IERC20;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+
+    address constant MOCK_ETH_ADDRESS =
+        0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address constant SAPE_ADDRESS = address(0x1);
+
+    /**
+    @dev Fallback function, don't accept any ETH
+    **/
+    receive() external payable {
+        //only contracts can send ETH to the core
+        require(msg.sender.isContract(), "22");
+    }
+
+    /**
+    @dev Check the token balance of a wallet in a token contract
+
+    Returns the balance of the token for user. Avoids possible errors:
+      - return 0 on non-contract address
+    **/
+    function balanceOf(address user, address token)
+        public
+        view
+        returns (uint256)
+    {
+        if (token == MOCK_ETH_ADDRESS) {
+            return user.balance; // ETH balance
+            // check if token is actually a contract
+        } else if (token == SAPE_ADDRESS) {
+            return 0;
+        } else if (token.isContract()) {
+            return IERC20(token).balanceOf(user);
+        }
+        revert("INVALID_TOKEN");
+    }
+
+    /**
+     * @notice Fetches, for a list of _users and _tokens (ETH included with mock address), the balances
+     * @param users The list of users
+     * @param tokens The list of tokens
+     * @return And array with the concatenation of, for each user, his/her balances
+     **/
+    function batchBalanceOf(address[] calldata users, address[] calldata tokens)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        uint256[] memory balances = new uint256[](users.length * tokens.length);
+
+        for (uint256 i = 0; i < users.length; i++) {
+            for (uint256 j = 0; j < tokens.length; j++) {
+                balances[i * tokens.length + j] = balanceOf(
+                    users[i],
+                    tokens[j]
+                );
+            }
+        }
+
+        return balances;
+    }
+
+    /**
+    @dev provides balances of user wallet for all reserves available on the pool
+    */
+    function getUserWalletBalances(address provider, address user)
+        external
+        view
+        returns (address[] memory, uint256[] memory)
+    {
+        IPool pool = IPool(IPoolAddressesProvider(provider).getPool());
+
+        address[] memory reserves = pool.getReservesList();
+        address[] memory reservesWithEth = new address[](reserves.length + 1);
+        for (uint256 i = 0; i < reserves.length; i++) {
+            reservesWithEth[i] = reserves[i];
+        }
+        reservesWithEth[reserves.length] = MOCK_ETH_ADDRESS;
+
+        uint256[] memory balances = new uint256[](reservesWithEth.length);
+
+        for (uint256 j = 0; j < reserves.length; j++) {
+            DataTypes.ReserveConfigurationMap memory configuration = pool
+                .getConfiguration(reservesWithEth[j]);
+
+            (bool isActive, , , , ) = configuration.getFlags();
+
+            if (!isActive) {
+                balances[j] = 0;
+                continue;
+            }
+            balances[j] = balanceOf(user, reservesWithEth[j]);
+        }
+        balances[reserves.length] = balanceOf(user, MOCK_ETH_ADDRESS);
+
+        return (reservesWithEth, balances);
+    }
+}
+// ===== END SOURCE FILE: contracts/ui/WalletBalanceProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/ui/WETHGateway.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {OwnableUpgradeable} from "../dependencies/openzeppelin/upgradeability/OwnableUpgradeable.sol";
+import {IERC20} from "../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IWETH} from "../misc/interfaces/IWETH.sol";
+import {IWETHGateway} from "./interfaces/IWETHGateway.sol";
+import {IPool} from "../interfaces/IPool.sol";
+import {IPToken} from "../interfaces/IPToken.sol";
+import {ReserveConfiguration} from "../protocol/libraries/configuration/ReserveConfiguration.sol";
+import {UserConfiguration} from "../protocol/libraries/configuration/UserConfiguration.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {Helpers} from "../protocol/libraries/helpers/Helpers.sol";
+import {ReentrancyGuard} from "../dependencies/openzeppelin/contracts/ReentrancyGuard.sol";
+import {SafeERC20} from "../dependencies/openzeppelin/contracts/SafeERC20.sol";
+
+contract WETHGateway is ReentrancyGuard, IWETHGateway, OwnableUpgradeable {
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+    using SafeERC20 for IERC20;
+
+    IWETH internal immutable WETH;
+
+    address public immutable weth;
+    address public immutable pool;
+
+    /**
+     * @dev Sets the WETH address and the PoolAddressesProvider address. Infinite approves pool.
+     * @param _weth Address of the Wrapped Ether contract
+     * @param _pool Address of the proxy pool of this contract
+     **/
+    constructor(address _weth, address _pool) {
+        weth = _weth;
+        pool = _pool;
+
+        WETH = IWETH(weth);
+    }
+
+    function initialize() external initializer {
+        __Ownable_init();
+
+        WETH.approve(pool, type(uint256).max);
+    }
+
+    /**
+     * @dev deposits WETH into the reserve, using native ETH. A corresponding amount of the overlying asset (xTokens)
+     * is minted.
+     * @param onBehalfOf address of the user who will receive the xTokens representing the deposit
+     * @param referralCode integrators are assigned a referral code and can potentially receive rewards.
+     **/
+    function depositETH(address onBehalfOf, uint16 referralCode)
+        external
+        payable
+        override
+        nonReentrant
+    {
+        WETH.deposit{value: msg.value}();
+        IPool(pool).supply(address(WETH), msg.value, onBehalfOf, referralCode);
+    }
+
+    /**
+     * @dev withdraws the WETH _reserves of msg.sender.
+     * @param amount amount of pWETH to withdraw and receive native ETH
+     * @param to address of the user who will receive native ETH
+     */
+    function withdrawETH(uint256 amount, address to)
+        external
+        override
+        nonReentrant
+    {
+        IPToken pWETH = IPToken(
+            IPool(pool).getReserveData(address(WETH)).xTokenAddress
+        );
+        uint256 userBalance = pWETH.balanceOf(msg.sender);
+        uint256 amountToWithdraw = amount;
+
+        // if amount is equal to uint(-1), the user wants to redeem everything
+        if (amount == type(uint256).max) {
+            amountToWithdraw = userBalance;
+        }
+        pWETH.transferFrom(msg.sender, address(this), amountToWithdraw);
+        IPool(pool).withdraw(address(WETH), amountToWithdraw, address(this));
+        WETH.withdraw(amountToWithdraw);
+        _safeTransferETH(to, amountToWithdraw);
+    }
+
+    /**
+     * @dev repays a borrow on the WETH reserve, for the specified amount (or for the whole amount, if uint256(-1) is specified).
+     * @param amount the amount to repay, or uint256(-1) if the user wants to repay everything
+     * @param onBehalfOf the address for which msg.sender is repaying
+     */
+    function repayETH(uint256 amount, address onBehalfOf)
+        external
+        payable
+        override
+        nonReentrant
+    {
+        uint256 variableDebt = Helpers.getUserCurrentDebt(
+            onBehalfOf,
+            IPool(pool).getReserveData(address(WETH)).variableDebtTokenAddress
+        );
+
+        uint256 paybackAmount = variableDebt;
+
+        if (amount < paybackAmount) {
+            paybackAmount = amount;
+        }
+        require(
+            msg.value >= paybackAmount,
+            "msg.value is less than repayment amount"
+        );
+        WETH.deposit{value: paybackAmount}();
+        IPool(pool).repay(address(WETH), msg.value, onBehalfOf);
+
+        // refund remaining dust eth
+        if (msg.value > paybackAmount)
+            _safeTransferETH(msg.sender, msg.value - paybackAmount);
+    }
+
+    /**
+     * @dev borrow WETH, unwraps to ETH and send both the ETH and DebtTokens to msg.sender, via `approveDelegation` and onBehalf argument in `Pool.borrow`.
+     * @param amount the amount of ETH to borrow
+     * @param referralCode integrators are assigned a referral code and can potentially receive rewards
+     */
+    function borrowETH(uint256 amount, uint16 referralCode)
+        external
+        override
+        nonReentrant
+    {
+        IPool(pool).borrow(address(WETH), amount, referralCode, msg.sender);
+        WETH.withdraw(amount);
+        _safeTransferETH(msg.sender, amount);
+    }
+
+    /**
+     * @dev withdraws the WETH _reserves of msg.sender.
+     * @param amount amount of pWETH to withdraw and receive native ETH
+     * @param to address of the user who will receive native ETH
+     * @param deadline validity deadline of permit and so depositWithPermit signature
+     * @param permitV V parameter of ERC712 permit sig
+     * @param permitR R parameter of ERC712 permit sig
+     * @param permitS S parameter of ERC712 permit sig
+     */
+    function withdrawETHWithPermit(
+        uint256 amount,
+        address to,
+        uint256 deadline,
+        uint8 permitV,
+        bytes32 permitR,
+        bytes32 permitS
+    ) external override nonReentrant {
+        IPToken pWETH = IPToken(
+            IPool(pool).getReserveData(address(WETH)).xTokenAddress
+        );
+        uint256 userBalance = pWETH.balanceOf(msg.sender);
+        uint256 amountToWithdraw = amount;
+
+        // if amount is equal to uint(-1), the user wants to redeem everything
+        if (amount == type(uint256).max) {
+            amountToWithdraw = userBalance;
+        }
+        // choosing to permit `amount`and not `amountToWithdraw`, easier for frontends, intregrators.
+        pWETH.permit(
+            msg.sender,
+            address(this),
+            amount,
+            deadline,
+            permitV,
+            permitR,
+            permitS
+        );
+        pWETH.transferFrom(msg.sender, address(this), amountToWithdraw);
+        IPool(pool).withdraw(address(WETH), amountToWithdraw, address(this));
+        WETH.withdraw(amountToWithdraw);
+        _safeTransferETH(to, amountToWithdraw);
+    }
+
+    /**
+     * @dev transfer ETH to an address, revert if it fails.
+     * @param to recipient of the transfer
+     * @param value the amount to send
+     */
+    function _safeTransferETH(address to, uint256 value) internal {
+        (bool success, ) = to.call{value: value}(new bytes(0));
+        require(success, "ETH_TRANSFER_FAILED");
+    }
+
+    /**
+     * @dev transfer ERC20 from the utility contract, for ERC20 recovery in case of stuck tokens due
+     * direct transfers to the contract address.
+     * @param token token to transfer
+     * @param to recipient of the transfer
+     * @param amount amount to send
+     */
+    function emergencyTokenTransfer(
+        address token,
+        address to,
+        uint256 amount
+    ) external onlyOwner {
+        IERC20(token).safeTransfer(to, amount);
+        emit EmergencyTokenTransfer(token, to, amount);
+    }
+
+    /**
+     * @dev transfer native Ether from the utility contract, for native Ether recovery in case of stuck Ether
+     * due selfdestructs or transfer ether to pre-computated contract address before deployment.
+     * @param to recipient of the transfer
+     * @param amount amount to send
+     */
+    function emergencyEtherTransfer(address to, uint256 amount)
+        external
+        onlyOwner
+    {
+        _safeTransferETH(to, amount);
+    }
+
+    /**
+     * @dev Get WETH address used by WETHGateway
+     */
+    function getWETHAddress() external view returns (address) {
+        return address(WETH);
+    }
+
+    /**
+     * @dev Only WETH contract is allowed to transfer ETH here. Prevent other addresses to send Ether to this contract.
+     */
+    receive() external payable {
+        require(msg.sender == address(WETH), "Receive not allowed");
+    }
+
+    /**
+     * @dev Revert fallback calls
+     */
+    fallback() external payable {
+        revert("Fallback not allowed");
+    }
+}
+// ===== END SOURCE FILE: contracts/ui/WETHGateway.sol =====
+// ===== BEGIN SOURCE FILE: contracts/ui/WPunkGateway.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {OwnableUpgradeable} from "../dependencies/openzeppelin/upgradeability/OwnableUpgradeable.sol";
+import {IPool} from "../interfaces/IPool.sol";
+import {ReserveConfiguration} from "../protocol/libraries/configuration/ReserveConfiguration.sol";
+import {UserConfiguration} from "../protocol/libraries/configuration/UserConfiguration.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+// ERC721 imports
+import {IERC721} from "../dependencies/openzeppelin/contracts/IERC721.sol";
+import {IERC721Receiver} from "../dependencies/openzeppelin/contracts/IERC721Receiver.sol";
+import {IPunks} from "../misc/interfaces/IPunks.sol";
+import {IWrappedPunks} from "../misc/interfaces/IWrappedPunks.sol";
+import {IWPunkGateway} from "./interfaces/IWPunkGateway.sol";
+import {INToken} from "../interfaces/INToken.sol";
+import {ReentrancyGuard} from "../dependencies/openzeppelin/contracts/ReentrancyGuard.sol";
+
+contract WPunkGateway is
+    ReentrancyGuard,
+    IWPunkGateway,
+    IERC721Receiver,
+    OwnableUpgradeable
+{
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+
+    IPunks internal immutable Punk;
+    IWrappedPunks internal immutable WPunk;
+    IPool internal immutable Pool;
+    address public proxy;
+
+    address public immutable punk;
+    address public immutable wpunk;
+    address public immutable pool;
+
+    /**
+     * @dev Sets the WETH address and the PoolAddressesProvider address. Infinite approves pool.
+     * @param _punk Address of the Punk contract
+     * @param _wpunk Address of the Wrapped Punk contract
+     * @param _pool Address of the proxy pool of this contract
+     **/
+    constructor(
+        address _punk,
+        address _wpunk,
+        address _pool
+    ) {
+        punk = _punk;
+        wpunk = _wpunk;
+        pool = _pool;
+
+        Punk = IPunks(punk);
+        WPunk = IWrappedPunks(wpunk);
+        Pool = IPool(pool);
+    }
+
+    function initialize() external initializer {
+        __Ownable_init();
+
+        // create new WPunk Proxy for PunkGateway contract
+        WPunk.registerProxy();
+
+        // address(this) = WPunkGatewayProxy
+        // proxy of PunkGateway contract is the new Proxy created above
+        proxy = WPunk.proxyInfo(address(this));
+
+        WPunk.setApprovalForAll(pool, true);
+    }
+
+    /**
+     * @dev supplies (deposits) WPunk into the reserve, using native Punk. A corresponding amount of the overlying asset (xTokens)
+     * is minted.
+     * @param punkIndexes punkIndexes to supply to gateway
+     * @param onBehalfOf address of the user who will receive the xTokens representing the supply
+     * @param referralCode integrators are assigned a referral code and can potentially receive rewards.
+     **/
+    function supplyPunk(
+        DataTypes.ERC721SupplyParams[] calldata punkIndexes,
+        address onBehalfOf,
+        uint16 referralCode
+    ) external nonReentrant {
+        for (uint256 i = 0; i < punkIndexes.length; i++) {
+            Punk.buyPunk(punkIndexes[i].tokenId);
+            Punk.transferPunk(proxy, punkIndexes[i].tokenId);
+            // gatewayProxy is the sender of this function, not the original gateway
+            WPunk.mint(punkIndexes[i].tokenId);
+        }
+
+        Pool.supplyERC721(
+            address(WPunk),
+            punkIndexes,
+            onBehalfOf,
+            referralCode
+        );
+    }
+
+    /**
+     * @dev withdraws the WPUNK _reserves of msg.sender.
+     * @param punkIndexes indexes of nWPunks to withdraw and receive native WPunk
+     * @param to address of the user who will receive native Punks
+     */
+    function withdrawPunk(uint256[] calldata punkIndexes, address to)
+        external
+        nonReentrant
+    {
+        INToken nWPunk = INToken(
+            Pool.getReserveData(address(WPunk)).xTokenAddress
+        );
+        for (uint256 i = 0; i < punkIndexes.length; i++) {
+            nWPunk.safeTransferFrom(msg.sender, address(this), punkIndexes[i]);
+        }
+        Pool.withdrawERC721(address(WPunk), punkIndexes, address(this));
+        for (uint256 i = 0; i < punkIndexes.length; i++) {
+            WPunk.burn(punkIndexes[i]);
+            Punk.transferPunk(to, punkIndexes[i]);
+        }
+    }
+
+    /**
+     * @notice Implements the acceptBidWithCredit feature. AcceptBidWithCredit allows users to
+     * accept a leveraged bid on ParaSpace NFT marketplace. Users can submit leveraged bid and pay
+     * at most (1 - LTV) * $NFT
+     * @dev The nft receiver just needs to do the downpayment
+     * @param marketplaceId The marketplace identifier
+     * @param payload The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credit The credit that user would like to use for this purchase
+     * @param referralCode The referral code used
+     */
+    function acceptBidWithCredit(
+        bytes32 marketplaceId,
+        bytes calldata payload,
+        DataTypes.Credit calldata credit,
+        uint256[] calldata punkIndexes,
+        uint16 referralCode
+    ) external nonReentrant {
+        for (uint256 i = 0; i < punkIndexes.length; i++) {
+            Punk.buyPunk(punkIndexes[i]);
+            Punk.transferPunk(proxy, punkIndexes[i]);
+            // gatewayProxy is the sender of this function, not the original gateway
+            WPunk.mint(punkIndexes[i]);
+
+            IERC721(wpunk).safeTransferFrom(
+                address(this),
+                msg.sender,
+                punkIndexes[i]
+            );
+        }
+        Pool.acceptBidWithCredit(
+            marketplaceId,
+            payload,
+            credit,
+            msg.sender,
+            referralCode
+        );
+    }
+
+    /**
+     * @notice Implements the batchAcceptBidWithCredit feature. AcceptBidWithCredit allows users to
+     * accept a leveraged bid on ParaSpace NFT marketplace. Users can submit leveraged bid and pay
+     * at most (1 - LTV) * $NFT
+     * @dev The nft receiver just needs to do the downpayment
+     * @param marketplaceIds The marketplace identifiers
+     * @param payloads The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credits The credits that the makers have approved to use for this purchase
+     * @param referralCode The referral code used
+     */
+    function batchAcceptBidWithCredit(
+        bytes32[] calldata marketplaceIds,
+        bytes[] calldata payloads,
+        DataTypes.Credit[] calldata credits,
+        uint256[] calldata punkIndexes,
+        uint16 referralCode
+    ) external nonReentrant {
+        for (uint256 i = 0; i < punkIndexes.length; i++) {
+            Punk.buyPunk(punkIndexes[i]);
+            Punk.transferPunk(proxy, punkIndexes[i]);
+            // gatewayProxy is the sender of this function, not the original gateway
+            WPunk.mint(punkIndexes[i]);
+
+            IERC721(wpunk).safeTransferFrom(
+                address(this),
+                msg.sender,
+                punkIndexes[i]
+            );
+        }
+        Pool.batchAcceptBidWithCredit(
+            marketplaceIds,
+            payloads,
+            credits,
+            msg.sender,
+            referralCode
+        );
+    }
+
+    /**
+     * @dev transfer ERC721 from the utility contract, for ERC721 recovery in case of stuck tokens due
+     * direct transfers to the contract address.
+     * @param token ERC721 token to transfer
+     * @param tokenId tokenId to send
+     * @param to recipient of the transfer
+     */
+    function emergencyERC721TokenTransfer(
+        address token,
+        uint256 tokenId,
+        address to
+    ) external onlyOwner {
+        IERC721(token).safeTransferFrom(address(this), to, tokenId);
+        emit EmergencyERC721TokenTransfer(token, tokenId, to);
+    }
+
+    /**
+     * @dev transfer native Punk from the utility contract, for native Punk recovery in case of stuck Punk
+     * due selfdestructs or transfer punk to pre-computated contract address before deployment.
+     * @param to recipient of the transfer
+     * @param punkIndex punk to send
+     */
+    function emergencyPunkTransfer(address to, uint256 punkIndex)
+        external
+        onlyOwner
+    {
+        Punk.transferPunk(to, punkIndex);
+        emit EmergencyPunkTransfer(to, punkIndex);
+    }
+
+    /**
+     * @dev Get WPunk address used by WPunkGateway
+     */
+    function getWPunkAddress() external view returns (address) {
+        return address(WPunk);
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes memory
+    ) public virtual override returns (bytes4) {
+        return this.onERC721Received.selector;
+    }
+}
+// ===== END SOURCE FILE: contracts/ui/WPunkGateway.sol =====

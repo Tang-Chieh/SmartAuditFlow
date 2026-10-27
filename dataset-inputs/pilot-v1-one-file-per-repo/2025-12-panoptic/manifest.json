@@ -1,0 +1,809 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2025-12-panoptic",
+  "source_repo_dir": "2025-12-panoptic",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "fe557748210a529ae414d7c487b6514be0d9e220",
+  "actual_git_head": "fe557748210a529ae414d7c487b6514be0d9e220",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 35,
+  "excluded_solidity_file_count": 57,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 197930,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 197930,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/base/FactoryNFT.sol",
+          "sha256": "42708a9f0535bbcda48201ffe733b4557ffcb8fc022c4daa6cd8f7724e860281",
+          "source_bytes_utf8": 15807,
+          "source_line_count": 379,
+          "imports": [
+            "@libraries/PanopticMath.sol",
+            "@contracts/PanopticPool.sol",
+            "solmate/src/tokens/ERC721.sol",
+            "@base/MetadataStore.sol",
+            "@types/Pointer.sol",
+            "solady/utils/LibString.sol",
+            "solady/utils/Base64.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 380
+        },
+        {
+          "file": "contracts/base/MetadataStore.sol",
+          "sha256": "e64c27ae96982d7af636dc90770f8f16457fe61b31b6db2755e329c06484637d",
+          "source_bytes_utf8": 1697,
+          "source_line_count": 34,
+          "imports": [
+            "@types/Pointer.sol"
+          ],
+          "bundle_marker_line": 382,
+          "bundle_source_start_line": 383,
+          "bundle_source_end_line": 416
+        },
+        {
+          "file": "contracts/base/Multicall.sol",
+          "sha256": "3bae06b2327ddc0e7b79ece3191fe4b0b3d78ce61c474bfc39bc85a3f4bd05e9",
+          "source_bytes_utf8": 1764,
+          "source_line_count": 37,
+          "imports": [],
+          "bundle_marker_line": 418,
+          "bundle_source_start_line": 419,
+          "bundle_source_end_line": 455
+        },
+        {
+          "file": "contracts/CollateralTracker.sol",
+          "sha256": "de048f57b668d16bdb88a81015cf7bac958c74a095c6aafe778d014af2a03d3b",
+          "source_bytes_utf8": 78012,
+          "source_line_count": 1664,
+          "imports": [
+            "./PanopticPool.sol",
+            "@contracts/interfaces/IRiskEngine.sol",
+            "v4-core/interfaces/IPoolManager.sol",
+            "clones-with-immutable-args/Clone.sol",
+            "@tokens/ERC20Minimal.sol",
+            "@base/Multicall.sol",
+            "@libraries/Errors.sol",
+            "@libraries/InteractionHelper.sol",
+            "@libraries/Math.sol",
+            "@libraries/SafeTransferLib.sol",
+            "v4-core/types/Currency.sol",
+            "@types/LeftRight.sol",
+            "@types/TokenId.sol",
+            "@types/RiskParameters.sol",
+            "@types/MarketState.sol"
+          ],
+          "bundle_marker_line": 457,
+          "bundle_source_start_line": 458,
+          "bundle_source_end_line": 2121
+        },
+        {
+          "file": "contracts/interfaces/IRiskEngine.sol",
+          "sha256": "36250afde2af190171e57efd6fed477b52d61108ecbcad1273063bb2d95f8a81",
+          "source_bytes_utf8": 16230,
+          "source_line_count": 319,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/PanopticPool.sol",
+            "@types/LeftRight.sol",
+            "@types/PositionBalance.sol",
+            "@types/RiskParameters.sol",
+            "@types/TokenId.sol",
+            "@types/OraclePack.sol",
+            "@types/MarketState.sol"
+          ],
+          "bundle_marker_line": 2123,
+          "bundle_source_start_line": 2124,
+          "bundle_source_end_line": 2442
+        },
+        {
+          "file": "contracts/interfaces/ISemiFungiblePositionManager.sol",
+          "sha256": "925eea2d916e4a477f77b85c18645c3fa6914169f760a173f473da71d8f62a3c",
+          "source_bytes_utf8": 4250,
+          "source_line_count": 124,
+          "imports": [
+            "@types/LeftRight.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 2444,
+          "bundle_source_start_line": 2445,
+          "bundle_source_end_line": 2568
+        },
+        {
+          "file": "contracts/libraries/CallbackLib.sol",
+          "sha256": "0148d943dbd76eaa7f88abd5c0a4eb0e16361d8f7dfd9c8606e07d625b2e1b79",
+          "source_bytes_utf8": 2069,
+          "source_line_count": 44,
+          "imports": [
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "@libraries/Errors.sol"
+          ],
+          "bundle_marker_line": 2570,
+          "bundle_source_start_line": 2571,
+          "bundle_source_end_line": 2614
+        },
+        {
+          "file": "contracts/libraries/Constants.sol",
+          "sha256": "9f97dcba7bc36fcb74768b876523b6fdb4de19780e9e06f60489d79807c01e1b",
+          "source_bytes_utf8": 1054,
+          "source_line_count": 26,
+          "imports": [],
+          "bundle_marker_line": 2616,
+          "bundle_source_start_line": 2617,
+          "bundle_source_end_line": 2642
+        },
+        {
+          "file": "contracts/libraries/EfficientHash.sol",
+          "sha256": "3a125557138c521d08a67bdf346753352a71f7f8497fa1108c8f1f26e56660e0",
+          "source_bytes_utf8": 3480,
+          "source_line_count": 82,
+          "imports": [],
+          "bundle_marker_line": 2644,
+          "bundle_source_start_line": 2645,
+          "bundle_source_end_line": 2726
+        },
+        {
+          "file": "contracts/libraries/Errors.sol",
+          "sha256": "4daf0bb09c326992704eea6e0b78438207363e0af5649d9b482770e8d0d64ee2",
+          "source_bytes_utf8": 6726,
+          "source_line_count": 145,
+          "imports": [],
+          "bundle_marker_line": 2728,
+          "bundle_source_start_line": 2729,
+          "bundle_source_end_line": 2873
+        },
+        {
+          "file": "contracts/libraries/FeesCalc.sol",
+          "sha256": "f40c96ca3942bb51b7dfbcdb47323cac8db379ee5c2c17e7c99b01cc87442e4d",
+          "source_bytes_utf8": 8547,
+          "source_line_count": 156,
+          "imports": [
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@libraries/Math.sol",
+            "@types/LeftRight.sol"
+          ],
+          "bundle_marker_line": 2875,
+          "bundle_source_start_line": 2876,
+          "bundle_source_end_line": 3031
+        },
+        {
+          "file": "contracts/libraries/InteractionHelper.sol",
+          "sha256": "8396198a97f109834f12b82f22864bb7742f93923390bb72262937efd08e5fda",
+          "source_bytes_utf8": 7879,
+          "source_line_count": 176,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@tokens/interfaces/IERC20Partial.sol",
+            "@contracts/interfaces/ISemiFungiblePositionManager.sol",
+            "v4-core/interfaces/IPoolManager.sol",
+            "@contracts/PanopticPool.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/LeftRight.sol",
+            "@types/TokenId.sol",
+            "@types/RiskParameters.sol",
+            "@libraries/EfficientHash.sol"
+          ],
+          "bundle_marker_line": 3033,
+          "bundle_source_start_line": 3034,
+          "bundle_source_end_line": 3209
+        },
+        {
+          "file": "contracts/libraries/Math.sol",
+          "sha256": "820b58367fb0a7b7bd293713929c6fcf4300072b4cafab1c94dcb3b07485c71b",
+          "source_bytes_utf8": 58264,
+          "source_line_count": 1293,
+          "imports": [
+            "@libraries/Errors.sol",
+            "@libraries/Constants.sol",
+            "solady/utils/FixedPointMathLib.sol",
+            "@types/LiquidityChunk.sol"
+          ],
+          "bundle_marker_line": 3211,
+          "bundle_source_start_line": 3212,
+          "bundle_source_end_line": 4504
+        },
+        {
+          "file": "contracts/libraries/PanopticMath.sol",
+          "sha256": "24d80b73ee0b4beec638837021d445e0001de332ce7ab8989807d87c90be32ed",
+          "source_bytes_utf8": 40102,
+          "source_line_count": 774,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Math.sol",
+            "@libraries/EfficientHash.sol",
+            "@libraries/Errors.sol",
+            "@openzeppelin/contracts/utils/Strings.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol",
+            "@types/RiskParameters.sol"
+          ],
+          "bundle_marker_line": 4506,
+          "bundle_source_start_line": 4507,
+          "bundle_source_end_line": 5280
+        },
+        {
+          "file": "contracts/libraries/SafeTransferLib.sol",
+          "sha256": "83525e61c83b277ad0108a152c327c4933aefe5cbfe520cd19c7ddedb09892f0",
+          "source_bytes_utf8": 5934,
+          "source_line_count": 124,
+          "imports": [
+            "@libraries/Errors.sol"
+          ],
+          "bundle_marker_line": 5282,
+          "bundle_source_start_line": 5283,
+          "bundle_source_end_line": 5406
+        },
+        {
+          "file": "contracts/libraries/V4StateReader.sol",
+          "sha256": "58d6dd9085e888231d6b817c96a5066c816812cba8b1dc5017c710276b74ce04",
+          "source_bytes_utf8": 8500,
+          "source_line_count": 166,
+          "imports": [
+            "v4-core/interfaces/IPoolManager.sol",
+            "v4-core/libraries/StateLibrary.sol",
+            "v4-core/types/PoolId.sol"
+          ],
+          "bundle_marker_line": 5408,
+          "bundle_source_start_line": 5409,
+          "bundle_source_end_line": 5574
+        },
+        {
+          "file": "contracts/PanopticFactory.sol",
+          "sha256": "0f9c3f8f0e7725f2e1892d3d34319f5ecc87f2cf2a71a208bc97dc5031b41540",
+          "source_bytes_utf8": 12926,
+          "source_line_count": 293,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/PanopticPool.sol",
+            "@contracts/interfaces/IRiskEngine.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@base/Multicall.sol",
+            "@base/FactoryNFT.sol",
+            "clones-with-immutable-args/ClonesWithImmutableArgs.sol",
+            "@libraries/Errors.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/Pointer.sol"
+          ],
+          "bundle_marker_line": 5576,
+          "bundle_source_start_line": 5577,
+          "bundle_source_end_line": 5869
+        },
+        {
+          "file": "contracts/PanopticFactoryV4.sol",
+          "sha256": "d12555beb5aaedeffee6695a2a57b2e1bf6cb999baad65edf5b33cb6ba82511d",
+          "source_bytes_utf8": 14352,
+          "source_line_count": 325,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/PanopticPool.sol",
+            "@contracts/interfaces/IRiskEngine.sol",
+            "v4-core/interfaces/IPoolManager.sol",
+            "@contracts/SemiFungiblePositionManagerV4.sol",
+            "@base/Multicall.sol",
+            "@base/FactoryNFT.sol",
+            "clones-with-immutable-args/ClonesWithImmutableArgs.sol",
+            "@libraries/Errors.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/V4StateReader.sol",
+            "@types/Pointer.sol",
+            "v4-core/types/PoolId.sol",
+            "v4-core/types/PoolKey.sol"
+          ],
+          "bundle_marker_line": 5871,
+          "bundle_source_start_line": 5872,
+          "bundle_source_end_line": 6196
+        },
+        {
+          "file": "contracts/PanopticPool.sol",
+          "sha256": "7ac54831d102080098c439663059203f62bb1e1c90049b28aa72ede098ba3a6b",
+          "source_bytes_utf8": 102513,
+          "source_line_count": 2156,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/interfaces/ISemiFungiblePositionManager.sol",
+            "@contracts/interfaces/IRiskEngine.sol",
+            "clones-with-immutable-args/Clone.sol",
+            "@base/Multicall.sol",
+            "@libraries/Constants.sol",
+            "@libraries/EfficientHash.sol",
+            "@libraries/Errors.sol",
+            "@libraries/InteractionHelper.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/PositionBalance.sol",
+            "@types/RiskParameters.sol",
+            "@types/TokenId.sol",
+            "@types/OraclePack.sol"
+          ],
+          "bundle_marker_line": 6198,
+          "bundle_source_start_line": 6199,
+          "bundle_source_end_line": 8354
+        },
+        {
+          "file": "contracts/RiskEngine.sol",
+          "sha256": "c66ba5625d45cd17ff8fde731f889eb6759d1e150f29a3c3455223b7c9542588",
+          "source_bytes_utf8": 116672,
+          "source_line_count": 2403,
+          "imports": [
+            "./CollateralTracker.sol",
+            "./PanopticPool.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/SafeTransferLib.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/PositionBalance.sol",
+            "@types/RiskParameters.sol",
+            "@types/TokenId.sol",
+            "@types/OraclePack.sol",
+            "@types/MarketState.sol"
+          ],
+          "bundle_marker_line": 8356,
+          "bundle_source_start_line": 8357,
+          "bundle_source_end_line": 10759
+        },
+        {
+          "file": "contracts/SemiFungiblePositionManager.sol",
+          "sha256": "cf64591365847b3c1ce8a19694b0f3319d059a4fdee3b5471efbb8679f8dc4b8",
+          "source_bytes_utf8": 81775,
+          "source_line_count": 1528,
+          "imports": [
+            "@tokens/interfaces/IERC20Partial.sol",
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@tokens/ERC1155Minimal.sol",
+            "@base/Multicall.sol",
+            "solmate/src/utils/TransientReentrancyGuard.sol",
+            "@libraries/CallbackLib.sol",
+            "@libraries/Constants.sol",
+            "@libraries/EfficientHash.sol",
+            "@libraries/Errors.sol",
+            "@libraries/FeesCalc.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/SafeTransferLib.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/PoolData.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 10761,
+          "bundle_source_start_line": 10762,
+          "bundle_source_end_line": 12289
+        },
+        {
+          "file": "contracts/SemiFungiblePositionManagerV4.sol",
+          "sha256": "46950105b40206342fb4df3ec173f74c67444cc5620f9b42a2fd8d32f5245232",
+          "source_bytes_utf8": 71096,
+          "source_line_count": 1339,
+          "imports": [
+            "@tokens/interfaces/IERC20Partial.sol",
+            "v4-core/interfaces/IPoolManager.sol",
+            "@tokens/ERC1155Minimal.sol",
+            "@base/Multicall.sol",
+            "solmate/src/utils/TransientReentrancyGuard.sol",
+            "@libraries/Constants.sol",
+            "@libraries/EfficientHash.sol",
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/V4StateReader.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/PoolData.sol",
+            "@types/TokenId.sol",
+            "v4-core/types/BalanceDelta.sol",
+            "v4-core/types/Currency.sol",
+            "v4-core/types/PoolId.sol",
+            "v4-core/types/PoolKey.sol"
+          ],
+          "bundle_marker_line": 12291,
+          "bundle_source_start_line": 12292,
+          "bundle_source_end_line": 13630
+        },
+        {
+          "file": "contracts/tokens/ERC1155Minimal.sol",
+          "sha256": "bd98c5a2626f80260871cba86b51b6da68c8ba4082f695424b463a790913860f",
+          "source_bytes_utf8": 9650,
+          "source_line_count": 241,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol"
+          ],
+          "bundle_marker_line": 13632,
+          "bundle_source_start_line": 13633,
+          "bundle_source_end_line": 13873
+        },
+        {
+          "file": "contracts/tokens/ERC20Minimal.sol",
+          "sha256": "610b6301f3e6f0b81177d2d30bb0acdc87b83675ac3115c6bdbc7198a6351f1b",
+          "source_bytes_utf8": 5722,
+          "source_line_count": 146,
+          "imports": [],
+          "bundle_marker_line": 13875,
+          "bundle_source_start_line": 13876,
+          "bundle_source_end_line": 14021
+        },
+        {
+          "file": "contracts/tokens/interfaces/IERC20Partial.sol",
+          "sha256": "beb7661b66097240318f6e5797b3d2a7fd9a4deb869737668108d09f7f63ec84",
+          "source_bytes_utf8": 1854,
+          "source_line_count": 31,
+          "imports": [],
+          "bundle_marker_line": 14023,
+          "bundle_source_start_line": 14024,
+          "bundle_source_end_line": 14054
+        },
+        {
+          "file": "contracts/types/LeftRight.sol",
+          "sha256": "864bbc759808c91052656c02acfbf7cf3ce519225f52f1590f3e21e7e64c694b",
+          "source_bytes_utf8": 14315,
+          "source_line_count": 322,
+          "imports": [
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol"
+          ],
+          "bundle_marker_line": 14056,
+          "bundle_source_start_line": 14057,
+          "bundle_source_end_line": 14378
+        },
+        {
+          "file": "contracts/types/LiquidityChunk.sol",
+          "sha256": "6f9d3787e3defba94567d9aae9355bc855e155e12690b2ea85c59da020fd0921",
+          "source_bytes_utf8": 7761,
+          "source_line_count": 189,
+          "imports": [],
+          "bundle_marker_line": 14380,
+          "bundle_source_start_line": 14381,
+          "bundle_source_end_line": 14569
+        },
+        {
+          "file": "contracts/types/MarketState.sol",
+          "sha256": "b1f3b2bc5aebedbf0cd9840737d19377be9de3b7324ec2ffd52efd5ae91a1cfc",
+          "source_bytes_utf8": 7576,
+          "source_line_count": 187,
+          "imports": [],
+          "bundle_marker_line": 14571,
+          "bundle_source_start_line": 14572,
+          "bundle_source_end_line": 14758
+        },
+        {
+          "file": "contracts/types/OraclePack.sol",
+          "sha256": "f9329c4bd5c29fc81334994354141ba5907af6dab513aca506553ed3652e32ab",
+          "source_bytes_utf8": 29416,
+          "source_line_count": 636,
+          "imports": [
+            "@libraries/Constants.sol"
+          ],
+          "bundle_marker_line": 14760,
+          "bundle_source_start_line": 14761,
+          "bundle_source_end_line": 15396
+        },
+        {
+          "file": "contracts/types/Pointer.sol",
+          "sha256": "4b4a06aa010e582e2263c856d1f96d9e4bb702ab41d53d056c58d522d8ba5ef6",
+          "source_bytes_utf8": 3066,
+          "source_line_count": 77,
+          "imports": [
+            "solady/utils/LibZip.sol"
+          ],
+          "bundle_marker_line": 15398,
+          "bundle_source_start_line": 15399,
+          "bundle_source_end_line": 15475
+        },
+        {
+          "file": "contracts/types/PoolData.sol",
+          "sha256": "8ae56607a97c4f2b9f26853fbb2f52b8b6df00e269a048b310d46fc576aca558",
+          "source_bytes_utf8": 4616,
+          "source_line_count": 108,
+          "imports": [],
+          "bundle_marker_line": 15477,
+          "bundle_source_start_line": 15478,
+          "bundle_source_end_line": 15585
+        },
+        {
+          "file": "contracts/types/PositionBalance.sol",
+          "sha256": "ef43c9741de35e4619dd31b0148ceef0ff1a87d0c056daee0a4a6e2499306077",
+          "source_bytes_utf8": 9568,
+          "source_line_count": 217,
+          "imports": [],
+          "bundle_marker_line": 15587,
+          "bundle_source_start_line": 15588,
+          "bundle_source_end_line": 15804
+        },
+        {
+          "file": "contracts/types/RiskParameters.sol",
+          "sha256": "0123670692c356c63163e9d76e25b25a136eb48d628b85327dd7451e629fa539",
+          "source_bytes_utf8": 7807,
+          "source_line_count": 174,
+          "imports": [],
+          "bundle_marker_line": 15806,
+          "bundle_source_start_line": 15807,
+          "bundle_source_end_line": 15980
+        },
+        {
+          "file": "contracts/types/TokenId.sol",
+          "sha256": "d245fc2a50d46ee8309c395e465712b48479b35c3c4617fa06250ad379795a6c",
+          "source_bytes_utf8": 26078,
+          "source_line_count": 534,
+          "imports": [
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/PanopticMath.sol"
+          ],
+          "bundle_marker_line": 15982,
+          "bundle_source_start_line": 15983,
+          "bundle_source_end_line": 16516
+        },
+        {
+          "file": "script/DeployProtocol.s.sol",
+          "sha256": "bc0210f3c847aba79c200556cc4f3b885978170f7615dd0ebc7e554cd6d422f2",
+          "source_bytes_utf8": 4260,
+          "source_line_count": 111,
+          "imports": [
+            "forge-std/Script.sol",
+            "@contracts/PanopticFactory.sol",
+            "@contracts/CollateralTracker.sol",
+            "@contracts/RiskEngine.sol",
+            "@contracts/PanopticPool.sol",
+            "@contracts/interfaces/ISemiFungiblePositionManager.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "@types/Pointer.sol",
+            "@test_periphery/PanopticHelper.sol"
+          ],
+          "bundle_marker_line": 16518,
+          "bundle_source_start_line": 16519,
+          "bundle_source_end_line": 16629
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "test/foundry/core/CollateralTracker.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/Misc.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/PanopticFactory.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/PanopticPool.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/AssertExt.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/helpers/PositionFactory.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/mocks/MockCollateralTracker.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngine.Gaps.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngine.Properties.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngine.Scenarios.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngineHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngineInvariants.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngineIRM.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEnginePropertiesPlus.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/RiskEngine/RiskEngineSafeModeAndOracle.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/SemiFungiblePositionManager.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/CollateralTracker.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/Misc.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/PanopticFactory.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/PanopticPool.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/AssertExt.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/helpers/PositionFactory.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/mocks/MockCollateralTracker.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngine.Gaps.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngine.Properties.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngine.Scenarios.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngineHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngineInvariants.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngineIRM.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEnginePropertiesPlus.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/RiskEngine/RiskEngineSafeModeAndOracle.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/coreV3/SemiFungiblePositionManager.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/CallbackLib.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/FeesCalc.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/CallbackLibHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/FeesCalcHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/MathHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/PanopticMathHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/Math.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/PanopticMath.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/PositionAmountsTest.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/SafeTransferLib.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/test_periphery/PanopticHelper.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/ERC20S.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/PositionUtils.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/PriceMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/ReentrancyMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/V4RouterSimple.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/tokens/ERC1155Minimal.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/LeftRightHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/LiquidityChunkHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/PositionBalanceHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/TokenIdHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/LeftRight.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/LiquidityChunk.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/PositionBalance.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/TokenId.t.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ]
+}

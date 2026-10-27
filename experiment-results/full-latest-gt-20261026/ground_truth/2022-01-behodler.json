@@ -1,0 +1,46 @@
+{
+  "repo_id": "2022-01-behodler",
+  "ground_truth": [
+    {
+      "title": "[H-05] Flash loan price manipulation in purchasePyroFlan()",
+      "description": "FlanBackstop.purchasePyroFlan() computes priceBefore and tiltedPrice directly from the instantaneous FLAN/stablecoin Uniswap pair balances. These values determine growth, flanToMint, and the premium ultimately minted to the caller as PyroFlan. An attacker can temporarily skew the pair balances with a flash loan or large trade and can split the operation into repeated smaller calls. The acceptableHighestPrice check only caps each observed tilted price and therefore does not make the spot inputs manipulation-resistant or stop a repeated attack within the configured limit.",
+      "impact": "An attacker can manipulate the FLAN/stablecoin LP, especially when it is new or has low liquidity, to receive large amounts of PyroFlan backed by newly minted FLAN. By reducing the volume of each flash-loan attack and repeating it, the attacker can accumulate this gain while remaining below the per-call price ceiling.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/FlanBackstop.sol",
+          "contract": "FlanBackstop",
+          "function": "purchasePyroFlan(address,uint256)",
+          "start_line": 75,
+          "end_line": 114
+        }
+      ],
+      "mitigation": "Use a TWAP instead of the pool price at a single point in time to increase the cost of a flash-loan sandwich attack.",
+      "finding_id": "H-05",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[H-07] LP pricing formula is vulnerable to flashloan manipulation",
+      "description": "LimboDAO.setEYEBasedAssetStake() and LimboDAO.burnAsset() calculate the EYE value of an EYE-based LP asset from the underlying EYE balance divided by the LP token total supply. Because the underlying pool balance is read at execution time, an attacker can temporarily manipulate the pool reserves before the LP asset is staked or burned and cause the protocol to use an inflated LP value.",
+      "impact": "An attacker can manipulate the underlying LP reserves to receive excess fate for an LP asset. The excess fate can provide disproportionate voting power and may be converted to Flan for direct profit.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/DAO/LimboDAO.sol",
+          "contract": "LimboDAO",
+          "function": "setEYEBasedAssetStake(uint256,uint256,uint256,address)",
+          "start_line": 356,
+          "end_line": 366
+        },
+        {
+          "file": "contracts/DAO/LimboDAO.sol",
+          "contract": "LimboDAO",
+          "function": "burnAsset(address,uint256)",
+          "start_line": 392,
+          "end_line": 397
+        }
+      ],
+      "mitigation": "Use a fair pricing formula for LP tokens, such as a manipulation-resistant formula proposed by Alpha Finance.",
+      "finding_id": "H-07",
+      "review_status": "gold_verified"
+    }
+  ]
+}

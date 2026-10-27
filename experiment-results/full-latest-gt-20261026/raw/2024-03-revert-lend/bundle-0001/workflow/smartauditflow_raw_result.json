@@ -1,0 +1,126 @@
+{
+  "Findings": [
+    {
+      "Issue": "Zero-duration TWAP mode permits spot-price manipulation of collateral valuation",
+      "Severity": "High",
+      "Description": "V3Oracle.setTokenConfig permits Mode.TWAP with twapSeconds == 0. In that configuration, _getReferenceTokenPriceX96() calls _getTWAPPriceX96(), which calls _getReferencePoolPriceX96() and reads pool.slot0() instead of historical observations. V3Oracle.getValue() uses this price to calculate collateral value, while V3Vault._checkLoanIsHealthy() uses that value to authorize borrowing and determine liquidation health. The additional _checkPoolPrice() control also reads the current position-pool slot0() price. If the configured reference pool is the same pool, or otherwise jointly manipulable with the position pool, the derived price and verification price can be moved consistently, allowing a temporary AMM-price change to pass the deviation check and influence the borrow-health calculation. The supplied bundle does not establish that this configuration is active in deployment; the finding is conditional on an owner configuring a collateral token this way.",
+      "Impact": "Under the permitted configuration, an attacker able to temporarily move the relevant Uniswap V3 pool price may inflate the LP collateral valuation, pass V3Vault.borrow() health checks, and receive more vault assets than the position supports at the unmanipulated price. Restoring the pool price can leave the vault with undercollateralized debt. The same manipulated valuation can also affect liquidation eligibility and liquidation amounts.",
+      "Location": "src/V3Oracle.sol — V3Oracle.setTokenConfig; src/V3Oracle.sol — V3Oracle._getReferencePoolPriceX96; src/V3Oracle.sol — V3Oracle._checkPoolPrice; src/V3Vault.sol — V3Vault._checkLoanIsHealthy",
+      "Mitigation": "Reject zero-duration configurations for every mode that relies on a pool TWAP or TWAP verification, and enforce a protocol-defined minimum observation period. Do not use the same current spot price both as the effective collateral-price source and as its verification source. Require an independent, fresh oracle source or an independent nonzero-duration TWAP with explicit deviation, liquidity, and observation-history checks. The configuration should also prevent a collateral position pool from serving as its own valuation reference where practical.",
+      "finding_id": "SAF-001"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Zero-duration TWAP mode permits spot-price manipulation of collateral valuation",
+      "description": "V3Oracle.setTokenConfig permits Mode.TWAP with twapSeconds == 0. In that configuration, _getReferenceTokenPriceX96() calls _getTWAPPriceX96(), which calls _getReferencePoolPriceX96() and reads pool.slot0() instead of historical observations. V3Oracle.getValue() uses this price to calculate collateral value, while V3Vault._checkLoanIsHealthy() uses that value to authorize borrowing and determine liquidation health. The additional _checkPoolPrice() control also reads the current position-pool slot0() price. If the configured reference pool is the same pool, or otherwise jointly manipulable with the position pool, the derived price and verification price can be moved consistently, allowing a temporary AMM-price change to pass the deviation check and influence the borrow-health calculation. The supplied bundle does not establish that this configuration is active in deployment; the finding is conditional on an owner configuring a collateral token this way.",
+      "impact": "Under the permitted configuration, an attacker able to temporarily move the relevant Uniswap V3 pool price may inflate the LP collateral valuation, pass V3Vault.borrow() health checks, and receive more vault assets than the position supports at the unmanipulated price. Restoring the pool price can leave the vault with undercollateralized debt. The same manipulated valuation can also affect liquidation eligibility and liquidation amounts.",
+      "mitigation": "Reject zero-duration configurations for every mode that relies on a pool TWAP or TWAP verification, and enforce a protocol-defined minimum observation period. Do not use the same current spot price both as the effective collateral-price source and as its verification source. Require an independent, fresh oracle source or an independent nonzero-duration TWAP with explicit deviation, liquidity, and observation-history checks. The configuration should also prevent a collateral position pool from serving as its own valuation reference where practical.",
+      "vulnerable_code": [
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "setTokenConfig",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "_getReferencePoolPriceX96",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "_checkPoolPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/V3Vault.sol",
+          "contract": "V3Vault",
+          "function": "_checkLoanIsHealthy",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 1,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Zero-duration TWAP mode permits spot-price manipulation of collateral valuation\",\n    \"description\": \"V3Oracle.setTokenConfig permits Mode.TWAP with twapSeconds == 0. In that configuration, _getReferenceTokenPriceX96() calls _getTWAPPriceX96(), which calls _getReferencePoolPriceX96() and reads pool.slot0() instead of historical observations. V3Oracle.getValue() uses this price to calculate collateral value, while V3Vault._checkLoanIsHealthy() uses that value to authorize borrowing and determine liquidation health. The additional _checkPoolPrice() control also reads the current position-pool slot0() price. If the configured reference pool is the same pool, or otherwise jointly manipulable with the position pool, the derived price and verification price can be moved consistently, allowing a temporary AMM-price change to pass the deviation check and influence the borrow-health calculation. The supplied bundle does not establish that this configuration is active in deployment; the finding is conditional on an owner configuring a collateral token this way.\",\n    \"impact\": \"Under the permitted configuration, an attacker able to temporarily move the relevant Uniswap V3 pool price may inflate the LP collateral valuation, pass V3Vault.borrow() health checks, and receive more vault assets than the position supports at the unmanipulated price. Restoring the pool price can leave the vault with undercollateralized debt. The same manipulated valuation can also affect liquidation eligibility and liquidation amounts.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"src/V3Oracle.sol\",\n        \"contract\": \"V3Oracle\",\n        \"function\": \"setTokenConfig\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/V3Oracle.sol\",\n        \"contract\": \"V3Oracle\",\n        \"function\": \"_getReferencePoolPriceX96\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/V3Oracle.sol\",\n        \"contract\": \"V3Oracle\",\n        \"function\": \"_checkPoolPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/V3Vault.sol\",\n        \"contract\": \"V3Vault\",\n        \"function\": \"_checkLoanIsHealthy\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Reject zero-duration configurations for every mode that relies on a pool TWAP or TWAP verification, and enforce a protocol-defined minimum observation period. Do not use the same current spot price both as the effective collateral-price source and as its verification source. Require an independent, fresh oracle source or an independent nonzero-duration TWAP with explicit deviation, liquidity, and observation-history checks. The configuration should also prevent a collateral position pool from serving as its own valuation reference where practical.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 315.6647222042084,
+    "session_id": "f3e88656-fe52-426b-aa91-72ad1ddd4240"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2024-03-revert-lend",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Zero-duration TWAP mode permits spot-price manipulation of collateral valuation",
+        "description": "V3Oracle.setTokenConfig permits Mode.TWAP with twapSeconds == 0. In that configuration, _getReferenceTokenPriceX96() calls _getTWAPPriceX96(), which calls _getReferencePoolPriceX96() and reads pool.slot0() instead of historical observations. V3Oracle.getValue() uses this price to calculate collateral value, while V3Vault._checkLoanIsHealthy() uses that value to authorize borrowing and determine liquidation health. The additional _checkPoolPrice() control also reads the current position-pool slot0() price. If the configured reference pool is the same pool, or otherwise jointly manipulable with the position pool, the derived price and verification price can be moved consistently, allowing a temporary AMM-price change to pass the deviation check and influence the borrow-health calculation. The supplied bundle does not establish that this configuration is active in deployment; the finding is conditional on an owner configuring a collateral token this way.",
+        "impact": "Under the permitted configuration, an attacker able to temporarily move the relevant Uniswap V3 pool price may inflate the LP collateral valuation, pass V3Vault.borrow() health checks, and receive more vault assets than the position supports at the unmanipulated price. Restoring the pool price can leave the vault with undercollateralized debt. The same manipulated valuation can also affect liquidation eligibility and liquidation amounts.",
+        "mitigation": "Reject zero-duration configurations for every mode that relies on a pool TWAP or TWAP verification, and enforce a protocol-defined minimum observation period. Do not use the same current spot price both as the effective collateral-price source and as its verification source. Require an independent, fresh oracle source or an independent nonzero-duration TWAP with explicit deviation, liquidity, and observation-history checks. The configuration should also prevent a collateral position pool from serving as its own valuation reference where practical.",
+        "vulnerable_code": [
+          {
+            "file": "src/V3Oracle.sol",
+            "contract": "V3Oracle",
+            "function": "setTokenConfig",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/V3Oracle.sol",
+            "contract": "V3Oracle",
+            "function": "_getReferencePoolPriceX96",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/V3Oracle.sol",
+            "contract": "V3Oracle",
+            "function": "_checkPoolPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/V3Vault.sol",
+            "contract": "V3Vault",
+            "function": "_checkLoanIsHealthy",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

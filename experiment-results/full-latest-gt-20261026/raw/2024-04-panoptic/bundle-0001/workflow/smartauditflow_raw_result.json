@@ -1,0 +1,169 @@
+{
+  "Findings": [
+    {
+      "Issue": "Liquidation payouts and liquidator solvency use an unvalidated post-burn spot price",
+      "Severity": "High",
+      "Description": "PanopticPool.liquidate checks the AMM spot against the TWAP before burning the liquidatee's positions, but then burns with unrestricted tick limits using Constants.MIN_V3POOL_TICK and Constants.MAX_V3POOL_TICK. The burn path can execute SFPM.swapInAMM, which directly swaps against Uniswap and changes slot0().tick. Afterward, liquidate reads finalTick and passes it to PanopticMath.getLiquidationBonus and PanopticMath.haircutPremia for cross-token bonus, protocol-loss, and premium-haircut conversions. It also passes finalTick as both currentTick and atTick to _checkSolvencyAtTick for the liquidator. No post-burn TWAP/deviation check, price-impact bound, or independent-oracle valuation constrains finalTick before these financial outcomes are calculated. Thus, when the burned position causes a sufficiently large AMM price movement, the liquidation bonus composition and the liquidator's solvency assessment depend on the resulting attacker-influenceable spot price rather than the protected TWAP.",
+      "Impact": "A liquidation-induced price movement can alter the amount and token composition of liquidation compensation and premium haircuts. It can also make a liquidator's collateral or remaining positions appear solvent at finalTick even if they would fail at the liquidation TWAP, potentially transferring value from the liquidatee, collateral providers, or protocol and leaving post-liquidation bad debt. The supplied source does not provide deployment-specific liquidity or position sizes, so the magnitude of any price movement cannot be quantified.",
+      "Location": "contracts/PanopticPool.sol — PanopticPool.liquidate; contracts/SemiFungiblePositionManager.sol — SemiFungiblePositionManager.swapInAMM; contracts/libraries/PanopticMath.sol — PanopticMath.getLiquidationBonus",
+      "Mitigation": "Use the validated liquidation TWAP, or another independently validated oracle price, for liquidation bonus, haircut, and liquidator-solvency calculations. Alternatively, after all liquidation burns and swaps, enforce a post-operation deviation check between finalTick and the liquidation TWAP before using finalTick, and apply an explicit maximum price-impact/slippage bound to liquidation-induced swaps. The liquidator should additionally be required to satisfy solvency at the independent TWAP or a conservative oracle valuation.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Forced-exercise compensation is calculated from an unvalidated spot tick",
+      "Severity": "High",
+      "Description": "PanopticPool.forceExercise uses getUniV3TWAP only to determine whether the position is exercisable, but captures the instantaneous Uniswap slot0().tick as currentTick and passes it to CollateralTracker.exerciseCost. No spot/TWAP deviation or independent-price check is applied. CollateralTracker.exerciseCost computes maxNumRangesFromStrike from currentTick and applies an exponentially decaying fee using FORCE_EXERCISE_COST >> (maxNumRangesFromStrike - 1). It also uses currentTick to compare current liquidity values with the TWAP values. An attacker can temporarily move the underlying AMM spot while leaving the TWAP sufficiently unchanged, then call forceExercise; the position can remain exercisable at the TWAP while the manipulated spot increases its apparent distance from the strike and reduces the fee paid to the exercisee.",
+      "Impact": "The forced-exercise caller can pay less compensation than intended, reducing the refund received by the exercisee. The difference can be captured by the caller and the exercisee can be underpaid. The source does not establish a particular deployment's achievable price displacement, but it shows the complete path from mutable AMM spot state to the forced-exercise fee and settlement amount.",
+      "Location": "contracts/PanopticPool.sol — PanopticPool.forceExercise; contracts/CollateralTracker.sol — CollateralTracker.exerciseCost",
+      "Mitigation": "Calculate the forced-exercise fee using the manipulation-resistant TWAP or another independently validated reference tick instead of raw slot0().tick. If the current spot is retained for any calculation, enforce a spot/TWAP deviation bound before calculating and settling the fee, and ensure any AMM state changes during the burn cannot invalidate that bound.",
+      "finding_id": "SAF-002"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Liquidation payouts and liquidator solvency use an unvalidated post-burn spot price",
+      "description": "PanopticPool.liquidate checks the AMM spot against the TWAP before burning the liquidatee's positions, but then burns with unrestricted tick limits using Constants.MIN_V3POOL_TICK and Constants.MAX_V3POOL_TICK. The burn path can execute SFPM.swapInAMM, which directly swaps against Uniswap and changes slot0().tick. Afterward, liquidate reads finalTick and passes it to PanopticMath.getLiquidationBonus and PanopticMath.haircutPremia for cross-token bonus, protocol-loss, and premium-haircut conversions. It also passes finalTick as both currentTick and atTick to _checkSolvencyAtTick for the liquidator. No post-burn TWAP/deviation check, price-impact bound, or independent-oracle valuation constrains finalTick before these financial outcomes are calculated. Thus, when the burned position causes a sufficiently large AMM price movement, the liquidation bonus composition and the liquidator's solvency assessment depend on the resulting attacker-influenceable spot price rather than the protected TWAP.",
+      "impact": "A liquidation-induced price movement can alter the amount and token composition of liquidation compensation and premium haircuts. It can also make a liquidator's collateral or remaining positions appear solvent at finalTick even if they would fail at the liquidation TWAP, potentially transferring value from the liquidatee, collateral providers, or protocol and leaving post-liquidation bad debt. The supplied source does not provide deployment-specific liquidity or position sizes, so the magnitude of any price movement cannot be quantified.",
+      "mitigation": "Use the validated liquidation TWAP, or another independently validated oracle price, for liquidation bonus, haircut, and liquidator-solvency calculations. Alternatively, after all liquidation burns and swaps, enforce a post-operation deviation check between finalTick and the liquidation TWAP before using finalTick, and apply an explicit maximum price-impact/slippage bound to liquidation-induced swaps. The liquidator should additionally be required to satisfy solvency at the independent TWAP or a conservative oracle valuation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/PanopticPool.sol",
+          "contract": "PanopticPool",
+          "function": "liquidate",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/SemiFungiblePositionManager.sol",
+          "contract": "SemiFungiblePositionManager",
+          "function": "swapInAMM",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/libraries/PanopticMath.sol",
+          "contract": "PanopticMath",
+          "function": "getLiquidationBonus",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Forced-exercise compensation is calculated from an unvalidated spot tick",
+      "description": "PanopticPool.forceExercise uses getUniV3TWAP only to determine whether the position is exercisable, but captures the instantaneous Uniswap slot0().tick as currentTick and passes it to CollateralTracker.exerciseCost. No spot/TWAP deviation or independent-price check is applied. CollateralTracker.exerciseCost computes maxNumRangesFromStrike from currentTick and applies an exponentially decaying fee using FORCE_EXERCISE_COST >> (maxNumRangesFromStrike - 1). It also uses currentTick to compare current liquidity values with the TWAP values. An attacker can temporarily move the underlying AMM spot while leaving the TWAP sufficiently unchanged, then call forceExercise; the position can remain exercisable at the TWAP while the manipulated spot increases its apparent distance from the strike and reduces the fee paid to the exercisee.",
+      "impact": "The forced-exercise caller can pay less compensation than intended, reducing the refund received by the exercisee. The difference can be captured by the caller and the exercisee can be underpaid. The source does not establish a particular deployment's achievable price displacement, but it shows the complete path from mutable AMM spot state to the forced-exercise fee and settlement amount.",
+      "mitigation": "Calculate the forced-exercise fee using the manipulation-resistant TWAP or another independently validated reference tick instead of raw slot0().tick. If the current spot is retained for any calculation, enforce a spot/TWAP deviation bound before calculating and settling the fee, and ensure any AMM state changes during the burn cannot invalidate that bound.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/PanopticPool.sol",
+          "contract": "PanopticPool",
+          "function": "forceExercise",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/CollateralTracker.sol",
+          "contract": "CollateralTracker",
+          "function": "exerciseCost",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 2,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Liquidation payouts and liquidator solvency use an unvalidated post-burn spot price\",\n    \"description\": \"PanopticPool.liquidate checks the AMM spot against the TWAP before burning the liquidatee's positions, but then burns with unrestricted tick limits using Constants.MIN_V3POOL_TICK and Constants.MAX_V3POOL_TICK. The burn path can execute SFPM.swapInAMM, which directly swaps against Uniswap and changes slot0().tick. Afterward, liquidate reads finalTick and passes it to PanopticMath.getLiquidationBonus and PanopticMath.haircutPremia for cross-token bonus, protocol-loss, and premium-haircut conversions. It also passes finalTick as both currentTick and atTick to _checkSolvencyAtTick for the liquidator. No post-burn TWAP/deviation check, price-impact bound, or independent-oracle valuation constrains finalTick before these financial outcomes are calculated. Thus, when the burned position causes a sufficiently large AMM price movement, the liquidation bonus composition and the liquidator's solvency assessment depend on the resulting attacker-influenceable spot price rather than the protected TWAP.\",\n    \"impact\": \"A liquidation-induced price movement can alter the amount and token composition of liquidation compensation and premium haircuts. It can also make a liquidator's collateral or remaining positions appear solvent at finalTick even if they would fail at the liquidation TWAP, potentially transferring value from the liquidatee, collateral providers, or protocol and leaving post-liquidation bad debt. The supplied source does not provide deployment-specific liquidity or position sizes, so the magnitude of any price movement cannot be quantified.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/PanopticPool.sol\",\n        \"contract\": \"PanopticPool\",\n        \"function\": \"liquidate\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/SemiFungiblePositionManager.sol\",\n        \"contract\": \"SemiFungiblePositionManager\",\n        \"function\": \"swapInAMM\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/libraries/PanopticMath.sol\",\n        \"contract\": \"PanopticMath\",\n        \"function\": \"getLiquidationBonus\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use the validated liquidation TWAP, or another independently validated oracle price, for liquidation bonus, haircut, and liquidator-solvency calculations. Alternatively, after all liquidation burns and swaps, enforce a post-operation deviation check between finalTick and the liquidation TWAP before using finalTick, and apply an explicit maximum price-impact/slippage bound to liquidation-induced swaps. The liquidator should additionally be required to satisfy solvency at the independent TWAP or a conservative oracle valuation.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Forced-exercise compensation is calculated from an unvalidated spot tick\",\n    \"description\": \"PanopticPool.forceExercise uses getUniV3TWAP only to determine whether the position is exercisable, but captures the instantaneous Uniswap slot0().tick as currentTick and passes it to CollateralTracker.exerciseCost. No spot/TWAP deviation or independent-price check is applied. CollateralTracker.exerciseCost computes maxNumRangesFromStrike from currentTick and applies an exponentially decaying fee using FORCE_EXERCISE_COST >> (maxNumRangesFromStrike - 1). It also uses currentTick to compare current liquidity values with the TWAP values. An attacker can temporarily move the underlying AMM spot while leaving the TWAP sufficiently unchanged, then call forceExercise; the position can remain exercisable at the TWAP while the manipulated spot increases its apparent distance from the strike and reduces the fee paid to the exercisee.\",\n    \"impact\": \"The forced-exercise caller can pay less compensation than intended, reducing the refund received by the exercisee. The difference can be captured by the caller and the exercisee can be underpaid. The source does not establish a particular deployment's achievable price displacement, but it shows the complete path from mutable AMM spot state to the forced-exercise fee and settlement amount.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/PanopticPool.sol\",\n        \"contract\": \"PanopticPool\",\n        \"function\": \"forceExercise\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/CollateralTracker.sol\",\n        \"contract\": \"CollateralTracker\",\n        \"function\": \"exerciseCost\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Calculate the forced-exercise fee using the manipulation-resistant TWAP or another independently validated reference tick instead of raw slot0().tick. If the current spot is retained for any calculation, enforce a spot/TWAP deviation bound before calculating and settling the fee, and ensure any AMM state changes during the burn cannot invalidate that bound.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 2,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 319.55566120147705,
+    "session_id": "84ae1114-afb6-48e6-a003-3fd375c3557e"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2024-04-panoptic",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Liquidation payouts and liquidator solvency use an unvalidated post-burn spot price",
+        "description": "PanopticPool.liquidate checks the AMM spot against the TWAP before burning the liquidatee's positions, but then burns with unrestricted tick limits using Constants.MIN_V3POOL_TICK and Constants.MAX_V3POOL_TICK. The burn path can execute SFPM.swapInAMM, which directly swaps against Uniswap and changes slot0().tick. Afterward, liquidate reads finalTick and passes it to PanopticMath.getLiquidationBonus and PanopticMath.haircutPremia for cross-token bonus, protocol-loss, and premium-haircut conversions. It also passes finalTick as both currentTick and atTick to _checkSolvencyAtTick for the liquidator. No post-burn TWAP/deviation check, price-impact bound, or independent-oracle valuation constrains finalTick before these financial outcomes are calculated. Thus, when the burned position causes a sufficiently large AMM price movement, the liquidation bonus composition and the liquidator's solvency assessment depend on the resulting attacker-influenceable spot price rather than the protected TWAP.",
+        "impact": "A liquidation-induced price movement can alter the amount and token composition of liquidation compensation and premium haircuts. It can also make a liquidator's collateral or remaining positions appear solvent at finalTick even if they would fail at the liquidation TWAP, potentially transferring value from the liquidatee, collateral providers, or protocol and leaving post-liquidation bad debt. The supplied source does not provide deployment-specific liquidity or position sizes, so the magnitude of any price movement cannot be quantified.",
+        "mitigation": "Use the validated liquidation TWAP, or another independently validated oracle price, for liquidation bonus, haircut, and liquidator-solvency calculations. Alternatively, after all liquidation burns and swaps, enforce a post-operation deviation check between finalTick and the liquidation TWAP before using finalTick, and apply an explicit maximum price-impact/slippage bound to liquidation-induced swaps. The liquidator should additionally be required to satisfy solvency at the independent TWAP or a conservative oracle valuation.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/PanopticPool.sol",
+            "contract": "PanopticPool",
+            "function": "liquidate",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/SemiFungiblePositionManager.sol",
+            "contract": "SemiFungiblePositionManager",
+            "function": "swapInAMM",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/libraries/PanopticMath.sol",
+            "contract": "PanopticMath",
+            "function": "getLiquidationBonus",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Forced-exercise compensation is calculated from an unvalidated spot tick",
+        "description": "PanopticPool.forceExercise uses getUniV3TWAP only to determine whether the position is exercisable, but captures the instantaneous Uniswap slot0().tick as currentTick and passes it to CollateralTracker.exerciseCost. No spot/TWAP deviation or independent-price check is applied. CollateralTracker.exerciseCost computes maxNumRangesFromStrike from currentTick and applies an exponentially decaying fee using FORCE_EXERCISE_COST >> (maxNumRangesFromStrike - 1). It also uses currentTick to compare current liquidity values with the TWAP values. An attacker can temporarily move the underlying AMM spot while leaving the TWAP sufficiently unchanged, then call forceExercise; the position can remain exercisable at the TWAP while the manipulated spot increases its apparent distance from the strike and reduces the fee paid to the exercisee.",
+        "impact": "The forced-exercise caller can pay less compensation than intended, reducing the refund received by the exercisee. The difference can be captured by the caller and the exercisee can be underpaid. The source does not establish a particular deployment's achievable price displacement, but it shows the complete path from mutable AMM spot state to the forced-exercise fee and settlement amount.",
+        "mitigation": "Calculate the forced-exercise fee using the manipulation-resistant TWAP or another independently validated reference tick instead of raw slot0().tick. If the current spot is retained for any calculation, enforce a spot/TWAP deviation bound before calculating and settling the fee, and ensure any AMM state changes during the burn cannot invalidate that bound.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/PanopticPool.sol",
+            "contract": "PanopticPool",
+            "function": "forceExercise",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/CollateralTracker.sol",
+            "contract": "CollateralTracker",
+            "function": "exerciseCost",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

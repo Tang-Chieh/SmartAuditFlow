@@ -1,0 +1,476 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2024-04-panoptic",
+  "source_repo_dir": "2024-04-panoptic",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "833312ebd600665b577fbd9c03ffa0daf250ed24",
+  "actual_git_head": "833312ebd600665b577fbd9c03ffa0daf250ed24",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 23,
+  "excluded_solidity_file_count": 26,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 127905,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 127905,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/CollateralTracker.sol",
+          "sha256": "4ee348c507b4f1108a72e2ad36e3ccd9cf66fa62bcd3a1960ebb80d091bf35b0",
+          "source_bytes_utf8": 82395,
+          "source_line_count": 1650,
+          "imports": [
+            "./PanopticPool.sol",
+            "@tokens/ERC20Minimal.sol",
+            "@multicall/Multicall.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/InteractionHelper.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/SafeTransferLib.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 1651
+        },
+        {
+          "file": "contracts/libraries/CallbackLib.sol",
+          "sha256": "8aa5333ca856a326e98f4b9f258f78fad9acdb67f0c616522f6c8e28365d5cc5",
+          "source_bytes_utf8": 1621,
+          "source_line_count": 39,
+          "imports": [
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "@libraries/Errors.sol"
+          ],
+          "bundle_marker_line": 1653,
+          "bundle_source_start_line": 1654,
+          "bundle_source_end_line": 1692
+        },
+        {
+          "file": "contracts/libraries/Constants.sol",
+          "sha256": "bbe936930dcbdea52263f78ca695fb7c4876ca9278d5a53b2ba6602e93bf0cab",
+          "source_bytes_utf8": 904,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 1694,
+          "bundle_source_start_line": 1695,
+          "bundle_source_end_line": 1717
+        },
+        {
+          "file": "contracts/libraries/Errors.sol",
+          "sha256": "df8b92b29d668445cd0f80e429e37614a23c5f72128d8cb11d718a4f1b5162b2",
+          "source_bytes_utf8": 4872,
+          "source_line_count": 112,
+          "imports": [],
+          "bundle_marker_line": 1719,
+          "bundle_source_start_line": 1720,
+          "bundle_source_end_line": 1831
+        },
+        {
+          "file": "contracts/libraries/FeesCalc.sol",
+          "sha256": "e19a127a55d261fe03b50574c65ccb7eb50e498ccda998bae8060b7844f4a204",
+          "source_bytes_utf8": 10715,
+          "source_line_count": 209,
+          "imports": [
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 1833,
+          "bundle_source_start_line": 1834,
+          "bundle_source_end_line": 2042
+        },
+        {
+          "file": "contracts/libraries/InteractionHelper.sol",
+          "sha256": "806dbb7710c03d5069d59e5962e05b0a027025b2e94fc73985a2591631195397",
+          "source_bytes_utf8": 5265,
+          "source_line_count": 116,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@tokens/interfaces/IERC20Partial.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "@openzeppelin/contracts/utils/Strings.sol"
+          ],
+          "bundle_marker_line": 2044,
+          "bundle_source_start_line": 2045,
+          "bundle_source_end_line": 2160
+        },
+        {
+          "file": "contracts/libraries/Math.sol",
+          "sha256": "bb70ca621886d4c8faaca38b21a838a6483287c78e36783dcc3e3f391f57e3d4",
+          "source_bytes_utf8": 35263,
+          "source_line_count": 782,
+          "imports": [
+            "@libraries/Errors.sol",
+            "@libraries/Constants.sol",
+            "@types/LiquidityChunk.sol"
+          ],
+          "bundle_marker_line": 2162,
+          "bundle_source_start_line": 2163,
+          "bundle_source_end_line": 2944
+        },
+        {
+          "file": "contracts/libraries/PanopticMath.sol",
+          "sha256": "7f258e8709f8f085abc46f6db059447f9426433e25bc433e14c99569cb084814",
+          "source_bytes_utf8": 52590,
+          "source_line_count": 967,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 2946,
+          "bundle_source_start_line": 2947,
+          "bundle_source_end_line": 3913
+        },
+        {
+          "file": "contracts/libraries/SafeTransferLib.sol",
+          "sha256": "2a58412180a3268be503619a09623bececfbddbac705a31cd803c89580ea62f5",
+          "source_bytes_utf8": 3962,
+          "source_line_count": 77,
+          "imports": [
+            "@libraries/Errors.sol"
+          ],
+          "bundle_marker_line": 3915,
+          "bundle_source_start_line": 3916,
+          "bundle_source_end_line": 3992
+        },
+        {
+          "file": "contracts/multicall/Multicall.sol",
+          "sha256": "5d1ce93d3ef50e9c31869f528050bc21555390ef0539204ab762b52f0e7632f9",
+          "source_bytes_utf8": 1764,
+          "source_line_count": 37,
+          "imports": [],
+          "bundle_marker_line": 3994,
+          "bundle_source_start_line": 3995,
+          "bundle_source_end_line": 4031
+        },
+        {
+          "file": "contracts/PanopticFactory.sol",
+          "sha256": "8a6ccf10e56ece2bec88407e81477199c02dccdb8d7125ca8892216ee6ce4b94",
+          "source_bytes_utf8": 19388,
+          "source_line_count": 423,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/PanopticPool.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "@contracts/tokens/interfaces/IDonorNFT.sol",
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@multicall/Multicall.sol",
+            "@openzeppelin/contracts/proxy/Clones.sol",
+            "@libraries/CallbackLib.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/SafeTransferLib.sol"
+          ],
+          "bundle_marker_line": 4033,
+          "bundle_source_start_line": 4034,
+          "bundle_source_end_line": 4456
+        },
+        {
+          "file": "contracts/PanopticPool.sol",
+          "sha256": "8ac7e597b3e5c04cf6515e7e23848ffa6462052c60168b7cc3af0fbe78a7dc80",
+          "source_bytes_utf8": 96867,
+          "source_line_count": 1981,
+          "imports": [
+            "@contracts/CollateralTracker.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol",
+            "@multicall/Multicall.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/FeesCalc.sol",
+            "@libraries/InteractionHelper.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 4458,
+          "bundle_source_start_line": 4459,
+          "bundle_source_end_line": 6439
+        },
+        {
+          "file": "contracts/SemiFungiblePositionManager.sol",
+          "sha256": "04e19e4b95604a2a7dba18fe8af04e9edcf9d3b064a8589bbb935dd43a194449",
+          "source_bytes_utf8": 86448,
+          "source_line_count": 1569,
+          "imports": [
+            "univ3-core/interfaces/IUniswapV3Factory.sol",
+            "univ3-core/interfaces/IUniswapV3Pool.sol",
+            "@tokens/ERC1155Minimal.sol",
+            "@multicall/Multicall.sol",
+            "@libraries/CallbackLib.sol",
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/FeesCalc.sol",
+            "@libraries/Math.sol",
+            "@libraries/PanopticMath.sol",
+            "@libraries/SafeTransferLib.sol",
+            "@types/LeftRight.sol",
+            "@types/LiquidityChunk.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 6441,
+          "bundle_source_start_line": 6442,
+          "bundle_source_end_line": 8010
+        },
+        {
+          "file": "contracts/tokens/ERC1155Minimal.sol",
+          "sha256": "1434f3c7956e9c266adda7ab1ed9e692eb8610d6c5739d5f87bc58a36d56ba9b",
+          "source_bytes_utf8": 9648,
+          "source_line_count": 241,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol"
+          ],
+          "bundle_marker_line": 8012,
+          "bundle_source_start_line": 8013,
+          "bundle_source_end_line": 8253
+        },
+        {
+          "file": "contracts/tokens/ERC20Minimal.sol",
+          "sha256": "8b51571e4955fc06791187f91822b502153f6ff0a50cda411436a012d2ee256a",
+          "source_bytes_utf8": 5747,
+          "source_line_count": 147,
+          "imports": [],
+          "bundle_marker_line": 8255,
+          "bundle_source_start_line": 8256,
+          "bundle_source_end_line": 8402
+        },
+        {
+          "file": "contracts/tokens/interfaces/IDonorNFT.sol",
+          "sha256": "183e27f8421f1434c1995bda9ca0eb5e217d292a666083b34abdfd1433058b70",
+          "source_bytes_utf8": 903,
+          "source_line_count": 20,
+          "imports": [
+            "@contracts/PanopticPool.sol"
+          ],
+          "bundle_marker_line": 8404,
+          "bundle_source_start_line": 8405,
+          "bundle_source_end_line": 8424
+        },
+        {
+          "file": "contracts/tokens/interfaces/IERC20Partial.sol",
+          "sha256": "a97cd42b3ede0a8b1f12fee24019b717ec851284fee0075502527ea0be0a7358",
+          "source_bytes_utf8": 1731,
+          "source_line_count": 28,
+          "imports": [],
+          "bundle_marker_line": 8426,
+          "bundle_source_start_line": 8427,
+          "bundle_source_end_line": 8454
+        },
+        {
+          "file": "contracts/types/LeftRight.sol",
+          "sha256": "fcc3970ab733b110ecbbea68461ebc89610c9c1682d9d69334844ab6e075703f",
+          "source_bytes_utf8": 13516,
+          "source_line_count": 302,
+          "imports": [
+            "@libraries/Errors.sol",
+            "@libraries/Math.sol"
+          ],
+          "bundle_marker_line": 8456,
+          "bundle_source_start_line": 8457,
+          "bundle_source_end_line": 8758
+        },
+        {
+          "file": "contracts/types/LiquidityChunk.sol",
+          "sha256": "54d37de4cd8fed3e7ff95ae5f4a32c317dce81c7452a17e551cd495775555c25",
+          "source_bytes_utf8": 8017,
+          "source_line_count": 194,
+          "imports": [
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 8760,
+          "bundle_source_start_line": 8761,
+          "bundle_source_end_line": 8954
+        },
+        {
+          "file": "contracts/types/TokenId.sol",
+          "sha256": "deefc85c01afba460bf4ecd9cd21d9d53973984485c2d819c537a629859b6bf5",
+          "source_bytes_utf8": 30388,
+          "source_line_count": 600,
+          "imports": [
+            "@libraries/Constants.sol",
+            "@libraries/Errors.sol",
+            "@libraries/PanopticMath.sol"
+          ],
+          "bundle_marker_line": 8956,
+          "bundle_source_start_line": 8957,
+          "bundle_source_end_line": 9556
+        },
+        {
+          "file": "periphery/DonorNFT.sol",
+          "sha256": "eb235e98717b0d8713043a2b911fe165d192acba95a04872b8c29efa22f77642",
+          "source_bytes_utf8": 1134,
+          "source_line_count": 30,
+          "imports": [
+            "solmate/tokens/ERC721.sol",
+            "solmate/auth/Owned.sol",
+            "@contracts/PanopticPool.sol"
+          ],
+          "bundle_marker_line": 9558,
+          "bundle_source_start_line": 9559,
+          "bundle_source_end_line": 9588
+        },
+        {
+          "file": "periphery/PanopticHelper.sol",
+          "sha256": "ef3716828e67fd938edade911e27b4f047ca980735d87de02ef797bda9ee707b",
+          "source_bytes_utf8": 38048,
+          "source_line_count": 1015,
+          "imports": [
+            "@contracts/PanopticPool.sol",
+            "@contracts/SemiFungiblePositionManager.sol",
+            "@libraries/Constants.sol",
+            "@libraries/PanopticMath.sol",
+            "@types/LeftRight.sol",
+            "@types/TokenId.sol"
+          ],
+          "bundle_marker_line": 9590,
+          "bundle_source_start_line": 9591,
+          "bundle_source_end_line": 10605
+        },
+        {
+          "file": "scripts/tokens/ERC20S.sol",
+          "sha256": "eed794f31e1f4bb2b8ad3f8b4337c3543c466b5ff016eaf7e512a38b1be10154",
+          "source_bytes_utf8": 371,
+          "source_line_count": 16,
+          "imports": [
+            "solmate/tokens/ERC20.sol"
+          ],
+          "bundle_marker_line": 10607,
+          "bundle_source_start_line": 10608,
+          "bundle_source_end_line": 10623
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "test/foundry/core/CollateralTracker.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/Misc.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/PanopticFactory.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/PanopticPool.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/core/SemiFungiblePositionManager.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/CallbackLib.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/FeesCalc.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/CallbackLibHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/FeesCalcHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/MathHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/harnesses/PanopticMathHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/Math.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/PanopticMath.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/PositionAmountsTest.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/libraries/SafeTransferLib.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/periphery/PanopticHelper.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/PositionUtils.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/PriceMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/testUtils/ReentrancyMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/tokens/ERC1155Minimal.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/LeftRightHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/LiquidityChunkHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/harnesses/TokenIdHarness.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/LeftRight.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/LiquidityChunk.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/foundry/types/TokenId.t.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ]
+}

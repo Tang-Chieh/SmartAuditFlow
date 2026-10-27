@@ -1,0 +1,667 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2022-01-behodler",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "ce1e7893bdbff8bd7b70474e902e990ac4aeafaf",
+  "actual_git_head": "ce1e7893bdbff8bd7b70474e902e990ac4aeafaf",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 40,
+  "excluded_solidity_file_count": 33,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 34831,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 34831,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/DAO/FlashGovernanceArbiter.sol",
+          "sha256": "815cb2018835117032ef9df8ce8da8159edd4a01bacb2728532e7cf0171e4be4",
+          "source_bytes_utf8": 8864,
+          "source_line_count": 186,
+          "imports": [
+            "./Governable.sol",
+            "hardhat/console.sol",
+            "../facades/Burnable.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 187
+        },
+        {
+          "file": "contracts/DAO/Governable.sol",
+          "sha256": "ac347b32ae52668b68fb8aee1cea2328c9450618c5b57c4c041d6f1efc214973",
+          "source_bytes_utf8": 2769,
+          "source_line_count": 73,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "../facades/LimboDAOLike.sol",
+            "../facades/FlashGovernanceArbiterLike.sol",
+            "../facades/ProposalFactoryLike.sol"
+          ],
+          "bundle_marker_line": 189,
+          "bundle_source_start_line": 190,
+          "bundle_source_end_line": 262
+        },
+        {
+          "file": "contracts/DAO/LimboDAO.sol",
+          "sha256": "ec18e6322465a1d99709d4c5d7766023c3058781e53593a8fec230d60d8d5454",
+          "source_bytes_utf8": 19408,
+          "source_line_count": 453,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "../ERC677/ERC677.sol",
+            "../Flan.sol",
+            "./ProposalFactory.sol",
+            "../facades/SwapFactoryLike.sol",
+            "../facades/UniPairLike.sol",
+            "./Governable.sol"
+          ],
+          "bundle_marker_line": 264,
+          "bundle_source_start_line": 265,
+          "bundle_source_end_line": 717
+        },
+        {
+          "file": "contracts/DAO/ProposalFactory.sol",
+          "sha256": "4828db917532422279f1a6051af99f89a0e76252ef0138bb6799cc33cc998644",
+          "source_bytes_utf8": 3171,
+          "source_line_count": 78,
+          "imports": [
+            "../facades/LimboDAOLike.sol",
+            "./Governable.sol",
+            "@openzeppelin/contracts/access/Ownable.sol"
+          ],
+          "bundle_marker_line": 719,
+          "bundle_source_start_line": 720,
+          "bundle_source_end_line": 797
+        },
+        {
+          "file": "contracts/DAO/Proposals/AdjustFlanFeeOnTransferProposal.sol",
+          "sha256": "877ff74d234f5503d11c2f7cb1ab54d96a1f8273701c1a19c39578bcf43d6edb",
+          "source_bytes_utf8": 854,
+          "source_line_count": 35,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/FlanLike.sol"
+          ],
+          "bundle_marker_line": 799,
+          "bundle_source_start_line": 800,
+          "bundle_source_end_line": 834
+        },
+        {
+          "file": "contracts/DAO/Proposals/BurnFlashStakeDeposit.sol",
+          "sha256": "71863fed215ae58791e132e8adb3c5cf449d2e332e5631d496cf39ba5c70acd3",
+          "source_bytes_utf8": 1342,
+          "source_line_count": 49,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/FlashGovernanceArbiterLike.sol"
+          ],
+          "bundle_marker_line": 836,
+          "bundle_source_start_line": 837,
+          "bundle_source_end_line": 885
+        },
+        {
+          "file": "contracts/DAO/Proposals/SetAssetApprovalProposal.sol",
+          "sha256": "43027c4958075097ada9213be25417cfd8e2cb02e822ee12dd150c8df0deb287",
+          "source_bytes_utf8": 801,
+          "source_line_count": 30,
+          "imports": [
+            "../ProposalFactory.sol"
+          ],
+          "bundle_marker_line": 887,
+          "bundle_source_start_line": 888,
+          "bundle_source_end_line": 917
+        },
+        {
+          "file": "contracts/DAO/Proposals/ToggleWhitelistProposalProposal.sol",
+          "sha256": "52d8a1f2906adbdd3cae0496ff0fb481d78495ac6c03cf0806797c351bd30f9e",
+          "source_bytes_utf8": 1027,
+          "source_line_count": 36,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/ProposalFactoryLike.sol"
+          ],
+          "bundle_marker_line": 919,
+          "bundle_source_start_line": 920,
+          "bundle_source_end_line": 955
+        },
+        {
+          "file": "contracts/DAO/Proposals/TurnOnFateMintingProposal.sol",
+          "sha256": "fe1353413afd601969e970906243af6723b267afddc3d98541c2453c094b494a",
+          "source_bytes_utf8": 782,
+          "source_line_count": 26,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/FlashGovernanceArbiterLike.sol",
+            "../../facades/LimboDAOLike.sol"
+          ],
+          "bundle_marker_line": 957,
+          "bundle_source_start_line": 958,
+          "bundle_source_end_line": 983
+        },
+        {
+          "file": "contracts/DAO/Proposals/UpdateMultipleSoulConfigProposal.sol",
+          "sha256": "3200a6c3d937dbe143315529f8c0f37ded1e0459824b8ae2ada907dab8503ec7",
+          "source_bytes_utf8": 1966,
+          "source_line_count": 78,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/LimboLike.sol",
+            "../../facades/AMMHelper.sol",
+            "../../facades/MorgothTokenApproverLike.sol"
+          ],
+          "bundle_marker_line": 985,
+          "bundle_source_start_line": 986,
+          "bundle_source_end_line": 1063
+        },
+        {
+          "file": "contracts/DAO/Proposals/UpdateProposalConfigProposal.sol",
+          "sha256": "44d966315307f37cd047f36ea6f461fd7f59c099a3fc0474dd5b1d718c259d5b",
+          "source_bytes_utf8": 1107,
+          "source_line_count": 40,
+          "imports": [
+            "../ProposalFactory.sol"
+          ],
+          "bundle_marker_line": 1065,
+          "bundle_source_start_line": 1066,
+          "bundle_source_end_line": 1105
+        },
+        {
+          "file": "contracts/DAO/Proposals/UpdateSoulConfigProposal.sol",
+          "sha256": "57eb899515e58ca349575c0f886d7a8c8bd690edd08cdd92626a35d0a0fe278f",
+          "source_bytes_utf8": 1823,
+          "source_line_count": 68,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/LimboLike.sol",
+            "../../facades/MorgothTokenApproverLike.sol",
+            "hardhat/console.sol"
+          ],
+          "bundle_marker_line": 1107,
+          "bundle_source_start_line": 1108,
+          "bundle_source_end_line": 1175
+        },
+        {
+          "file": "contracts/DAO/Proposals/WithdrawERC20Proposal.sol",
+          "sha256": "ef719305a4f6f7d7536e378fe39c829b5f08e1f2382d5abd30218ddb507e321b",
+          "source_bytes_utf8": 1251,
+          "source_line_count": 38,
+          "imports": [
+            "../ProposalFactory.sol",
+            "../../facades/LimboLike.sol",
+            "../../facades/LimboDAOLike.sol"
+          ],
+          "bundle_marker_line": 1177,
+          "bundle_source_start_line": 1178,
+          "bundle_source_end_line": 1215
+        },
+        {
+          "file": "contracts/ERC677/ERC20Burnable.sol",
+          "sha256": "284641768a1358e9811cf0be68064fdd4fa065e0c421e0b849e1b255efbfec28",
+          "source_bytes_utf8": 12395,
+          "source_line_count": 412,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol"
+          ],
+          "bundle_marker_line": 1217,
+          "bundle_source_start_line": 1218,
+          "bundle_source_end_line": 1629
+        },
+        {
+          "file": "contracts/ERC677/ERC677.sol",
+          "sha256": "6c7c373475a22b504473d9267053dab19e2b86260bfb30f13be28e8e1ea6d62b",
+          "source_bytes_utf8": 1502,
+          "source_line_count": 52,
+          "imports": [
+            "./ERC20Burnable.sol",
+            "./IERC677Receiver.sol"
+          ],
+          "bundle_marker_line": 1631,
+          "bundle_source_start_line": 1632,
+          "bundle_source_end_line": 1683
+        },
+        {
+          "file": "contracts/ERC677/IERC677Receiver.sol",
+          "sha256": "ee5ca736fe14c1f110cd6f1688ebfc1399ee6ef6dda906aec5f004e86149b0aa",
+          "source_bytes_utf8": 173,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1685,
+          "bundle_source_start_line": 1686,
+          "bundle_source_end_line": 1691
+        },
+        {
+          "file": "contracts/facades/AMMHelper.sol",
+          "sha256": "22399d33e38deebbe75087925e2205fff4ae65671182619709350f309a836f68",
+          "source_bytes_utf8": 531,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 1693,
+          "bundle_source_start_line": 1694,
+          "bundle_source_end_line": 1716
+        },
+        {
+          "file": "contracts/facades/AngbandLike.sol",
+          "sha256": "fd80c9cc3def6039aa4e855b08cea4615faea229ca0fb4673713d5519387138b",
+          "source_bytes_utf8": 158,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1718,
+          "bundle_source_start_line": 1719,
+          "bundle_source_end_line": 1725
+        },
+        {
+          "file": "contracts/facades/BehodlerLike.sol",
+          "sha256": "065d2521047743ded8e50798bc21e9fffcbfd910e08f66aa5d6d919368ab602e",
+          "source_bytes_utf8": 678,
+          "source_line_count": 30,
+          "imports": [],
+          "bundle_marker_line": 1727,
+          "bundle_source_start_line": 1728,
+          "bundle_source_end_line": 1757
+        },
+        {
+          "file": "contracts/facades/Burnable.sol",
+          "sha256": "f84bc79246c0267e105a709140713eded4f91f6e9fb2a6f07c3b26022609599a",
+          "source_bytes_utf8": 135,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1759,
+          "bundle_source_start_line": 1760,
+          "bundle_source_end_line": 1765
+        },
+        {
+          "file": "contracts/facades/FlanLike.sol",
+          "sha256": "36fb49e06cac2e716e1211599878d712b13722ea08ea1b2e4a03665791ca1a27",
+          "source_bytes_utf8": 391,
+          "source_line_count": 14,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1767,
+          "bundle_source_start_line": 1768,
+          "bundle_source_end_line": 1781
+        },
+        {
+          "file": "contracts/facades/FlashGovernanceArbiterLike.sol",
+          "sha256": "cfdf335b7d7650bf34f48c735d0fd4ca0327b323a035de50ff0f749da6b1bb60",
+          "source_bytes_utf8": 598,
+          "source_line_count": 21,
+          "imports": [],
+          "bundle_marker_line": 1783,
+          "bundle_source_start_line": 1784,
+          "bundle_source_end_line": 1804
+        },
+        {
+          "file": "contracts/facades/LimboAddTokenToBehodlerPowerLike.sol",
+          "sha256": "16707d577e80f5974d2fbc74c035c9d57409f28b1551ceba189f3a3aa497842a",
+          "source_bytes_utf8": 183,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1806,
+          "bundle_source_start_line": 1807,
+          "bundle_source_end_line": 1813
+        },
+        {
+          "file": "contracts/facades/LimboDAOLike.sol",
+          "sha256": "6bd9d552bffb4600fd2e24b99d83cea096259e05bd9885a4c4ca2ca842e0f4f5",
+          "source_bytes_utf8": 1160,
+          "source_line_count": 45,
+          "imports": [],
+          "bundle_marker_line": 1815,
+          "bundle_source_start_line": 1816,
+          "bundle_source_end_line": 1860
+        },
+        {
+          "file": "contracts/facades/LimboLike.sol",
+          "sha256": "67da465b4d3bf5c58052e2712cd702e44feef5d157a306ac3fd69dfd6825297d",
+          "source_bytes_utf8": 1104,
+          "source_line_count": 58,
+          "imports": [],
+          "bundle_marker_line": 1862,
+          "bundle_source_start_line": 1863,
+          "bundle_source_end_line": 1920
+        },
+        {
+          "file": "contracts/facades/MigratorLike.sol",
+          "sha256": "5a020d7a75a2cf93b71672d1803b2630b8b140ea37640cdc0db0a0de86d8993c",
+          "source_bytes_utf8": 263,
+          "source_line_count": 11,
+          "imports": [],
+          "bundle_marker_line": 1922,
+          "bundle_source_start_line": 1923,
+          "bundle_source_end_line": 1933
+        },
+        {
+          "file": "contracts/facades/MorgothTokenApproverLike.sol",
+          "sha256": "b23febf9befe89790731909c4189fa183cb5c2cb66397dd6b835d75bea131253",
+          "source_bytes_utf8": 174,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1935,
+          "bundle_source_start_line": 1936,
+          "bundle_source_end_line": 1941
+        },
+        {
+          "file": "contracts/facades/ProposalFactoryLike.sol",
+          "sha256": "7bcab65184b973a544b40ac1b026e39665f9bb5ab2b37723843836e79dc30b54",
+          "source_bytes_utf8": 246,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1943,
+          "bundle_source_start_line": 1944,
+          "bundle_source_end_line": 1950
+        },
+        {
+          "file": "contracts/facades/PyroTokenLike.sol",
+          "sha256": "f8309e89972c8b7b586ddf6cb8f99e8d41effd5b10ef9668d6603367d5c3b8eb",
+          "source_bytes_utf8": 253,
+          "source_line_count": 8,
+          "imports": [],
+          "bundle_marker_line": 1952,
+          "bundle_source_start_line": 1953,
+          "bundle_source_end_line": 1960
+        },
+        {
+          "file": "contracts/facades/SwapFactoryLike.sol",
+          "sha256": "abfac81784da2ee3fbe5c05bcd1e06a095402f3429796b0d7e77a3bfaac5858b",
+          "source_bytes_utf8": 162,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1962,
+          "bundle_source_start_line": 1963,
+          "bundle_source_end_line": 1968
+        },
+        {
+          "file": "contracts/facades/TokenProxyLike.sol",
+          "sha256": "50573290376abb8a6094dbe7336e66f8bfa6c16a8b4c58765b2250705c9ec395",
+          "source_bytes_utf8": 464,
+          "source_line_count": 13,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1970,
+          "bundle_source_start_line": 1971,
+          "bundle_source_end_line": 1983
+        },
+        {
+          "file": "contracts/facades/UniPairLike.sol",
+          "sha256": "8e80696c36b88255a8fb4b69b11fd352b8d42cb9264de42af036a3234f5ddae3",
+          "source_bytes_utf8": 643,
+          "source_line_count": 27,
+          "imports": [],
+          "bundle_marker_line": 1985,
+          "bundle_source_start_line": 1986,
+          "bundle_source_end_line": 2012
+        },
+        {
+          "file": "contracts/Flan.sol",
+          "sha256": "eb6247140c416bfbe5d8bb135dd00355b80da7e8fc691aa34e610e4e22c58299",
+          "source_bytes_utf8": 3871,
+          "source_line_count": 112,
+          "imports": [
+            "./ERC677/ERC677.sol",
+            "../contracts/DAO/Governable.sol"
+          ],
+          "bundle_marker_line": 2014,
+          "bundle_source_start_line": 2015,
+          "bundle_source_end_line": 2126
+        },
+        {
+          "file": "contracts/FlanBackstop.sol",
+          "sha256": "c04cb1cf6a2e2b6b5d3caf12f186aa732d1d7b4dfde837f83e603a7f8b3f422d",
+          "source_bytes_utf8": 6351,
+          "source_line_count": 126,
+          "imports": [
+            "./facades/FlanLike.sol",
+            "./facades/PyroTokenLike.sol",
+            "./DAO/Governable.sol",
+            "./ERC677/ERC20Burnable.sol",
+            "./facades/UniPairLike.sol",
+            "hardhat/console.sol"
+          ],
+          "bundle_marker_line": 2128,
+          "bundle_source_start_line": 2129,
+          "bundle_source_end_line": 2254
+        },
+        {
+          "file": "contracts/FlanGenesis.sol",
+          "sha256": "a14c2b8d616497ef4bd2673f3feaf128b3458015917c90b12c5a6f95931e31a3",
+          "source_bytes_utf8": 977,
+          "source_line_count": 18,
+          "imports": [
+            "./facades/AngbandLike.sol",
+            "./facades/FlanLike.sol"
+          ],
+          "bundle_marker_line": 2256,
+          "bundle_source_start_line": 2257,
+          "bundle_source_end_line": 2274
+        },
+        {
+          "file": "contracts/Limbo.sol",
+          "sha256": "b9bb03b627efd65c08428626a81af316c70559685d861346638c67fe369dfa2a",
+          "source_bytes_utf8": 33388,
+          "source_line_count": 631,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "./facades/LimboDAOLike.sol",
+            "./facades/Burnable.sol",
+            "./facades/BehodlerLike.sol",
+            "./facades/FlanLike.sol",
+            "./facades/UniPairLike.sol",
+            "./facades/MigratorLike.sol",
+            "./facades/AMMHelper.sol",
+            "./facades/AngbandLike.sol",
+            "./facades/LimboAddTokenToBehodlerPowerLike.sol",
+            "./DAO/Governable.sol",
+            "./facades/FlashGovernanceArbiterLike.sol"
+          ],
+          "bundle_marker_line": 2276,
+          "bundle_source_start_line": 2277,
+          "bundle_source_end_line": 2907
+        },
+        {
+          "file": "contracts/periphery/SoulReader.sol",
+          "sha256": "2dc6fb79c8e537a8d2e39417dc58933a8077771bf21272ba686be1477643ef76",
+          "source_bytes_utf8": 5829,
+          "source_line_count": 155,
+          "imports": [
+            "../facades/LimboLike.sol",
+            "../facades/LimboDAOLike.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 2909,
+          "bundle_source_start_line": 2910,
+          "bundle_source_end_line": 3064
+        },
+        {
+          "file": "contracts/TokenProxies/RebaseProxy.sol",
+          "sha256": "088317b6f3e94c7cfc00b039a88a786d41acd633e5dd598f0412bbcf6c8d335b",
+          "source_bytes_utf8": 1765,
+          "source_line_count": 50,
+          "imports": [
+            "../facades/TokenProxyLike.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 3066,
+          "bundle_source_start_line": 3067,
+          "bundle_source_end_line": 3116
+        },
+        {
+          "file": "contracts/TokenProxyRegistry.sol",
+          "sha256": "c326f266ea05d0fd021dde4583d43a191c5c26737ee1b4a3d8eefbe41e80d0b0",
+          "source_bytes_utf8": 1441,
+          "source_line_count": 28,
+          "imports": [
+            "./DAO/Governable.sol"
+          ],
+          "bundle_marker_line": 3118,
+          "bundle_source_start_line": 3119,
+          "bundle_source_end_line": 3146
+        },
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "sha256": "4daac2109e58f5f8732a1b4856b7faf1b82eb5fddcd8ad4cbf883300ddcce284",
+          "source_bytes_utf8": 13556,
+          "source_line_count": 289,
+          "imports": [
+            "./facades/UniPairLike.sol",
+            "./facades/BehodlerLike.sol",
+            "./DAO/Governable.sol",
+            "./ERC677/ERC20Burnable.sol",
+            "./facades/FlanLike.sol",
+            "./testing/realUniswap/interfaces/IUniswapV2Factory.sol",
+            "./facades/AMMHelper.sol"
+          ],
+          "bundle_marker_line": 3148,
+          "bundle_source_start_line": 3149,
+          "bundle_source_end_line": 3437
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/testing/GovernableStub.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockAddTokenPower.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockAngband.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockBehodler.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockFOTToken.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockMigrationUniPair.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockMorgothTokenApprover.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/MockToken.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/Morgoth/Angband.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/Morgoth/LimboAddTokenToBehodlerPower.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/Multicall.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/PyroTokens3/LiquidityReceiver.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/BehodlerLite.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/BurnEYESnufferCap.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/CommonIERC20.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/LimboAddTokenToBehodler.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/LiquidityReceiver.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realBehodler/PyroWethProxy.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/interfaces/IERC20.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/interfaces/IUniswapV2Callee.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/interfaces/IUniswapV2ERC20.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/interfaces/IUniswapV2Factory.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/interfaces/IUniswapV2Pair.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/libraries/Math.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/libraries/SafeMath.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/libraries/UQ112x112.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/RealUniswapV2Factory.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/RealUniswapV2Pair.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/test/ERC20.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/realUniswap/UniswapV2ERC20.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/TokenProxyWrapper.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/UniswapFactory.sol",
+      "reason": "out_of_scope_directory:testing"
+    },
+    {
+      "file": "contracts/testing/UniswapPair.sol",
+      "reason": "out_of_scope_directory:testing"
+    }
+  ],
+  "source_repo_dir": "2022-01-behodler"
+}

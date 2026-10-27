@@ -1,0 +1,4564 @@
+// ===== BEGIN SOURCE FILE: contracts/WooPPV3/WooUsdOFTCrossRouter.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+// OpenZeppelin Contracts
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {ICommonOFT, IOFTV2} from "@layerzerolabs/solidity-examples/contracts/token/oft/v2/IOFTV2.sol";
+import {Pausable} from "@openzeppelin/contracts/security/Pausable.sol";
+
+// Local Contracts
+import {IWETH} from "../interfaces/IWETH.sol";
+import {IWooUsdOFTCrossRouter} from "../interfaces/CrossChain/IWooUsdOFTCrossRouter.sol";
+import {IWooRouterV3} from "../interfaces/IWooRouterV3.sol";
+import {ILzApp} from "../interfaces/LayerZero/ILzApp.sol";
+import {IWooCrossFee} from "../interfaces/CrossChain/IWooCrossFee.sol";
+
+import {TransferHelper} from "../libraries/TransferHelper.sol";
+
+/// @title WOOFi cross chain router via WooUSD OFT.
+/// @notice Router for stateless execution of cross chain swap.
+contract WooUsdOFTCrossRouter is IWooUsdOFTCrossRouter, Ownable, Pausable, ReentrancyGuard {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    /* ----- Constants ----- */
+
+    address public constant ETH_PLACEHOLDER_ADDR = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    /* ----- Variables ----- */
+
+    IWooRouterV3 public wooRouter;
+    IWooCrossFee public crossFee;
+    uint256 public unclaimedFee;
+
+    address public immutable weth;
+    uint256 public dstGas;
+    uint16 public lzChainIdLocal; // Stargate chainId on local chain
+
+    mapping(uint16 => address) public wooCrossChainRouters; // chainId => WooCrossChainRouter address
+
+    address public feeAddr;
+    address public zroPaymentAddress;
+
+    receive() external payable {}
+
+    constructor(
+        address _weth,
+        address _wooRouter,
+        address _crossFee,
+        address _feeAddr,
+        uint16 _lzChainIdLocal
+    ) {
+        weth = _weth;
+        wooRouter = IWooRouterV3(_wooRouter);
+        crossFee = IWooCrossFee(_crossFee);
+        feeAddr = _feeAddr;
+        lzChainIdLocal = _lzChainIdLocal;
+        zroPaymentAddress = _feeAddr;
+
+        dstGas = 600000;
+
+        _initLz();
+    }
+
+    /* ----- Functions ----- */
+
+    function crossSwap(
+        uint256 refId, // TODO: generate the nonce from smart contract
+        address payable to,
+        SrcInfos memory srcInfos,
+        DstInfos memory dstInfos
+    ) external payable nonReentrant whenNotPaused {
+        require(srcInfos.fromToken != address(0), "WooUsdOFTCrossRouter: !srcInfos.fromToken");
+        require(dstInfos.toToken != address(0), "WooUsdOFTCrossRouter: !dstInfos.toToken");
+        require(to != address(0), "WooUsdOFTCrossRouter: !to");
+
+        uint256 msgValue = msg.value;
+        address usdOFT = wooRouter.usdOFT();
+        uint256 bridgeAmount;
+        uint256 fee;
+
+        {
+            if (srcInfos.fromToken == ETH_PLACEHOLDER_ADDR) {
+                require(srcInfos.fromAmount <= msgValue, "WooUsdOFTCrossRouter: !srcInfos.fromAmount");
+                msgValue -= srcInfos.fromAmount;
+            } else {
+                TransferHelper.safeTransferFrom(srcInfos.fromToken, msg.sender, address(this), srcInfos.fromAmount);
+                TransferHelper.safeApprove(srcInfos.fromToken, address(wooRouter), srcInfos.fromAmount);
+            }
+
+            bridgeAmount = wooRouter.swap(
+                srcInfos.fromToken,
+                usdOFT,
+                srcInfos.fromAmount,
+                srcInfos.minBridgeAmount,
+                payable(address(this)),
+                to
+            );
+            require(
+                bridgeAmount <= IERC20(usdOFT).balanceOf(address(this)) - unclaimedFee,
+                "WooUsdOFTCrossRouter: usdOFT_BALANACE_NOT_ENOUGH"
+            );
+
+            fee = (bridgeAmount * crossFee.outgressFee(bridgeAmount)) / crossFee.feeBase();
+            unclaimedFee += fee;
+            bridgeAmount -= fee;
+        }
+
+        bytes memory payload = abi.encode(refId, to, dstInfos.toToken, dstInfos.minToAmount);
+
+        uint256 dstGasForCall = dstGas;
+        ICommonOFT.LzCallParams memory callParams;
+        {
+            bytes memory adapterParams = _getAdapterParams(to, address(usdOFT), dstGasForCall, dstInfos);
+            callParams = ICommonOFT.LzCallParams(
+                payable(msg.sender), // refundAddress
+                zroPaymentAddress, // zroPaymentAddress
+                adapterParams //adapterParams
+            );
+        }
+
+        bytes32 dstWooCrossChainRouter = bytes32(uint256(uint160(wooCrossChainRouters[dstInfos.chainId])));
+
+        IOFTV2(usdOFT).sendAndCall{value: msgValue}(
+            address(this),
+            dstInfos.chainId,
+            dstWooCrossChainRouter,
+            bridgeAmount,
+            payload,
+            uint64(dstGasForCall),
+            callParams
+        );
+
+        emit WooCrossSwapOnSrcChain(
+            refId,
+            _msgSender(),
+            to,
+            srcInfos.fromToken,
+            srcInfos.fromAmount,
+            srcInfos.minBridgeAmount,
+            bridgeAmount,
+            fee
+        );
+    }
+
+    function quoteCrossSwapFee(
+        uint256 refId,
+        address to,
+        SrcInfos memory srcInfos,
+        DstInfos memory dstInfos
+    ) external view returns (uint256, uint256) {
+        bytes memory payload = abi.encode(refId, to, dstInfos.toToken, dstInfos.minToAmount);
+
+        uint256 dstGasForCall = dstGas;
+        address usdOFT = wooRouter.usdOFT();
+        bytes memory adapterParams = _getAdapterParams(to, address(usdOFT), dstGasForCall, dstInfos);
+
+        bool useZro = false;
+        bytes32 dstWooCrossChainRouter = bytes32(uint256(uint160(wooCrossChainRouters[dstInfos.chainId])));
+
+        return
+            IOFTV2(usdOFT).estimateSendAndCallFee(
+                dstInfos.chainId,
+                dstWooCrossChainRouter,
+                srcInfos.minBridgeAmount,
+                payload,
+                uint64(dstGasForCall),
+                useZro,
+                adapterParams
+            );
+    }
+
+    function onOFTReceived(
+        uint16 srcChainId,
+        bytes memory, // srcAddress
+        uint64, // nonce
+        bytes32 from,
+        uint256 amountLD,
+        bytes memory payload
+    ) external {
+        address usdOFT = wooRouter.usdOFT();
+        address msgSender = _msgSender();
+        require(msgSender == usdOFT, "WooUsdOFTCrossRouter: INVALID_CALLER");
+
+        require(
+            wooCrossChainRouters[srcChainId] == address(uint160(uint256(from))),
+            "WooUsdOFTCrossRouter: INVALID_FROM"
+        );
+
+        // make sure the same order to abi.encode when decode payload
+        (uint256 refId, address to, address toToken, uint256 minToAmount) = abi.decode(
+            payload,
+            (uint256, address, address, uint256)
+        );
+
+        address bridgedToken = usdOFT;
+        uint256 bridgedAmount = amountLD;
+
+        uint256 fee = bridgedAmount * crossFee.ingressFee(bridgedAmount) * crossFee.feeBase();
+        unclaimedFee += fee;
+        bridgedAmount -= fee;
+
+        TransferHelper.safeApprove(bridgedToken, address(wooRouter), bridgedAmount);
+        try wooRouter.swap(usdOFT, toToken, bridgedAmount, minToAmount, payable(to), to) returns (
+            uint256 realToAmount
+        ) {
+            emit WooCrossSwapOnDstChain(
+                refId,
+                msgSender,
+                to,
+                bridgedToken,
+                bridgedAmount,
+                toToken,
+                toToken,
+                minToAmount,
+                realToAmount,
+                fee
+            );
+        } catch {
+            TransferHelper.safeTransfer(bridgedToken, to, bridgedAmount);
+            emit WooCrossSwapOnDstChain(
+                refId,
+                msgSender,
+                to,
+                bridgedToken,
+                bridgedAmount,
+                toToken,
+                bridgedToken,
+                minToAmount,
+                bridgedAmount,
+                fee
+            );
+        }
+    }
+
+    function _initLz() internal {}
+
+    function _getAdapterParams(
+        address to,
+        address oft,
+        uint256 dstGasForCall,
+        DstInfos memory dstInfos
+    ) internal view returns (bytes memory) {
+        // OFT src logic: require(providedGasLimit >= minGasLimit)
+        // uint256 minGasLimit = minDstGasLookup[_dstChainId][_type] + dstGasForCall;
+        // _type: 0(send), 1(send_and_call)
+        uint256 providedGasLimit = ILzApp(oft).minDstGasLookup(dstInfos.chainId, 1) + dstGasForCall;
+
+        // https://layerzero.gitbook.io/docs/evm-guides/advanced/relayer-adapter-parameters#airdrop
+        return
+            abi.encodePacked(
+                uint16(2), // version: 2 is able to airdrop native token on destination but 1 is not
+                providedGasLimit, // gasAmount: destination transaction gas for LayerZero to delivers
+                dstInfos.airdropNativeAmount, // nativeForDst: airdrop native token amount
+                to // addressOnDst: address to receive airdrop native token on destination
+            );
+    }
+
+    /* ----- Owner & Admin Functions ----- */
+
+    function claimFee() external onlyOwner {
+        require(feeAddr != address(0), "WooUsdOFTCrossRouter: !feeAddr");
+        uint256 _fee = unclaimedFee;
+        unclaimedFee = 0;
+        address usdOFT = wooRouter.usdOFT();
+        TransferHelper.safeTransfer(usdOFT, feeAddr, _fee);
+    }
+
+    function claimFee(address _withdrawToken) external onlyOwner {
+        require(feeAddr != address(0), "WooUsdOFTCrossRouter: !feeAddr");
+        require(_withdrawToken != address(0), "WooUsdOFTCrossRouter: !_withdrawToken");
+        uint256 _fee = unclaimedFee;
+        unclaimedFee = 0;
+        address usdOFT = wooRouter.usdOFT();
+        TransferHelper.safeApprove(usdOFT, address(wooRouter), _fee);
+        wooRouter.swap(usdOFT, _withdrawToken, _fee, 0, payable(feeAddr), feeAddr);
+    }
+
+    function setWooRouter(address _wooRouter) external onlyOwner {
+        wooRouter = IWooRouterV3(_wooRouter);
+    }
+
+    function setZroPaymentAddress(address _zroPaymentAddress) external onlyOwner {
+        zroPaymentAddress = _zroPaymentAddress;
+    }
+
+    function setCrossFee(address _crossFee) external onlyOwner {
+        crossFee = IWooCrossFee(_crossFee);
+    }
+
+    function setDstGas(uint256 _dstGas) external onlyOwner {
+        dstGas = _dstGas;
+    }
+
+    function setLzChainIdLocal(uint16 _lzChainIdLocal) external onlyOwner {
+        lzChainIdLocal = _lzChainIdLocal;
+    }
+
+    function setFeeAddr(address _feeAddr) external onlyOwner {
+        feeAddr = _feeAddr;
+    }
+
+    function setWooCrossChainRouter(uint16 chainId, address wooCrossChainRouter) external onlyOwner {
+        require(wooCrossChainRouter != address(0), "WooUsdOFTCrossRouter: !wooCrossChainRouter");
+        wooCrossChainRouters[chainId] = wooCrossChainRouter;
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyOwner {
+        if (stuckToken == ETH_PLACEHOLDER_ADDR) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/WooPPV3/WooUsdOFTCrossRouter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV2.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V2 contract
+contract WooracleV2 is Ownable, IWooracleV2 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+
+    mapping(address => CLOracle) public clOracles;
+
+    address public override quoteToken;
+    uint256 public override timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    mapping(address => bool) public isAdmin;
+
+    constructor() {
+        staleDuration = uint256(300);
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    /// @dev Set the quote token address.
+    /// @param _oracle the token address
+    function setQuoteToken(address _quote, address _oracle) external onlyAdmin {
+        quoteToken = _quote;
+        CLOracle storage cloRef = clOracles[_quote];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(address base, uint128 newPrice) external override onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(address[] calldata bases, uint128[] calldata newPrices) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the spreads info.
+    /// @param base baseToken address
+    /// @param newSpread the new spreads
+    function postSpread(address base, uint64 newSpread) external onlyAdmin {
+        infos[base].spread = newSpread;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the spreads info.
+    /// @param bases list of baseToken address
+    /// @param newSpreads list of spreads info
+    function postSpreadList(address[] calldata bases, uint64[] calldata newSpreads) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newSpreads.length, "Wooracle: length_INVALID");
+
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].spread = newSpreads[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = block.timestamp;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPriceInQuote(base, quoteToken);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8;
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPriceInQuote(base, quoteToken);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Internal & Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) internal {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPriceInQuote(address fromToken, address toToken)
+        private
+        view
+        returns (uint256 refPrice, uint256 refTimestamp)
+    {
+        address baseOracle = clOracles[fromToken].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+        address quoteOracle = clOracles[toToken].oracle;
+        uint8 quoteDecimal = clOracles[toToken].decimal;
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        (, int256 rawQuoteRefPrice, , uint256 quoteUpdatedAt, ) = AggregatorV3Interface(quoteOracle).latestRoundData();
+        uint256 baseRefPrice = uint256(rawBaseRefPrice);
+        uint256 quoteRefPrice = uint256(rawQuoteRefPrice);
+
+        // NOTE: Assume wooracle token decimal is same as chainlink token decimal.
+        uint256 ceoff = uint256(10)**quoteDecimal;
+        refPrice = (baseRefPrice * ceoff) / quoteRefPrice;
+        refTimestamp = baseUpdatedAt >= quoteUpdatedAt ? quoteUpdatedAt : baseUpdatedAt;
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2_1.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV2.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V2 contract:
+/// subversion 1 change: no timestamp update for posting price from WooPP.
+contract WooracleV2_1 is Ownable, IWooracleV2 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+
+    mapping(address => CLOracle) public clOracles;
+
+    address public quoteToken;
+    uint256 public timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    mapping(address => bool) public isAdmin;
+
+    address public wooPP;
+
+    constructor() {
+        staleDuration = uint256(300);
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setWooPP(address _wooPP) external onlyAdmin {
+        wooPP = _wooPP;
+    }
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    /// @dev Set the quote token address.
+    /// @param _oracle the token address
+    function setQuoteToken(address _quote, address _oracle) external onlyAdmin {
+        quoteToken = _quote;
+        CLOracle storage cloRef = clOracles[_quote];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        if (msg.sender != wooPP) {
+            timestamp = block.timestamp;
+        }
+    }
+
+    /// @dev No wooPP check for msg.sedner; always update the timestamp.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPriceLegacy(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(address[] calldata bases, uint128[] calldata newPrices) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the spreads info.
+    /// @param base baseToken address
+    /// @param newSpread the new spreads
+    function postSpread(address base, uint64 newSpread) external onlyAdmin {
+        infos[base].spread = newSpread;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the spreads info.
+    /// @param bases list of baseToken address
+    /// @param newSpreads list of spreads info
+    function postSpreadList(address[] calldata bases, uint64[] calldata newSpreads) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newSpreads.length, "Wooracle: length_INVALID");
+
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].spread = newSpreads[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = block.timestamp;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPriceInQuote(base, quoteToken);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8;
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPriceInQuote(base, quoteToken);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Internal & Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) internal {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPriceInQuote(address fromToken, address toToken)
+        private
+        view
+        returns (uint256 refPrice, uint256 refTimestamp)
+    {
+        address baseOracle = clOracles[fromToken].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+        address quoteOracle = clOracles[toToken].oracle;
+        uint8 quoteDecimal = clOracles[toToken].decimal;
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        (, int256 rawQuoteRefPrice, , uint256 quoteUpdatedAt, ) = AggregatorV3Interface(quoteOracle).latestRoundData();
+        uint256 baseRefPrice = uint256(rawBaseRefPrice);
+        uint256 quoteRefPrice = uint256(rawQuoteRefPrice);
+
+        // NOTE: Assume wooracle token decimal is same as chainlink token decimal.
+        uint256 ceoff = uint256(10)**quoteDecimal;
+        refPrice = (baseRefPrice * ceoff) / quoteRefPrice;
+        refTimestamp = baseUpdatedAt >= quoteUpdatedAt ? quoteUpdatedAt : baseUpdatedAt;
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2_1.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2_1_ZipInherit.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import {WooracleV2_1} from "./WooracleV2_1.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+/// @title Wooracle V2.1 contract for L2 chains for calldata zip.
+/// subversion 1 change: no timestamp update for posting price from WooPP.
+contract WooracleV2_1_ZipInherit is WooracleV2_1 {
+    mapping(uint8 => address) public bases;
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2_1_ZipInherit: !id_SET_ALREADY");
+        bases[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < 5 ? CONST_BASES[_id] : bases[_id];
+    }
+
+    /* ----- External Functions ----- */
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit: 0: post prices, 1: post states, 2,3: TBD
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bits (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bits (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2_1_ZipInherit: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+        if (op == 0) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = block.timestamp;
+        } else if (op == 1) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = block.timestamp;
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2_1_ZipInherit.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2_1_ZKSync.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV2.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V2.1 contract for ZKSync
+/// subversion 1 change: no timestamp update for posting price from WooPP.
+contract WooracleV2_1_ZKSync is Ownable, IWooracleV2 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)                zip: 32 bits = (27, 5)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18                        zip: 16 bits = (11, 5), 2^11 = 2048
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18       zip: 16 bits = (11, 5)
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+    mapping(address => CLOracle) public clOracles;
+
+    address public override quoteToken;
+    uint256 public override timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    address public wooPP;
+
+    mapping(address => bool) public isAdmin;
+
+    mapping(uint8 => address) public basesMap;
+
+    constructor() {
+        staleDuration = uint256(120); // default: 2 mins
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setWooPP(address _wooPP) external onlyAdmin {
+        wooPP = _wooPP;
+    }
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    /// @dev Set the quote token address.
+    /// @param _oracle the token address
+    function setQuoteToken(address _quote, address _oracle) external onlyAdmin {
+        quoteToken = _quote;
+        CLOracle storage cloRef = clOracles[_quote];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        if (msg.sender != wooPP) {
+            timestamp = block.timestamp;
+        }
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(
+        address base,
+        uint128 newPrice,
+        uint256 _ts
+    ) external onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = _ts;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = _ts;
+    }
+
+    function postState(
+        address, /* base */
+        uint128, /* newPrice */
+        uint64, /* newSpread */
+        uint64 /* newCoeff */
+    ) external onlyAdmin {
+        revert("NOT SUPPORTED IN ZKSYNC");
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff,
+        uint256 _ts
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = _ts;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = _ts;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPriceInQuote(base, quoteToken);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8; // why 8 for default?
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPriceInQuote(base, quoteToken);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function syncTS() external onlyAdmin {
+        timestamp = block.timestamp;
+    }
+
+    function syncTS(uint256 _ts) external onlyAdmin {
+        timestamp = _ts;
+    }
+
+    function debugTS()
+        external
+        view
+        returns (
+            uint256 n,
+            uint256 bs,
+            uint256 ts,
+            bool f
+        )
+    {
+        n = block.number;
+        bs = block.timestamp;
+        ts = timestamp;
+        f = block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) private {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPriceInQuote(address fromToken, address toToken)
+        private
+        view
+        returns (uint256 refPrice, uint256 refTimestamp)
+    {
+        address baseOracle = clOracles[fromToken].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+        address quoteOracle = clOracles[toToken].oracle;
+        uint8 quoteDecimal = clOracles[toToken].decimal;
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        (, int256 rawQuoteRefPrice, , uint256 quoteUpdatedAt, ) = AggregatorV3Interface(quoteOracle).latestRoundData();
+        uint256 baseRefPrice = uint256(rawBaseRefPrice);
+        uint256 quoteRefPrice = uint256(rawQuoteRefPrice);
+
+        // NOTE: Assume wooracle token decimal is same as chainlink token decimal.
+        uint256 ceoff = uint256(10)**quoteDecimal;
+        refPrice = (baseRefPrice * ceoff) / quoteRefPrice;
+        refTimestamp = baseUpdatedAt >= quoteUpdatedAt ? quoteUpdatedAt : baseUpdatedAt;
+    }
+
+    /* ----- Zip Related Functions ----- */
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2ZKSync: !id_SET_ALREADY");
+        basesMap[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < CONST_BASES.length ? CONST_BASES[_id] : basesMap[_id];
+    }
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit:  0: post prices,
+                    1: post states,
+                    2: post prices with local timestamp
+                    3: post states with local timestamp
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+
+            4 bytes (32bits): timestamp
+                MAX: 2^32-1 = 4,294,967,295 = Feb 7, 2106 6:28:15 AM (~83 years away)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2Zip: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+
+        if (op == 0 || op == 2) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = (op == 0) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 5:1 + len * 5 + 4])));
+        } else if (op == 1 || op == 3) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = (op == 1) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 9:1 + len * 9 + 4])));
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2_1_ZKSync.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2_2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV2.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V2.2 contract for WooPPV2
+/// subversion 1 change: no timestamp update for posting price from WooPP.
+/// subversion 2 change: support legacy postState utilizing block.timestamp
+contract WooracleV2_2 is Ownable, IWooracleV2 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)                zip: 32 bits = (27, 5)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18                        zip: 16 bits = (11, 5), 2^11 = 2048
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18       zip: 16 bits = (11, 5)
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+    mapping(address => CLOracle) public clOracles;
+
+    address public quoteToken;
+    uint256 public timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    address public wooPP;
+
+    mapping(address => bool) public isAdmin;
+
+    mapping(uint8 => address) public basesMap;
+
+    constructor() {
+        staleDuration = uint256(120); // default: 2 mins
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "WooracleV2_2: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setWooPP(address _wooPP) external onlyAdmin {
+        wooPP = _wooPP;
+    }
+
+    function setAdmin(address _addr, bool _flag) external onlyOwner {
+        isAdmin[_addr] = _flag;
+    }
+
+    /// @dev Set the quote token address.
+    /// @param _oracle the token address
+    function setQuoteToken(address _quote, address _oracle) external onlyAdmin {
+        quoteToken = _quote;
+        CLOracle storage cloRef = clOracles[_quote];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address _token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[_token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address _token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[_token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param _staleDuration the new stale duration
+    function setStaleDuration(uint256 _staleDuration) external onlyAdmin {
+        staleDuration = _staleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param _base the baseToken address
+    /// @param _price the new prices for the base token
+    function postPrice(address _base, uint128 _price) external onlyAdmin {
+        infos[_base].price = _price;
+        if (msg.sender != wooPP) {
+            timestamp = block.timestamp;
+        }
+    }
+
+    /// @dev Update the base token prices.
+    /// @param _base the baseToken address
+    /// @param _price the new prices for the base token
+    function postPrice(
+        address _base,
+        uint128 _price,
+        uint256 _ts
+    ) external onlyAdmin {
+        infos[_base].price = _price;
+        timestamp = _ts;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param _bases list of baseToken address
+    /// @param _prices the updated prices list
+    function postPriceList(
+        address[] calldata _bases,
+        uint128[] calldata _prices,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = _bases.length;
+        require(length == _prices.length, "WooracleV2_2: length_INVALID");
+
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[_bases[i]].price = _prices[i];
+            }
+        }
+
+        timestamp = _ts;
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param _base baseToken address
+    /// @param _price the new prices
+    /// @param _spread the new spreads
+    /// @param _coeff the new slippage coefficent
+    function postState(
+        address _base,
+        uint128 _price,
+        uint64 _spread,
+        uint64 _coeff
+    ) external onlyAdmin {
+        _setState(_base, _price, _spread, _coeff);
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the state of the given base token with the offchain timestamp.
+    /// @param _base baseToken address
+    /// @param _price the new prices
+    /// @param _spread the new spreads
+    /// @param _coeff the new slippage coefficent
+    /// @param _ts the local timestamp
+    function postState(
+        address _base,
+        uint128 _price,
+        uint64 _spread,
+        uint64 _coeff,
+        uint256 _ts
+    ) external onlyAdmin {
+        _setState(_base, _price, _spread, _coeff);
+        timestamp = _ts;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param _bases list of baseToken address
+    /// @param _prices the prices list
+    /// @param _spreads the spreads list
+    /// @param _coeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata _bases,
+        uint128[] calldata _prices,
+        uint64[] calldata _spreads,
+        uint64[] calldata _coeffs,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = _bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(_bases[i], _prices[i], _spreads[i], _coeffs[i]);
+            }
+        }
+        timestamp = _ts;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address _base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[_base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPriceInQuote(_base, quoteToken);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[_base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address) external pure override returns (uint8) {
+        return 8;
+    }
+
+    function cloPrice(address _base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPriceInQuote(_base, quoteToken);
+    }
+
+    function isWoFeasible(address _base) external view override returns (bool) {
+        return infos[_base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function syncTS() external onlyAdmin {
+        timestamp = block.timestamp;
+    }
+
+    function syncTS(uint256 _ts) external onlyAdmin {
+        timestamp = _ts;
+    }
+
+    function debugTS()
+        external
+        view
+        returns (
+            uint256 n,
+            uint256 bs,
+            uint256 ts,
+            bool f
+        )
+    {
+        n = block.number;
+        bs = block.timestamp;
+        ts = timestamp;
+        f = block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address _base) external view override returns (uint64) {
+        return infos[_base].spread;
+    }
+
+    function woCoeff(address _base) external view override returns (uint64) {
+        return infos[_base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address _base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[_base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address _base) external view override returns (State memory) {
+        TokenInfo memory info = infos[_base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address _base) external view override returns (State memory) {
+        TokenInfo memory info = infos[_base];
+        (uint256 basePrice, bool feasible) = price(_base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address _base) external view override returns (address clo) {
+        clo = clOracles[_base].oracle;
+    }
+
+    /* ----- Private Functions ----- */
+
+    function _setState(
+        address _base,
+        uint128 _price,
+        uint64 _spread,
+        uint64 _coeff
+    ) internal {
+        TokenInfo storage info = infos[_base];
+        info.price = _price;
+        info.spread = _spread;
+        info.coeff = _coeff;
+    }
+
+    function _cloPriceInQuote(address _fromToken, address _toToken)
+        internal
+        view
+        returns (uint256 refPrice, uint256 refTimestamp)
+    {
+        address baseOracle = clOracles[_fromToken].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+        address quoteOracle = clOracles[_toToken].oracle;
+        uint8 quoteDecimal = clOracles[_toToken].decimal;
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        (, int256 rawQuoteRefPrice, , uint256 quoteUpdatedAt, ) = AggregatorV3Interface(quoteOracle).latestRoundData();
+        uint256 baseRefPrice = uint256(rawBaseRefPrice);
+        uint256 quoteRefPrice = uint256(rawQuoteRefPrice);
+
+        // NOTE: Assume wooracle token decimal is same as chainlink token decimal.
+        uint256 ceoff = uint256(10)**quoteDecimal;
+        refPrice = (baseRefPrice * ceoff) / quoteRefPrice;
+        refTimestamp = baseUpdatedAt >= quoteUpdatedAt ? quoteUpdatedAt : baseUpdatedAt;
+    }
+
+    /* ----- Zip Related Functions ----- */
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2_2: !id_SET_ALREADY");
+        basesMap[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < CONST_BASES.length ? CONST_BASES[_id] : basesMap[_id];
+    }
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit:  0: post prices,
+                    1: post states,
+                    2: post prices with local timestamp
+                    3: post states with local timestamp
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+
+            4 bytes (32bits): timestamp
+                MAX: 2^32-1 = 4,294,967,295 = Feb 7, 2106 6:28:15 AM (~83 years away)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2_2: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+
+        if (op == 0 || op == 2) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _decodePrice(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = (op == 0) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 5:1 + len * 5 + 4])));
+        } else if (op == 1 || op == 3) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _decodePrice(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _decodeKS(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _decodeKS(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = (op == 1) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 9:1 + len * 9 + 4])));
+        } else {
+            revert("WooracleV2_2: !op");
+        }
+    }
+
+    function _decodePrice(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _decodeKS(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(owner(), address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, owner(), amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2_2.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2Zip.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IWooracleV2} from "../interfaces/IWooracleV2.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+/// @title Wooracle V2 contract for L2 chains for calldata zip.
+contract WooracleV2Zip {
+    mapping(uint8 => address) public bases;
+
+    IWooracleV2 public wooracle;
+
+    modifier onlyAdmin() {
+        require(wooracle.isAdmin(msg.sender), "WooracleV2Zip: !Admin");
+        _;
+    }
+
+    constructor(address _wooracle) {
+        wooracle = IWooracleV2(_wooracle);
+    }
+
+    function setWooracle(address _wooracle) external onlyAdmin {
+        wooracle = IWooracleV2(_wooracle);
+    }
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2Zip: !id_SET_ALREADY");
+        bases[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < 5 ? CONST_BASES[_id] : bases[_id];
+    }
+
+    /* ----- External Functions ----- */
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit: 0: post prices, 1: post states, 2,3: for future operations
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+        */
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2Zip: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+        if (op == 0) {
+            // post prices list
+            address base;
+            uint128 p;
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                wooracle.postPrice(base, p);
+            }
+        } else if (op == 1) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                wooracle.postState(base, p, s, k);
+            }
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2Zip.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2ZipInherit.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import {WooracleV2} from "./WooracleV2.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+/// @title Wooracle V2 contract for L2 chains for calldata zip.
+contract WooracleV2ZipInherit is WooracleV2 {
+    mapping(uint8 => address) public bases;
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2Zip: !id_SET_ALREADY");
+        bases[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < 5 ? CONST_BASES[_id] : bases[_id];
+    }
+
+    /* ----- External Functions ----- */
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit: 0: post prices, 1: post states, 2,3: TBD
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2Zip: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+        if (op == 0) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = block.timestamp;
+        } else if (op == 1) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = block.timestamp;
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2ZipInherit.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV2ZKSync.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV2.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V2 contract for ZKSync
+contract WooracleV2ZKSync is Ownable, IWooracleV2 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)                zip: 32 bits = (27, 5)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18                        zip: 16 bits = (11, 5), 2^11 = 2048
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18       zip: 16 bits = (11, 5)
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+    mapping(address => CLOracle) public clOracles;
+
+    address public override quoteToken;
+    uint256 public override timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    mapping(address => bool) public isAdmin;
+
+    mapping(uint8 => address) public basesMap;
+
+    constructor() {
+        staleDuration = uint256(120); // default: 2 mins
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    /// @dev Set the quote token address.
+    /// @param _oracle the token address
+    function setQuoteToken(address _quote, address _oracle) external onlyAdmin {
+        quoteToken = _quote;
+        CLOracle storage cloRef = clOracles[_quote];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    function postPrice(
+        address, /* base */
+        uint128 /* newPrice */
+    ) external onlyAdmin {
+        revert("NOT SUPPORTED IN ZKSYNC");
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(
+        address base,
+        uint128 newPrice,
+        uint256 _ts
+    ) external onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = _ts;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = _ts;
+    }
+
+    function postState(
+        address, /* base */
+        uint128, /* newPrice */
+        uint64, /* newSpread */
+        uint64 /* newCoeff */
+    ) external onlyAdmin {
+        revert("NOT SUPPORTED IN ZKSYNC");
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff,
+        uint256 _ts
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = _ts;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = _ts;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPriceInQuote(base, quoteToken);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8; // why 8 for default?
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPriceInQuote(base, quoteToken);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function syncTS() external onlyAdmin {
+        timestamp = block.timestamp;
+    }
+
+    function syncTS(uint256 _ts) external onlyAdmin {
+        timestamp = _ts;
+    }
+
+    function debugTS()
+        external
+        view
+        returns (
+            uint256 n,
+            uint256 bs,
+            uint256 ts,
+            bool f
+        )
+    {
+        n = block.number;
+        bs = block.timestamp;
+        ts = timestamp;
+        f = block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) private {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPriceInQuote(address fromToken, address toToken)
+        private
+        view
+        returns (uint256 refPrice, uint256 refTimestamp)
+    {
+        address baseOracle = clOracles[fromToken].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+        address quoteOracle = clOracles[toToken].oracle;
+        uint8 quoteDecimal = clOracles[toToken].decimal;
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        (, int256 rawQuoteRefPrice, , uint256 quoteUpdatedAt, ) = AggregatorV3Interface(quoteOracle).latestRoundData();
+        uint256 baseRefPrice = uint256(rawBaseRefPrice);
+        uint256 quoteRefPrice = uint256(rawQuoteRefPrice);
+
+        // NOTE: Assume wooracle token decimal is same as chainlink token decimal.
+        uint256 ceoff = uint256(10)**quoteDecimal;
+        refPrice = (baseRefPrice * ceoff) / quoteRefPrice;
+        refTimestamp = baseUpdatedAt >= quoteUpdatedAt ? quoteUpdatedAt : baseUpdatedAt;
+    }
+
+    /* ----- Zip Related Functions ----- */
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV2ZKSync: !id_SET_ALREADY");
+        basesMap[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < CONST_BASES.length ? CONST_BASES[_id] : basesMap[_id];
+    }
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit:  0: post prices,
+                    1: post states,
+                    2: post prices with local timestamp
+                    3: post states with local timestamp
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+
+            4 bytes (32bits): timestamp
+                MAX: 2^32-1 = 4,294,967,295 = Feb 7, 2106 6:28:15 AM (~83 years away)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV2Zip: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+
+        if (op == 0 || op == 2) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = (op == 0) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 5:1 + len * 5 + 4])));
+        } else if (op == 1 || op == 3) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = (op == 1) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 9:1 + len * 9 + 4])));
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV2ZKSync.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV3.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV3.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+contract WooracleV3 is Ownable, IWooracleV3 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+
+    mapping(address => CLOracle) public clOracles;
+
+    uint256 public timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    mapping(address => bool) public isAdmin;
+
+    address public wooPP;
+
+    constructor() {
+        staleDuration = uint256(300);
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setWooPP(address _wooPP) external onlyAdmin {
+        wooPP = _wooPP;
+    }
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        if (msg.sender != wooPP) {
+            timestamp = block.timestamp;
+        }
+    }
+
+    /// @dev No wooPP check for msg.sedner; always update the timestamp.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPriceLegacy(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(address[] calldata bases, uint128[] calldata newPrices) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the spreads info.
+    /// @param base baseToken address
+    /// @param newSpread the new spreads
+    function postSpread(address base, uint64 newSpread) external onlyAdmin {
+        infos[base].spread = newSpread;
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the spreads info.
+    /// @param bases list of baseToken address
+    /// @param newSpreads list of spreads info
+    function postSpreadList(address[] calldata bases, uint64[] calldata newSpreads) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newSpreads.length, "Wooracle: length_INVALID");
+
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].spread = newSpreads[i];
+            }
+        }
+
+        timestamp = block.timestamp;
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = block.timestamp;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = block.timestamp;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPrice(base);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8;
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPrice(base);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Internal & Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) internal {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPrice(address token) private view returns (uint256 refPrice, uint256 refTimestamp) {
+        address baseOracle = clOracles[token].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        refPrice = uint256(rawBaseRefPrice);
+        refTimestamp = baseUpdatedAt;
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV3.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV3ZipInherit.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import {WooracleV3} from "./WooracleV3.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+/// @title Wooracle V3 contract for L2 chains for calldata zip.
+contract WooracleV3ZipInherit is WooracleV3 {
+    mapping(uint8 => address) public bases;
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV3ZipInherit: !id_SET_ALREADY");
+        bases[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < 5 ? CONST_BASES[_id] : bases[_id];
+    }
+
+    /* ----- External Functions ----- */
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit: 0: post prices, 1: post states, 2,3: TBD
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV3ZipInherit: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+        if (op == 0) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = block.timestamp;
+        } else if (op == 1) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = block.timestamp;
+        } else {
+            // not supported
+        }
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV3ZipInherit.sol =====
+// ===== BEGIN SOURCE FILE: contracts/wooracle/WooracleV3ZKSync.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "../interfaces/IWooracleV3.sol";
+import "../interfaces/AggregatorV3Interface.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+// OpenZeppelin contracts
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Wooracle V3 contract for ZKSync
+contract WooracleV3ZKSync is Ownable, IWooracleV3 {
+    /* ----- State variables ----- */
+
+    // 128 + 64 + 64 = 256 bits (slot size)
+    struct TokenInfo {
+        uint128 price; // as chainlink oracle (e.g. decimal = 8)                zip: 32 bits = (27, 5)
+        uint64 coeff; // k: decimal = 18.    18.4 * 1e18                        zip: 16 bits = (11, 5), 2^11 = 2048
+        uint64 spread; // s: decimal = 18.   spread <= 2e18   18.4 * 1e18       zip: 16 bits = (11, 5)
+    }
+
+    struct CLOracle {
+        address oracle;
+        uint8 decimal;
+        bool cloPreferred;
+    }
+
+    mapping(address => TokenInfo) public infos;
+    mapping(address => CLOracle) public clOracles;
+
+    uint256 public override timestamp;
+
+    uint256 public staleDuration;
+    uint64 public bound;
+
+    address public wooPP;
+
+    mapping(address => bool) public isAdmin;
+
+    mapping(uint8 => address) public basesMap;
+
+    constructor() {
+        staleDuration = uint256(120); // default: 2 mins
+        bound = uint64(1e16); // 1%
+    }
+
+    modifier onlyAdmin() {
+        require(owner() == msg.sender || isAdmin[msg.sender], "Wooracle: !Admin");
+        _;
+    }
+
+    /* ----- External Functions ----- */
+
+    function setWooPP(address _wooPP) external onlyAdmin {
+        wooPP = _wooPP;
+    }
+
+    function setAdmin(address addr, bool flag) external onlyOwner {
+        isAdmin[addr] = flag;
+    }
+
+    function setBound(uint64 _bound) external onlyOwner {
+        bound = _bound;
+    }
+
+    function setCLOracle(
+        address token,
+        address _oracle,
+        bool _cloPreferred
+    ) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.oracle = _oracle;
+        cloRef.decimal = AggregatorV3Interface(_oracle).decimals();
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    function setCloPreferred(address token, bool _cloPreferred) external onlyAdmin {
+        CLOracle storage cloRef = clOracles[token];
+        cloRef.cloPreferred = _cloPreferred;
+    }
+
+    /// @dev Set the staleDuration.
+    /// @param newStaleDuration the new stale duration
+    function setStaleDuration(uint256 newStaleDuration) external onlyAdmin {
+        staleDuration = newStaleDuration;
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(address base, uint128 newPrice) external onlyAdmin {
+        infos[base].price = newPrice;
+        if (msg.sender != wooPP) {
+            timestamp = block.timestamp;
+        }
+    }
+
+    /// @dev Update the base token prices.
+    /// @param base the baseToken address
+    /// @param newPrice the new prices for the base token
+    function postPrice(
+        address base,
+        uint128 newPrice,
+        uint256 _ts
+    ) external onlyAdmin {
+        infos[base].price = newPrice;
+        timestamp = _ts;
+    }
+
+    /// @dev batch update baseTokens prices
+    /// @param bases list of baseToken address
+    /// @param newPrices the updated prices list
+    function postPriceList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        require(length == newPrices.length, "Wooracle: length_INVALID");
+
+        // TODO: gas optimization:
+        // https://ethereum.stackexchange.com/questions/113221/what-is-the-purpose-of-unchecked-in-solidity
+        // https://forum.openzeppelin.com/t/a-collection-of-gas-optimisation-tricks/19966
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                infos[bases[i]].price = newPrices[i];
+            }
+        }
+
+        timestamp = _ts;
+    }
+
+    function postState(
+        address, /* base */
+        uint128, /* newPrice */
+        uint64, /* newSpread */
+        uint64 /* newCoeff */
+    ) external view onlyAdmin {
+        revert("NOT SUPPORTED IN ZKSYNC");
+    }
+
+    /// @dev update the state of the given base token.
+    /// @param base baseToken address
+    /// @param newPrice the new prices
+    /// @param newSpread the new spreads
+    /// @param newCoeff the new slippage coefficent
+    function postState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff,
+        uint256 _ts
+    ) external onlyAdmin {
+        _setState(base, newPrice, newSpread, newCoeff);
+        timestamp = _ts;
+    }
+
+    /// @dev batch update the prices, spreads and slipagge coeffs info.
+    /// @param bases list of baseToken address
+    /// @param newPrices the prices list
+    /// @param newSpreads the spreads list
+    /// @param newCoeffs the slippage coefficent list
+    function postStateList(
+        address[] calldata bases,
+        uint128[] calldata newPrices,
+        uint64[] calldata newSpreads,
+        uint64[] calldata newCoeffs,
+        uint256 _ts
+    ) external onlyAdmin {
+        uint256 length = bases.length;
+        unchecked {
+            for (uint256 i = 0; i < length; i++) {
+                _setState(bases[i], newPrices[i], newSpreads[i], newCoeffs[i]);
+            }
+        }
+        timestamp = _ts;
+    }
+
+    /*
+        Price logic:
+        - woPrice: wooracle price
+        - cloPrice: chainlink price
+
+        woFeasible is, price > 0 and price timestamp NOT stale
+
+        when woFeasible && priceWithinBound     -> woPrice, feasible
+        when woFeasible && !priceWithinBound    -> woPrice, infeasible
+        when !woFeasible && clo_preferred       -> cloPrice, feasible
+        when !woFeasible && !clo_preferred      -> cloPrice, infeasible
+    */
+    function price(address base) public view override returns (uint256 priceOut, bool feasible) {
+        uint256 woPrice_ = uint256(infos[base].price);
+        uint256 woPriceTimestamp = timestamp;
+
+        (uint256 cloPrice_, ) = _cloPrice(base);
+
+        bool woFeasible = woPrice_ != 0 && block.timestamp <= (woPriceTimestamp + staleDuration);
+        bool woPriceInBound = cloPrice_ == 0 ||
+            ((cloPrice_ * (1e18 - bound)) / 1e18 <= woPrice_ && woPrice_ <= (cloPrice_ * (1e18 + bound)) / 1e18);
+
+        if (woFeasible) {
+            priceOut = woPrice_;
+            feasible = woPriceInBound;
+        } else {
+            priceOut = clOracles[base].cloPreferred ? cloPrice_ : 0;
+            feasible = priceOut != 0;
+        }
+    }
+
+    /// @notice the price decimal for the specified base token
+    function decimals(address base) external view override returns (uint8) {
+        uint8 d = clOracles[base].decimal;
+        return d != 0 ? d : 8; // why 8 for default?
+    }
+
+    function cloPrice(address base) external view override returns (uint256 refPrice, uint256 refTimestamp) {
+        return _cloPrice(base);
+    }
+
+    function isWoFeasible(address base) external view override returns (bool) {
+        return infos[base].price != 0 && block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function syncTS() external onlyAdmin {
+        timestamp = block.timestamp;
+    }
+
+    function syncTS(uint256 _ts) external onlyAdmin {
+        timestamp = _ts;
+    }
+
+    function debugTS()
+        external
+        view
+        returns (
+            uint256 n,
+            uint256 bs,
+            uint256 ts,
+            bool f
+        )
+    {
+        n = block.number;
+        bs = block.timestamp;
+        ts = timestamp;
+        f = block.timestamp <= (timestamp + staleDuration);
+    }
+
+    function woSpread(address base) external view override returns (uint64) {
+        return infos[base].spread;
+    }
+
+    function woCoeff(address base) external view override returns (uint64) {
+        return infos[base].coeff;
+    }
+
+    // Wooracle price of the base token
+    function woPrice(address base) external view override returns (uint128 priceOut, uint256 priceTimestampOut) {
+        priceOut = infos[base].price;
+        priceTimestampOut = timestamp;
+    }
+
+    function woState(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        return
+            State({
+                price: info.price,
+                spread: info.spread,
+                coeff: info.coeff,
+                woFeasible: (info.price != 0 && block.timestamp <= (timestamp + staleDuration))
+            });
+    }
+
+    function state(address base) external view override returns (State memory) {
+        TokenInfo memory info = infos[base];
+        (uint256 basePrice, bool feasible) = price(base);
+        return State({price: uint128(basePrice), spread: info.spread, coeff: info.coeff, woFeasible: feasible});
+    }
+
+    function cloAddress(address base) external view override returns (address clo) {
+        clo = clOracles[base].oracle;
+    }
+
+    /* ----- Private Functions ----- */
+    function _setState(
+        address base,
+        uint128 newPrice,
+        uint64 newSpread,
+        uint64 newCoeff
+    ) private {
+        TokenInfo storage info = infos[base];
+        info.price = newPrice;
+        info.spread = newSpread;
+        info.coeff = newCoeff;
+    }
+
+    function _cloPrice(address token) private view returns (uint256 refPrice, uint256 refTimestamp) {
+        address baseOracle = clOracles[token].oracle;
+        if (baseOracle == address(0)) {
+            return (0, 0);
+        }
+
+        (, int256 rawBaseRefPrice, , uint256 baseUpdatedAt, ) = AggregatorV3Interface(baseOracle).latestRoundData();
+        refPrice = uint256(rawBaseRefPrice);
+        refTimestamp = baseUpdatedAt;
+    }
+
+    /* ----- Zip Related Functions ----- */
+
+    function setBase(uint8 _id, address _base) external onlyAdmin {
+        require(getBase(_id) == address(0), "WooracleV3ZKSync: !id_SET_ALREADY");
+        basesMap[_id] = _base;
+    }
+
+    function getBase(uint8 _id) public view returns (address) {
+        address[5] memory CONST_BASES = [
+            // mload
+            // NOTE: Update token address for different chains
+            0x82aF49447D8a07e3bd95BD0d56f35241523fBab1, // WETH
+            0x2f2a2543B76A4166549F7aaB2e75Bef0aefC5B0f, // WBTC
+            0xcAFcD85D8ca7Ad1e1C6F82F651fA15E33AEfD07b, // WOO
+            0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9, // USDT
+            0x912CE59144191C1204E64559FE8253a0e49E6548 // ARB
+        ];
+
+        return _id < CONST_BASES.length ? CONST_BASES[_id] : basesMap[_id];
+    }
+
+    // https://docs.soliditylang.org/en/v0.8.12/contracts.html#fallback-function
+    // prettier-ignore
+    fallback (bytes calldata _input) external onlyAdmin returns (bytes memory _output) {
+        /*
+            2 bit:  0: post prices,
+                    1: post states,
+                    2: post prices with local timestamp
+                    3: post states with local timestamp
+            6 bits: length
+
+            post prices:
+               [price] -->
+                  base token: 8 bites (1 byte)
+                  price data: 32 bits = (27, 5)
+
+            post states:
+               [states] -->
+                  base token: 8 bites (1 byte)
+                  price:      32 bits (4 bytes) = (27, 5)
+                  k coeff:    16 bits (2 bytes) = (11, 5)
+                  s spread:   16 bits (2 bytes) = (11, 5)
+
+            4 bytes (32bits): timestamp
+                MAX: 2^32-1 = 4,294,967,295 = Feb 7, 2106 6:28:15 AM (~83 years away)
+        */
+
+        uint256 x = _input.length;
+        require(x > 0, "WooracleV3Zip: !calldata");
+
+        uint8 firstByte = uint8(bytes1(_input[0]));
+        uint8 op = firstByte >> 6; // 11000000
+        uint8 len = firstByte & 0x3F; // 00111111
+
+        if (op == 0 || op == 2) {
+            // post prices list
+            address base;
+            uint128 p;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 5:1 + i * 5 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 5 + 1:1 + i * 5 + 5])));
+                infos[base].price = p;
+            }
+
+            timestamp = (op == 0) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 5:1 + len * 5 + 4])));
+        } else if (op == 1 || op == 3) {
+            // post states list
+            address base;
+            uint128 p;
+            uint64 s;
+            uint64 k;
+
+            for (uint256 i = 0; i < len; ++i) {
+                base = getBase(uint8(bytes1(_input[1 + i * 9:1 + i * 9 + 1])));
+                p = _price(uint32(bytes4(_input[1 + i * 9 + 1:1 + i * 9 + 5])));
+                s = _ks(uint16(bytes2(_input[1 + i * 9 + 5:1 + i * 9 + 7])));
+                k = _ks(uint16(bytes2(_input[1 + i * 9 + 7:1 + i * 9 + 9])));
+                _setState(base, p, s, k);
+            }
+
+            timestamp = (op == 1) ? block.timestamp : uint256(uint32(bytes4(_input[1 + len * 9:1 + len * 9 + 4])));
+        } else {
+            // not supported
+        }
+        _output = new bytes(0);
+    }
+
+    function _price(uint32 b) internal pure returns (uint128) {
+        return uint128((b >> 5) * (10**(b & 0x1F))); // 0x1F = 00011111
+    }
+
+    function _ks(uint16 b) internal pure returns (uint64) {
+        return uint64((b >> 5) * (10**(b & 0x1F)));
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyAdmin {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/wooracle/WooracleV3ZKSync.sol =====
+// ===== BEGIN SOURCE FILE: contracts/WooRebateManager.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "./interfaces/IWooRebateManager.sol";
+import "./interfaces/IWooAccessManager.sol";
+import "./interfaces/IWooRouterV2.sol";
+
+import "./libraries/TransferHelper.sol";
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
+contract WooRebateManager is Ownable, ReentrancyGuard, IWooRebateManager {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    // Note: this is the percent rate of the total swap fee (not the swap volume)
+    // decimal: 18; 1e16 = 1%, 1e15 = 0.1%, 1e14 = 0.01%
+    //
+    // e.g. suppose:
+    //   rebateRate = 2e17 (20%), so the rebate amount is total_swap_fee * 20%.
+    mapping(address => uint256) public override rebateRate;
+
+    EnumerableSet.AddressSet private rebateAddressSet;
+
+    // pending rebate amount in quote token
+    mapping(address => uint256) public pendingRebate;
+
+    IWooRouterV2 public wooRouter;
+
+    address public immutable override quoteToken; // e.g. USDC or USDT
+    address public rewardToken; // Any Token
+
+    IWooAccessManager public accessManager;
+
+    /* ----- Modifiers ----- */
+
+    modifier onlyAdmin() {
+        require(msg.sender == owner() || accessManager.isRebateAdmin(msg.sender), "WooRebateManager: !admin");
+        _;
+    }
+
+    constructor(
+        address _quoteToken,
+        address _rewardToken,
+        address _accessManager
+    ) {
+        quoteToken = _quoteToken;
+        rewardToken = _rewardToken;
+        accessManager = IWooAccessManager(_accessManager);
+    }
+
+    function pendingRebateInQuote(address brokerAddr) external view override returns (uint256) {
+        require(brokerAddr != address(0), "WooRebateManager: !brokerAddr");
+        return pendingRebate[brokerAddr];
+    }
+
+    function pendingRebateInReward(address brokerAddr) external view override returns (uint256) {
+        require(brokerAddr != address(0), "WooRebateManager: !brokerAddr");
+        return
+            rewardToken != quoteToken
+                ? wooRouter.querySwap(quoteToken, rewardToken, pendingRebate[brokerAddr])
+                : pendingRebate[brokerAddr];
+    }
+
+    function claimRebate() external override nonReentrant {
+        if (pendingRebate[msg.sender] == 0) {
+            return;
+        }
+
+        uint256 quoteAmount = pendingRebate[msg.sender];
+
+        // Note: set the pending rebate early to make external interactions safe.
+        pendingRebate[msg.sender] = 0;
+
+        uint256 rewardAmount;
+        if (rewardToken == quoteToken) {
+            rewardAmount = quoteAmount;
+            TransferHelper.safeTransfer(rewardToken, msg.sender, rewardAmount);
+        } else {
+            TransferHelper.safeApprove(quoteToken, address(wooRouter), quoteAmount);
+            rewardAmount = wooRouter.swap(quoteToken, rewardToken, quoteAmount, 0, payable(msg.sender), address(0));
+        }
+
+        emit ClaimReward(msg.sender, rewardAmount);
+    }
+
+    function allRebateAddresses() external view returns (address[] memory) {
+        address[] memory rebateAddresses = new address[](rebateAddressSet.length());
+        unchecked {
+            for (uint256 i = 0; i < rebateAddressSet.length(); ++i) {
+                rebateAddresses[i] = rebateAddressSet.at(i);
+            }
+        }
+        return rebateAddresses;
+    }
+
+    function allRebateAddressesLength() external view returns (uint256) {
+        return rebateAddressSet.length();
+    }
+
+    /* ----- Admin Functions ----- */
+
+    function addRebate(address brokerAddr, uint256 amountInUSDT) external override nonReentrant onlyAdmin {
+        if (brokerAddr == address(0)) {
+            return;
+        }
+        pendingRebate[brokerAddr] += amountInUSDT;
+    }
+
+    function setRebateRate(address brokerAddr, uint256 rate) external override onlyAdmin {
+        require(brokerAddr != address(0), "WooRebateManager: brokerAddr_ZERO_ADDR");
+        require(rate <= 1e18, "WooRebateManager: INVALID_USER_REWARD_RATE"); // rate <= 100%
+        rebateRate[brokerAddr] = rate;
+        if (rate == 0) {
+            rebateAddressSet.remove(brokerAddr);
+        } else {
+            rebateAddressSet.add(brokerAddr);
+        }
+        emit RebateRateUpdated(brokerAddr, rate);
+    }
+
+    function setWooRouter(address _wooRouter) external onlyAdmin {
+        wooRouter = IWooRouterV2(_wooRouter);
+        require(wooRouter.wooPool().quoteToken() == quoteToken, "WooRebateManager: !wooRouter_quoteToken");
+    }
+
+    function setAccessManager(address _accessManager) external onlyOwner {
+        require(_accessManager != address(0), "WooRebateManager: !_accessManager");
+        accessManager = IWooAccessManager(_accessManager);
+    }
+
+    function setRewardToken(address _rewardToken) external onlyAdmin {
+        require(_rewardToken != address(0), "WooRebateManager: !_rewardToken");
+        rewardToken = _rewardToken;
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyOwner {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/WooRebateManager.sol =====
+// ===== BEGIN SOURCE FILE: contracts/WooRouterV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "./interfaces/IWooPPV2.sol";
+import "./interfaces/IWETH.sol";
+import "./interfaces/IWooRouterV2.sol";
+
+import {TransferHelper} from "@uniswap/v3-periphery/contracts/libraries/TransferHelper.sol";
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20, SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/// @title Woo Router V2 implementation.
+/// @notice Router for stateless execution of swaps against Woo private pool.
+contract WooRouterV2 is IWooRouterV2, Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
+    /* ----- Constant variables ----- */
+
+    // Erc20 placeholder address for native tokens (e.g. eth, bnb, matic, etc)
+    address constant ETH_PLACEHOLDER_ADDR = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+
+    /* ----- State variables ----- */
+
+    // Wrapper for native tokens (e.g. eth, bnb, matic, etc)
+    // BSC WBNB: 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c
+    address public immutable override WETH;
+
+    IWooPPV2 public override wooPool;
+
+    mapping(address => bool) public isWhitelisted;
+
+    address public quoteToken;
+
+    /* ----- Callback Function ----- */
+
+    receive() external payable {
+        // only accept ETH from WETH or whitelisted external swaps.
+        assert(msg.sender == WETH || isWhitelisted[msg.sender]);
+    }
+
+    /* ----- Query & swap APIs ----- */
+
+    constructor(address _weth, address _pool) {
+        require(_weth != address(0), "WooRouter: weth_ZERO_ADDR");
+        WETH = _weth;
+        if (_pool != address(0)) {
+            setPool(_pool);
+        }
+    }
+
+    /// @inheritdoc IWooRouterV2
+    function querySwap(
+        address fromToken,
+        address toToken,
+        uint256 fromAmount
+    ) external view override returns (uint256 toAmount) {
+        require(fromToken != address(0), "WooRouter: !fromToken");
+        require(toToken != address(0), "WooRouter: !toToken");
+        fromToken = (fromToken == ETH_PLACEHOLDER_ADDR) ? WETH : fromToken;
+        toToken = (toToken == ETH_PLACEHOLDER_ADDR) ? WETH : toToken;
+        toAmount = wooPool.query(fromToken, toToken, fromAmount);
+    }
+
+    function tryQuerySwap(
+        address fromToken,
+        address toToken,
+        uint256 fromAmount
+    ) external view override returns (uint256 toAmount) {
+        if (fromToken == address(0) || toToken == address(0)) {
+            return 0;
+        }
+        fromToken = (fromToken == ETH_PLACEHOLDER_ADDR) ? WETH : fromToken;
+        toToken = (toToken == ETH_PLACEHOLDER_ADDR) ? WETH : toToken;
+        toAmount = wooPool.tryQuery(fromToken, toToken, fromAmount);
+    }
+
+    /// @inheritdoc IWooRouterV2
+    function swap(
+        address fromToken,
+        address toToken,
+        uint256 fromAmount,
+        uint256 minToAmount,
+        address payable to,
+        address rebateTo
+    ) external payable override nonReentrant returns (uint256 realToAmount) {
+        require(fromToken != address(0), "WooRouter: !fromToken");
+        require(toToken != address(0), "WooRouter: !toToken");
+        require(to != address(0), "WooRouter: !to");
+
+        bool isFromETH = fromToken == ETH_PLACEHOLDER_ADDR;
+        bool isToETH = toToken == ETH_PLACEHOLDER_ADDR;
+        fromToken = isFromETH ? WETH : fromToken;
+        toToken = isToETH ? WETH : toToken;
+
+        // Step 1: transfer the source tokens to WooRouter
+        if (isFromETH) {
+            require(fromAmount <= msg.value, "WooRouter: fromAmount_INVALID");
+            IWETH(WETH).deposit{value: msg.value}();
+            TransferHelper.safeTransfer(WETH, address(wooPool), fromAmount);
+        } else {
+            TransferHelper.safeTransferFrom(fromToken, msg.sender, address(wooPool), fromAmount);
+        }
+
+        // Step 2: swap and transfer
+        if (isToETH) {
+            realToAmount = wooPool.swap(fromToken, toToken, fromAmount, minToAmount, address(this), rebateTo);
+            IWETH(WETH).withdraw(realToAmount);
+            TransferHelper.safeTransferETH(to, realToAmount);
+        } else {
+            realToAmount = wooPool.swap(fromToken, toToken, fromAmount, minToAmount, to, rebateTo);
+        }
+
+        // Step 3: firing event
+        emit WooRouterSwap(
+            SwapType.WooSwap,
+            isFromETH ? ETH_PLACEHOLDER_ADDR : fromToken,
+            isToETH ? ETH_PLACEHOLDER_ADDR : toToken,
+            fromAmount,
+            realToAmount,
+            msg.sender,
+            to,
+            rebateTo
+        );
+    }
+
+    /// @inheritdoc IWooRouterV2
+    function externalSwap(
+        address approveTarget,
+        address swapTarget,
+        address fromToken,
+        address toToken,
+        uint256 fromAmount,
+        uint256 minToAmount,
+        address payable to,
+        bytes calldata data
+    ) external payable override nonReentrant returns (uint256 realToAmount) {
+        require(approveTarget != address(0), "WooRouter: approveTarget_ADDR_ZERO");
+        require(swapTarget != address(0), "WooRouter: swapTarget_ADDR_ZERO");
+        require(fromToken != address(0), "WooRouter: fromToken_ADDR_ZERO");
+        require(toToken != address(0), "WooRouter: toToken_ADDR_ZERO");
+        require(to != address(0), "WooRouter: to_ADDR_ZERO");
+        require(isWhitelisted[approveTarget], "WooRouter: APPROVE_TARGET_NOT_ALLOWED");
+        require(isWhitelisted[swapTarget], "WooRouter: SWAP_TARGET_NOT_ALLOWED");
+
+        uint256 preBalance = _generalBalanceOf(toToken, address(this));
+        _internalFallbackSwap(approveTarget, swapTarget, fromToken, fromAmount, data);
+        uint256 postBalance = _generalBalanceOf(toToken, address(this));
+
+        require(preBalance <= postBalance, "WooRouter: balance_ERROR");
+        realToAmount = postBalance - preBalance;
+        require(realToAmount >= minToAmount && realToAmount > 0, "WooRouter: realToAmount_NOT_ENOUGH");
+        _generalTransfer(toToken, to, realToAmount);
+
+        emit WooRouterSwap(SwapType.DodoSwap, fromToken, toToken, fromAmount, realToAmount, msg.sender, to, address(0));
+    }
+
+    /* ----- Admin functions ----- */
+
+    /// @dev Rescue the specified funds when stuck happen
+    /// @param stuckToken the stuck token address
+    function inCaseTokenGotStuck(address stuckToken) external onlyOwner {
+        if (stuckToken == ETH_PLACEHOLDER_ADDR) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+
+    /// @dev Rescue the specified funds when stuck happen
+    /// @param stuckTokens the stuck tokens address
+    function inCaseTokensGotStuck(address[] calldata stuckTokens) external onlyOwner {
+        for (uint256 i = 0; i < stuckTokens.length; ++i) {
+            address stuckToken = stuckTokens[i];
+            if (stuckToken == ETH_PLACEHOLDER_ADDR) {
+                TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+            } else {
+                uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+                TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+            }
+        }
+    }
+
+    /// @dev Set wooPool from newPool
+    /// @param newPool Wooracle address
+    function setPool(address newPool) public onlyOwner {
+        wooPool = IWooPPV2(newPool);
+        quoteToken = wooPool.quoteToken();
+        require(quoteToken != address(0), "WooRouter: quoteToken_ADDR_ZERO");
+        emit WooPoolChanged(newPool);
+    }
+
+    /// @dev Add target address into whitelist
+    /// @param target address that approved by WooRouter
+    /// @param whitelisted approve to using WooRouter or not
+    function setWhitelisted(address target, bool whitelisted) external onlyOwner {
+        require(target != address(0), "WooRouter: target_ADDR_ZERO");
+        isWhitelisted[target] = whitelisted;
+    }
+
+    /* ----- Private Function ----- */
+
+    function _internalFallbackSwap(
+        address approveTarget,
+        address swapTarget,
+        address fromToken,
+        uint256 fromAmount,
+        bytes calldata data
+    ) private {
+        require(isWhitelisted[approveTarget], "WooRouter: APPROVE_TARGET_NOT_ALLOWED");
+        require(isWhitelisted[swapTarget], "WooRouter: SWAP_TARGET_NOT_ALLOWED");
+
+        if (fromToken != ETH_PLACEHOLDER_ADDR) {
+            TransferHelper.safeTransferFrom(fromToken, msg.sender, address(this), fromAmount);
+            TransferHelper.safeApprove(fromToken, approveTarget, fromAmount);
+            (bool success, ) = swapTarget.call{value: 0}(data);
+            TransferHelper.safeApprove(fromToken, approveTarget, 0);
+            require(success, "WooRouter: FALLBACK_SWAP_FAILED");
+        } else {
+            require(fromAmount <= msg.value, "WooRouter: fromAmount_INVALID");
+            (bool success, ) = swapTarget.call{value: fromAmount}(data);
+            require(success, "WooRouter: FALLBACK_SWAP_FAILED");
+        }
+    }
+
+    function _generalTransfer(
+        address token,
+        address payable to,
+        uint256 amount
+    ) private {
+        if (amount > 0) {
+            if (token == ETH_PLACEHOLDER_ADDR) {
+                TransferHelper.safeTransferETH(to, amount);
+            } else {
+                TransferHelper.safeTransfer(token, to, amount);
+            }
+        }
+    }
+
+    function _generalBalanceOf(address token, address who) private view returns (uint256) {
+        return token == ETH_PLACEHOLDER_ADDR ? who.balance : IERC20(token).balanceOf(who);
+    }
+}
+// ===== END SOURCE FILE: contracts/WooRouterV2.sol =====
+// ===== BEGIN SOURCE FILE: contracts/WooSimpleRewarder.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Address.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import "./interfaces/IRewarder.sol";
+import "./interfaces/IMasterChefWoo.sol";
+import "./libraries/TransferHelper.sol";
+
+contract WooSimpleRewarder is IRewarder, Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
+    using Address for address;
+
+    address public constant ETH_PLACEHOLDER_ADDR = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    IERC20 public immutable weToken;
+    IERC20 public immutable rewardToken;
+    IMasterChefWoo public immutable MCW; // MasterChefWoo
+
+    uint256 public tokenPerBlock;
+    PoolInfo public poolInfo;
+    mapping(address => UserInfo) public userInfo;
+
+    modifier onlyMCW() {
+        require(_msgSender() == address(MCW), "onlyMCW: only MasterChefWoo");
+        _;
+    }
+
+    constructor(
+        IERC20 _rewardToken,
+        IERC20 _weToken,
+        IMasterChefWoo _MCW,
+        uint256 _tokenPerBlock
+    ) {
+        rewardToken = _rewardToken;
+        weToken = _weToken;
+        MCW = _MCW;
+        tokenPerBlock = _tokenPerBlock;
+    }
+
+    /// @notice Function called by MasterChefWoo whenever staker claims weToken harvest.
+    /// @notice Allows staker to also receive a 2nd reward token
+    /// @param _user Address of user
+    /// @param _weAmount Number of we tokens the user has
+    function onRewarded(address _user, uint256 _weAmount) external override onlyMCW nonReentrant {
+        PoolInfo memory pool = updatePool();
+        UserInfo storage user = userInfo[_user];
+        uint256 pending;
+        if (user.amount > 0) {
+            pending = (user.amount * pool.accTokenPerShare) / 1e12 - user.rewardDebt + user.unpaidRewards;
+            uint256 curBalance = rewardToken.balanceOf(address(this));
+            if (pending > curBalance) {
+                if (curBalance > 0) {
+                    rewardToken.safeTransfer(_user, curBalance);
+                }
+                user.unpaidRewards = pending - curBalance;
+            } else {
+                rewardToken.safeTransfer(_user, pending);
+                user.unpaidRewards = 0;
+            }
+        }
+
+        user.amount = _weAmount;
+        user.rewardDebt = (user.amount * pool.accTokenPerShare) / 1e12;
+
+        emit OnRewarded(_user, pending - user.unpaidRewards);
+    }
+
+    /// @notice View function to see pending tokens
+    /// @param _user Address of user.
+    /// @return pending reward for a given user.
+    function pendingTokens(address _user) external view override returns (uint256 pending) {
+        PoolInfo memory pool = poolInfo;
+        UserInfo storage user = userInfo[_user];
+
+        uint256 accTokenPerShare = pool.accTokenPerShare;
+        uint256 weSupply = weToken.balanceOf(address(MCW));
+
+        if (block.number > pool.lastRewardBlock && weSupply != 0) {
+            uint256 blocks = block.number - pool.lastRewardBlock;
+            uint256 tokenReward = blocks * tokenPerBlock;
+            accTokenPerShare += (tokenReward * 1e12) / weSupply;
+        }
+
+        pending = (user.amount * accTokenPerShare) / 1e12 - user.rewardDebt + user.unpaidRewards;
+    }
+
+    /// @notice View function to see balance of reward token.
+    function balance() external view returns (uint256) {
+        return rewardToken.balanceOf(address(this));
+    }
+
+    /// @notice Sets the distribution reward rate. This will also update the poolInfo.
+    /// @param _tokenPerBlock The number of tokens to distribute per second
+    function setRewardRate(uint256 _tokenPerBlock) external onlyOwner {
+        require(_tokenPerBlock > 0, "WSR: invalid value");
+        updatePool();
+        uint256 oldRate = tokenPerBlock;
+        tokenPerBlock = _tokenPerBlock;
+
+        emit RewardRateUpdated(oldRate, _tokenPerBlock);
+    }
+
+    /// @notice Update reward variables of the given poolInfo.
+    /// @return pool Returns the pool that was updated.
+    function updatePool() public returns (PoolInfo memory pool) {
+        pool = poolInfo;
+
+        if (block.number > pool.lastRewardBlock) {
+            uint256 weSupply = weToken.balanceOf(address(MCW));
+
+            if (weSupply > 0) {
+                uint256 blocks = block.number - pool.lastRewardBlock;
+                uint256 tokenReward = blocks * tokenPerBlock;
+                pool.accTokenPerShare += (tokenReward * 1e12) / weSupply;
+            }
+
+            pool.lastRewardBlock = block.number;
+            poolInfo = pool;
+        }
+    }
+
+    /// @notice In case rewarder is stopped before emissions finished,
+    /// @notice this function allows withdrawal of remaining tokens.
+    function emergencyWithdraw() public onlyOwner {
+        uint256 amount = rewardToken.balanceOf(address(this));
+        rewardToken.safeTransfer(owner(), amount);
+    }
+
+    /// @dev Rescue the specified funds when stuck happens
+    /// @param stuckToken the stuck token address
+    function inCaseTokenGotStuck(address stuckToken) external onlyOwner {
+        require(stuckToken != address(0), "WSR: invalid address");
+        if (stuckToken == ETH_PLACEHOLDER_ADDR) {
+            TransferHelper.safeTransferETH(_msgSender(), address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, _msgSender(), amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/WooSimpleRewarder.sol =====
+// ===== BEGIN SOURCE FILE: contracts/WooVaultManager.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity =0.8.14;
+
+/*
+
+░██╗░░░░░░░██╗░█████╗░░█████╗░░░░░░░███████╗██╗
+░██║░░██╗░░██║██╔══██╗██╔══██╗░░░░░░██╔════╝██║
+░╚██╗████╗██╔╝██║░░██║██║░░██║█████╗█████╗░░██║
+░░████╔═████║░██║░░██║██║░░██║╚════╝██╔══╝░░██║
+░░╚██╔╝░╚██╔╝░╚█████╔╝╚█████╔╝░░░░░░██║░░░░░██║
+░░░╚═╝░░░╚═╝░░░╚════╝░░╚════╝░░░░░░░╚═╝░░░░░╚═╝
+
+*
+* MIT License
+* ===========
+*
+* Copyright (c) 2020 WooTrade
+*
+* Permission is hereby granted, free of charge, to any person obtaining a copy
+* of this software and associated documentation files (the "Software"), to deal
+* in the Software without restriction, including without limitation the rights
+* to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+* copies of the Software, and to permit persons to whom the Software is
+* furnished to do so, subject to the following conditions:
+*
+* The above copyright notice and this permission notice shall be included in all
+* copies or substantial portions of the Software.
+*
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+* OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+*/
+
+import "./interfaces/IWooRouterV2.sol";
+import "./interfaces/IWooVaultManager.sol";
+import "./interfaces/IWooAccessManager.sol";
+
+import "./libraries/TransferHelper.sol";
+
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
+contract WooVaultManager is Ownable, ReentrancyGuard, IWooVaultManager {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
+    mapping(address => uint256) public override vaultWeight;
+    uint256 public totalWeight;
+
+    IWooRouterV2 private wooRouter;
+
+    address public immutable override quoteToken; // USDT
+    address public immutable rewardToken; // WOO
+
+    EnumerableSet.AddressSet private vaultSet;
+
+    IWooAccessManager public accessManager;
+
+    modifier onlyAdmin() {
+        require(msg.sender == owner() || accessManager.isVaultAdmin(msg.sender), "WooVaultManager: !admin");
+        _;
+    }
+
+    constructor(
+        address _quoteToken,
+        address _rewardToken,
+        address _accessManager
+    ) {
+        quoteToken = _quoteToken;
+        rewardToken = _rewardToken;
+        accessManager = IWooAccessManager(_accessManager);
+    }
+
+    function allVaults() external view override returns (address[] memory) {
+        address[] memory vaults = new address[](vaultSet.length());
+        unchecked {
+            for (uint256 i = 0; i < vaultSet.length(); ++i) {
+                vaults[i] = vaultSet.at(i);
+            }
+        }
+        return vaults;
+    }
+
+    function addReward(uint256 amount) external override nonReentrant {
+        TransferHelper.safeTransferFrom(quoteToken, msg.sender, address(this), amount);
+    }
+
+    function pendingReward(address vaultAddr) external view override returns (uint256) {
+        require(vaultAddr != address(0), "WooVaultManager: !vaultAddr");
+        uint256 totalReward = IERC20(quoteToken).balanceOf(address(this));
+        return (totalReward * vaultWeight[vaultAddr]) / totalWeight;
+    }
+
+    function pendingAllReward() external view override returns (uint256) {
+        return IERC20(quoteToken).balanceOf(address(this));
+    }
+
+    function setVaultWeight(address vaultAddr, uint256 weight) external override onlyAdmin {
+        require(vaultAddr != address(0), "WooVaultManager: !vaultAddr");
+
+        // NOTE: First clear all the pending reward if > 1u to keep the things fair
+        if (IERC20(quoteToken).balanceOf(address(this)) >= 10**IERC20Metadata(quoteToken).decimals()) {
+            distributeAllReward();
+        }
+
+        uint256 prevWeight = vaultWeight[vaultAddr];
+        vaultWeight[vaultAddr] = weight;
+        totalWeight = totalWeight + weight - prevWeight;
+
+        if (weight == 0) {
+            vaultSet.remove(vaultAddr);
+        } else {
+            vaultSet.add(vaultAddr);
+        }
+
+        emit VaultWeightUpdated(vaultAddr, weight);
+    }
+
+    function distributeAllReward() public override onlyAdmin {
+        uint256 totalRewardInQuote = IERC20(quoteToken).balanceOf(address(this));
+        if (totalRewardInQuote == 0 || totalWeight == 0) {
+            return;
+        }
+
+        TransferHelper.safeApprove(quoteToken, address(wooRouter), totalRewardInQuote);
+        uint256 wooAmount = wooRouter.swap(
+            quoteToken,
+            rewardToken,
+            totalRewardInQuote,
+            0,
+            payable(address(this)),
+            address(0)
+        );
+
+        for (uint256 i = 0; i < vaultSet.length(); ++i) {
+            address vaultAddr = vaultSet.at(i);
+            uint256 vaultAmount = (wooAmount * vaultWeight[vaultAddr]) / totalWeight;
+            if (vaultAmount > 0) {
+                TransferHelper.safeTransfer(rewardToken, vaultAddr, vaultAmount);
+            }
+            emit RewardDistributed(vaultAddr, vaultAmount);
+        }
+    }
+
+    function setWooRouter(address _wooRouter) external onlyAdmin {
+        wooRouter = IWooRouterV2(_wooRouter);
+        require(wooRouter.wooPool().quoteToken() == quoteToken, "WooVaultManager: !wooRouter_quoteToken");
+    }
+
+    function setAccessManager(address _accessManager) external onlyOwner {
+        accessManager = IWooAccessManager(_accessManager);
+    }
+
+    function inCaseTokenGotStuck(address stuckToken) external onlyOwner {
+        if (stuckToken == 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE) {
+            TransferHelper.safeTransferETH(msg.sender, address(this).balance);
+        } else {
+            uint256 amount = IERC20(stuckToken).balanceOf(address(this));
+            TransferHelper.safeTransfer(stuckToken, msg.sender, amount);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/WooVaultManager.sol =====

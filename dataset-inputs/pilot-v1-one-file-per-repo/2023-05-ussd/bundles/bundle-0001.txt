@@ -1,0 +1,1100 @@
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IStableOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+interface IStableOracle {
+    // return 18 decimals USD price of an asset
+    function getPriceUSD() external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IStableOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IStaticOracle.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+pragma solidity >=0.7.6 <0.9.0;
+
+import '@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol';
+
+/// @title Uniswap V3 Static Oracle
+/// @notice Oracle contract for calculating price quoting against Uniswap V3
+interface IStaticOracle {
+  /// @notice Returns the address of the Uniswap V3 factory
+  /// @dev This value is assigned during deployment and cannot be changed
+  /// @return The address of the Uniswap V3 factory
+  function UNISWAP_V3_FACTORY() external view returns (IUniswapV3Factory);
+
+  /// @notice Returns how many observations are needed per minute in Uniswap V3 oracles, on the deployed chain
+  /// @dev This value is assigned during deployment and cannot be changed
+  /// @return Number of observation that are needed per minute
+  function CARDINALITY_PER_MINUTE() external view returns (uint8);
+
+  /// @notice Returns all supported fee tiers
+  /// @return The supported fee tiers
+  function supportedFeeTiers() external view returns (uint24[] memory);
+
+  /// @notice Returns whether a specific pair can be supported by the oracle
+  /// @dev The pair can be provided in tokenA/tokenB or tokenB/tokenA order
+  /// @return Whether the given pair can be supported by the oracle
+  function isPairSupported(address tokenA, address tokenB) external view returns (bool);
+
+  /// @notice Returns all existing pools for the given pair
+  /// @dev The pair can be provided in tokenA/tokenB or tokenB/tokenA order
+  /// @return All existing pools for the given pair
+  function getAllPoolsForPair(address tokenA, address tokenB) external view returns (address[] memory);
+
+  /// @notice Returns a quote, based on the given tokens and amount, by querying all of the pair's pools
+  /// @dev If some pools are not configured correctly for the given period, then they will be ignored
+  /// @dev Will revert if there are no pools available/configured for the pair and period combination
+  /// @param baseAmount Amount of token to be converted
+  /// @param baseToken Address of an ERC20 token contract used as the baseAmount denomination
+  /// @param quoteToken Address of an ERC20 token contract used as the quoteAmount denomination
+  /// @param period Number of seconds from which to calculate the TWAP
+  /// @return quoteAmount Amount of quoteToken received for baseAmount of baseToken
+  /// @return queriedPools The pools that were queried to calculate the quote
+  function quoteAllAvailablePoolsWithTimePeriod(
+    uint128 baseAmount,
+    address baseToken,
+    address quoteToken,
+    uint32 period
+  ) external view returns (uint256 quoteAmount, address[] memory queriedPools);
+
+  /// @notice Returns a quote, based on the given tokens and amount, by querying only the specified fee tiers
+  /// @dev Will revert if the pair does not have a pool for one of the given fee tiers, or if one of the pools
+  /// is not prepared/configured correctly for the given period
+  /// @param baseAmount Amount of token to be converted
+  /// @param baseToken Address of an ERC20 token contract used as the baseAmount denomination
+  /// @param quoteToken Address of an ERC20 token contract used as the quoteAmount denomination
+  /// @param feeTiers The fee tiers to consider when calculating the quote
+  /// @param period Number of seconds from which to calculate the TWAP
+  /// @return quoteAmount Amount of quoteToken received for baseAmount of baseToken
+  /// @return queriedPools The pools that were queried to calculate the quote
+  function quoteSpecificFeeTiersWithTimePeriod(
+    uint128 baseAmount,
+    address baseToken,
+    address quoteToken,
+    uint24[] calldata feeTiers,
+    uint32 period
+  ) external view returns (uint256 quoteAmount, address[] memory queriedPools);
+
+  /// @notice Returns a quote, based on the given tokens and amount, by querying only the specified pools
+  /// @dev Will revert if one of the pools is not prepared/configured correctly for the given period
+  /// @param baseAmount Amount of token to be converted
+  /// @param baseToken Address of an ERC20 token contract used as the baseAmount denomination
+  /// @param quoteToken Address of an ERC20 token contract used as the quoteAmount denomination
+  /// @param pools The pools to consider when calculating the quote
+  /// @param period Number of seconds from which to calculate the TWAP
+  /// @return quoteAmount Amount of quoteToken received for baseAmount of baseToken
+  function quoteSpecificPoolsWithTimePeriod(
+    uint128 baseAmount,
+    address baseToken,
+    address quoteToken,
+    address[] calldata pools,
+    uint32 period
+  ) external view returns (uint256 quoteAmount);
+
+  /// @notice Will initialize all existing pools for the given pair, so that they can be queried with the given period in the future
+  /// @dev Will revert if there are no pools available for the pair and period combination
+  /// @param tokenA One of the pair's tokens
+  /// @param tokenB The other of the pair's tokens
+  /// @param period The period that will be guaranteed when quoting
+  /// @return preparedPools The pools that were prepared
+  function prepareAllAvailablePoolsWithTimePeriod(
+    address tokenA,
+    address tokenB,
+    uint32 period
+  ) external returns (address[] memory preparedPools);
+
+  /// @notice Will initialize the pair's pools with the specified fee tiers, so that they can be queried with the given period in the future
+  /// @dev Will revert if the pair does not have a pool for a given fee tier
+  /// @param tokenA One of the pair's tokens
+  /// @param tokenB The other of the pair's tokens
+  /// @param feeTiers The fee tiers to consider when searching for the pair's pools
+  /// @param period The period that will be guaranteed when quoting
+  /// @return preparedPools The pools that were prepared
+  function prepareSpecificFeeTiersWithTimePeriod(
+    address tokenA,
+    address tokenB,
+    uint24[] calldata feeTiers,
+    uint32 period
+  ) external returns (address[] memory preparedPools);
+
+  /// @notice Will initialize all given pools, so that they can be queried with the given period in the future
+  /// @param pools The pools to initialize
+  /// @param period The period that will be guaranteed when quoting
+  function prepareSpecificPoolsWithTimePeriod(address[] calldata pools, uint32 period) external;
+
+  /// @notice Will increase observations for all existing pools for the given pair, so they start accruing information for twap calculations
+  /// @dev Will revert if there are no pools available for the pair and period combination
+  /// @param tokenA One of the pair's tokens
+  /// @param tokenB The other of the pair's tokens
+  /// @param cardinality The cardinality that will be guaranteed when quoting
+  /// @return preparedPools The pools that were prepared
+  function prepareAllAvailablePoolsWithCardinality(
+    address tokenA,
+    address tokenB,
+    uint16 cardinality
+  ) external returns (address[] memory preparedPools);
+
+  /// @notice Will increase the pair's pools with the specified fee tiers observations, so they start accruing information for twap calculations
+  /// @dev Will revert if the pair does not have a pool for a given fee tier
+  /// @param tokenA One of the pair's tokens
+  /// @param tokenB The other of the pair's tokens
+  /// @param feeTiers The fee tiers to consider when searching for the pair's pools
+  /// @param cardinality The cardinality that will be guaranteed when quoting
+  /// @return preparedPools The pools that were prepared
+  function prepareSpecificFeeTiersWithCardinality(
+    address tokenA,
+    address tokenB,
+    uint24[] calldata feeTiers,
+    uint16 cardinality
+  ) external returns (address[] memory preparedPools);
+
+  /// @notice Will increase all given pools observations, so they start accruing information for twap calculations
+  /// @param pools The pools to initialize
+  /// @param cardinality The cardinality that will be guaranteed when quoting
+  function prepareSpecificPoolsWithCardinality(address[] calldata pools, uint16 cardinality) external;
+
+  /// @notice Adds support for a new fee tier
+  /// @dev Will revert if the given tier is invalid, or already supported
+  /// @param feeTier The new fee tier to add
+  function addNewFeeTier(uint24 feeTier) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IStaticOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IUSSDRebalancer.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "./IStableOracle.sol";
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
+
+// to keep processing concise:
+// - collateral struct indexes in collateral array could be swapped by admin
+//   - order of collateral means the priority by which collateral is sold to force re-peg
+// - pools indexes in array could be swapped by admin
+//   - order of pools means the priority by which collateral is sold fo force re-peg
+struct CollateralInfo {
+    address token; // address of ERC20 collateral
+    bool mint;  // can be used for minting
+    bool redeem; // can be used for redeeming
+    IStableOracle oracle; // oracle for getting the price in USD
+    bytes pathbuy; // for rebalancing/swapping
+    bytes pathsell; // for rebalancing/swapping
+    uint256[] ratios; // target ratios for overcollateralization
+}
+
+interface IUSSDRebalancer {
+    function rebalance() external;
+    function getPool() external returns(address pool);
+}
+
+interface IUSSD is IERC20Upgradeable {
+    function mintRebalancer(uint256 amount) external;
+    function burnRebalancer(uint256 amount) external;
+    function collateralList() external returns (CollateralInfo[] calldata);
+    function collateralFactor() external returns(uint256);
+    function UniV3SwapInput(bytes memory _path, uint256 _sellAmount) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IUSSDRebalancer.sol =====
+// ===== BEGIN SOURCE FILE: contracts/Migrations.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+/*
+  NOTE: Migrations contract implements Truffle interface for marking last completed migration,
+        but also is enhanced to store (retrievable only by deployer) information map, used for
+        retrieving addresses of deployed contracts for providing persistent interdependence.
+
+        Therefore, keeping address of contract in build json for Truffle for every network is crucial
+        to keep things consistent.
+*/
+contract Migrations {
+    address public owner;
+    uint public lastCompletedMigration;
+
+    modifier restricted() {
+        if (msg.sender == owner) _;
+    }
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    function setCompleted(uint completed) public restricted {
+        lastCompletedMigration = completed;
+    }
+}
+// ===== END SOURCE FILE: contracts/Migrations.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/SimOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "../interfaces/IStableOracle.sol";
+
+/// @notice oracle for simulation/test with direct price setting
+contract SimOracle is IStableOracle {
+
+    uint256 public price;
+
+    constructor(uint256 _price) {
+        price = _price;
+    }
+
+    function getPriceUSD() override external view returns (uint256) {
+        return price;
+    }
+
+    function setPriceUSD(uint256 _price) public {
+        price = _price;
+    }
+}
+// ===== END SOURCE FILE: contracts/oracles/SimOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/StableOracleDAI.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "./UniswapV3StaticOracle.sol";
+
+import "../interfaces/IStableOracle.sol";
+import "../interfaces/IStaticOracle.sol";
+
+/*
+    Oracle for DAI using WETH/DAI UniV3 pools (this could also use several DEX pools)
+    
+    curve DAI 3pool 0xbebc44782c7db0a1a60cb6fe97d0b483032ff1c7 (400m TVL) -- to other stables
+    curve tricrypto2 0xd51a44d3fae010294c616388b506acda1bfaae46 (200m TVL) -- to ETH, to BTC
+    uniswap DAI/ETH 0x60594a405d53811d3bc4766596efd80fd545a270 (200m TVL) -- to ETH
+    0x773616e4d11a78f511299002da57a0a94577f1f4 Chainlink DAI/ETH feed
+*/
+contract StableOracleDAI is IStableOracle {
+    AggregatorV3Interface priceFeedDAIETH;
+    IStaticOracle DAIEthOracle;
+    IStableOracle ethOracle;
+
+    constructor() {
+        priceFeedDAIETH = AggregatorV3Interface(
+            0x773616E4d11A78F511299002da57A0a94577F1f4
+        );
+        DAIEthOracle = IStaticOracle(
+            0x982152A6C7f732Ec7C9EA998dDD9Ebde00Dfa16e
+        );
+        ethOracle = IStableOracle(0x0000000000000000000000000000000000000000); // TODO: WETH oracle price
+    }
+
+    function getPriceUSD() external view override returns (uint256) {
+        address[] memory pools = new address[](1);
+        pools[0] = 0x60594a405d53811d3BC4766596EFD80fd545A270;
+        uint256 DAIWethPrice = DAIEthOracle.quoteSpecificPoolsWithTimePeriod(
+            1000000000000000000, // 1 Eth
+            0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, // WETH (base token)
+            0x6B175474E89094C44Da98b954EedeAC495271d0F, // DAI (quote token)
+            pools, // DAI/WETH pool uni v3
+            600 // period
+        );
+
+        uint256 wethPriceUSD = ethOracle.getPriceUSD();
+
+        // chainlink price data is 8 decimals for WETH/USD, so multiply by 10 decimals to get 18 decimal fractional
+        //(uint80 roundID, int256 price, uint256 startedAt, uint256 timeStamp, uint80 answeredInRound) = priceFeedDAIETH.latestRoundData();
+        (, int256 price, , , ) = priceFeedDAIETH.latestRoundData();
+
+        return
+            (wethPriceUSD * 1e18) /
+            ((DAIWethPrice + uint256(price) * 1e10) / 2);
+    }
+}
+// ===== END SOURCE FILE: contracts/oracles/StableOracleDAI.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/StableOracleWBGL.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "./UniswapV3StaticOracle.sol";
+
+import "../interfaces/IStableOracle.sol";
+import "../interfaces/IStaticOracle.sol";
+
+/* 
+    wbgl 0x2bA64EFB7A4Ec8983E22A49c81fa216AC33f383A;
+    wbgl/weth uni v3 0x982152A6C7f732Ec7C9EA998dDD9Ebde00Dfa16e
+*/
+contract StableOracleWBGL is IStableOracle {
+    IStaticOracle staticOracleUniV3;
+    IStableOracle ethOracle;
+
+    constructor(address _WETHoracle) {
+        staticOracleUniV3 = IStaticOracle(
+            0x982152A6C7f732Ec7C9EA998dDD9Ebde00Dfa16e
+        );
+        ethOracle = IStableOracle(_WETHoracle);
+    }
+
+    function getPriceUSD() external view override returns (uint256) {
+        address[] memory pools = new address[](1);
+        pools[0] = 0x982152A6C7f732Ec7C9EA998dDD9Ebde00Dfa16e;
+        uint256 wbglWethPrice = staticOracleUniV3
+            .quoteSpecificPoolsWithTimePeriod(
+                1000000000000000000, // 1 Eth
+                0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2, // WETH (base token)
+                0x2bA64EFB7A4Ec8983E22A49c81fa216AC33f383A, // WBGL (quote token)
+                pools, // WBGL/WETH pool uni v3
+                600 // period
+            );
+
+        uint256 wethPriceUSD = ethOracle.getPriceUSD();
+
+        return (wethPriceUSD * 1e18) / wbglWethPrice;
+    }
+}
+// ===== END SOURCE FILE: contracts/oracles/StableOracleWBGL.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/StableOracleWBTC.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
+import "../interfaces/IStableOracle.sol";
+
+/*
+    wbtc 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599;
+    chainlink btc/usd priceFeed 0xf4030086522a5beea4988f8ca5b36dbc97bee88c;
+*/
+contract StableOracleWBTC is IStableOracle {
+    AggregatorV3Interface priceFeed;
+
+    constructor() {
+        priceFeed = AggregatorV3Interface(
+            0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
+        );
+    }
+
+    function getPriceUSD() external view override returns (uint256) {
+        //(uint80 roundID, int256 price, uint256 startedAt, uint256 timeStamp, uint80 answeredInRound) = priceFeed.latestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        // chainlink price data is 8 decimals for WETH/USD
+        return uint256(price) * 1e10;
+    }
+}
+// ===== END SOURCE FILE: contracts/oracles/StableOracleWBTC.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/StableOracleWETH.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+
+import "../interfaces/IStableOracle.sol";
+
+/*
+    weth 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+    chainlink weth/usd priceFeed 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419;
+*/
+contract StableOracleWETH is IStableOracle {
+    AggregatorV3Interface priceFeed;
+
+    constructor() {
+        priceFeed = AggregatorV3Interface(
+            0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419
+        );
+    }
+
+    function getPriceUSD() external view override returns (uint256) {
+        //(uint80 roundID, int256 price, uint256 startedAt, uint256 timeStamp, uint80 answeredInRound) = priceFeed.latestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        // chainlink price data is 8 decimals for WETH/USD
+        return uint256(price) * 1e10;
+    }
+}
+// ===== END SOURCE FILE: contracts/oracles/StableOracleWETH.sol =====
+// ===== BEGIN SOURCE FILE: contracts/oracles/UniswapV3StaticOracle.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.6;
+pragma abicoder v2;
+
+import '@openzeppelin/contracts/utils/Address.sol';
+import '@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol';
+import '@uniswap/v3-periphery/contracts/libraries/PoolAddress.sol';
+import '@uniswap/v3-periphery/contracts/libraries/OracleLibrary.sol';
+import '../interfaces/IStaticOracle.sol';
+
+/// @notice this file is taken from https://github.com/Mean-Finance/uniswap-v3-oracle/blob/main/solidity/contracts/StaticOracle.sol
+
+/// @title Uniswap V3 Static Oracle
+/// @notice Oracle contract for price quoting against Uniswap V3 pools
+contract StaticOracle is IStaticOracle {
+  /// @inheritdoc IStaticOracle
+  IUniswapV3Factory public immutable override UNISWAP_V3_FACTORY;
+  /// @inheritdoc IStaticOracle
+  uint8 public immutable override CARDINALITY_PER_MINUTE;
+  uint24[] internal _knownFeeTiers;
+
+  constructor(IUniswapV3Factory _UNISWAP_V3_FACTORY, uint8 _CARDINALITY_PER_MINUTE) {
+    UNISWAP_V3_FACTORY = _UNISWAP_V3_FACTORY;
+    CARDINALITY_PER_MINUTE = _CARDINALITY_PER_MINUTE;
+
+    // Assign default fee tiers
+    _knownFeeTiers.push(500);
+    _knownFeeTiers.push(3000);
+    _knownFeeTiers.push(10000);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function supportedFeeTiers() external view override returns (uint24[] memory) {
+    return _knownFeeTiers;
+  }
+
+  /// @inheritdoc IStaticOracle
+  function isPairSupported(address _tokenA, address _tokenB) external view override returns (bool) {
+    uint256 _length = _knownFeeTiers.length;
+    for (uint256 i; i < _length; ++i) {
+      address _pool = PoolAddress.computeAddress(address(UNISWAP_V3_FACTORY), PoolAddress.getPoolKey(_tokenA, _tokenB, _knownFeeTiers[i]));
+      if (Address.isContract(_pool)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// @inheritdoc IStaticOracle
+  function getAllPoolsForPair(address _tokenA, address _tokenB) public view override returns (address[] memory) {
+    return _getPoolsForTiers(_tokenA, _tokenB, _knownFeeTiers);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function quoteAllAvailablePoolsWithTimePeriod(
+    uint128 _baseAmount,
+    address _baseToken,
+    address _quoteToken,
+    uint32 _period
+  ) external view override returns (uint256 _quoteAmount, address[] memory _queriedPools) {
+    _queriedPools = _getQueryablePoolsForTiers(_baseToken, _quoteToken, _period);
+    _quoteAmount = _quote(_baseAmount, _baseToken, _quoteToken, _queriedPools, _period);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function quoteSpecificFeeTiersWithTimePeriod(
+    uint128 _baseAmount,
+    address _baseToken,
+    address _quoteToken,
+    uint24[] calldata _feeTiers,
+    uint32 _period
+  ) external view override returns (uint256 _quoteAmount, address[] memory _queriedPools) {
+    _queriedPools = _getPoolsForTiers(_baseToken, _quoteToken, _feeTiers);
+    require(_queriedPools.length == _feeTiers.length, 'Given tier does not have pool');
+    _quoteAmount = _quote(_baseAmount, _baseToken, _quoteToken, _queriedPools, _period);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function quoteSpecificPoolsWithTimePeriod(
+    uint128 _baseAmount,
+    address _baseToken,
+    address _quoteToken,
+    address[] calldata _pools,
+    uint32 _period
+  ) external view override returns (uint256 _quoteAmount) {
+    return _quote(_baseAmount, _baseToken, _quoteToken, _pools, _period);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareAllAvailablePoolsWithTimePeriod(
+    address _tokenA,
+    address _tokenB,
+    uint32 _period
+  ) external override returns (address[] memory _preparedPools) {
+    return prepareAllAvailablePoolsWithCardinality(_tokenA, _tokenB, _getCardinalityForTimePeriod(_period));
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareSpecificFeeTiersWithTimePeriod(
+    address _tokenA,
+    address _tokenB,
+    uint24[] calldata _feeTiers,
+    uint32 _period
+  ) external override returns (address[] memory _preparedPools) {
+    return prepareSpecificFeeTiersWithCardinality(_tokenA, _tokenB, _feeTiers, _getCardinalityForTimePeriod(_period));
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareSpecificPoolsWithTimePeriod(address[] calldata _pools, uint32 _period) external override {
+    prepareSpecificPoolsWithCardinality(_pools, _getCardinalityForTimePeriod(_period));
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareAllAvailablePoolsWithCardinality(
+    address _tokenA,
+    address _tokenB,
+    uint16 _cardinality
+  ) public override returns (address[] memory _preparedPools) {
+    _preparedPools = getAllPoolsForPair(_tokenA, _tokenB);
+    _prepare(_preparedPools, _cardinality);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareSpecificFeeTiersWithCardinality(
+    address _tokenA,
+    address _tokenB,
+    uint24[] calldata _feeTiers,
+    uint16 _cardinality
+  ) public override returns (address[] memory _preparedPools) {
+    _preparedPools = _getPoolsForTiers(_tokenA, _tokenB, _feeTiers);
+    require(_preparedPools.length == _feeTiers.length, 'Given tier does not have pool');
+    _prepare(_preparedPools, _cardinality);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function prepareSpecificPoolsWithCardinality(address[] calldata _pools, uint16 _cardinality) public override {
+    _prepare(_pools, _cardinality);
+  }
+
+  /// @inheritdoc IStaticOracle
+  function addNewFeeTier(uint24 _feeTier) external override {
+    require(UNISWAP_V3_FACTORY.feeAmountTickSpacing(_feeTier) != 0, 'Invalid fee tier');
+    for (uint256 i; i < _knownFeeTiers.length; i++) {
+      require(_knownFeeTiers[i] != _feeTier, 'Tier already supported');
+    }
+    _knownFeeTiers.push(_feeTier);
+  }
+
+  function _getCardinalityForTimePeriod(uint32 _period) internal view returns (uint16 _cardinality) {
+    // We add 1 just to be on the safe side
+    _cardinality = uint16((_period * CARDINALITY_PER_MINUTE) / 60) + 1;
+  }
+
+  function _prepare(address[] memory _pools, uint16 _cardinality) internal {
+    for (uint256 i; i < _pools.length; i++) {
+      IUniswapV3Pool(_pools[i]).increaseObservationCardinalityNext(_cardinality);
+    }
+  }
+
+  function _quote(
+    uint128 _baseAmount,
+    address _baseToken,
+    address _quoteToken,
+    address[] memory _pools,
+    uint32 _period
+  ) internal view returns (uint256 _quoteAmount) {
+    require(_pools.length > 0, 'No defined pools');
+    OracleLibrary.WeightedTickData[] memory _tickData = new OracleLibrary.WeightedTickData[](_pools.length);
+    for (uint256 i; i < _pools.length; i++) {
+      (_tickData[i].tick, _tickData[i].weight) = _period > 0
+        ? OracleLibrary.consult(_pools[i], _period)
+        : OracleLibrary.getBlockStartingTickAndLiquidity(_pools[i]);
+    }
+    int24 _weightedTick = _tickData.length == 1 ? _tickData[0].tick : OracleLibrary.getWeightedArithmeticMeanTick(_tickData);
+    return OracleLibrary.getQuoteAtTick(_weightedTick, _baseAmount, _baseToken, _quoteToken);
+  }
+
+  /// @notice Takes a pair and a time period, and returns all pools that could be queried for that period
+  /// @param _tokenA One of the pair's tokens
+  /// @param _tokenB The other of the pair's tokens
+  /// @param _period The period that we want to query for
+  /// @return _queryablePools All pools that can be queried
+  function _getQueryablePoolsForTiers(
+    address _tokenA,
+    address _tokenB,
+    uint32 _period
+  ) internal view virtual returns (address[] memory _queryablePools) {
+    address[] memory _existingPools = getAllPoolsForPair(_tokenA, _tokenB);
+    // If period is 0, then just return all existing pools
+    if (_period == 0) return _existingPools;
+
+    _queryablePools = new address[](_existingPools.length);
+    uint256 _validPools;
+    for (uint256 i; i < _existingPools.length; i++) {
+      if (OracleLibrary.getOldestObservationSecondsAgo(_existingPools[i]) >= _period) {
+        _queryablePools[_validPools++] = _existingPools[i];
+      }
+    }
+
+    _resizeArray(_queryablePools, _validPools);
+  }
+
+  /// @notice Takes a pair and some fee tiers, and returns all pools that match those tiers
+  /// @param _tokenA One of the pair's tokens
+  /// @param _tokenB The other of the pair's tokens
+  /// @param _feeTiers The fee tiers to consider when searching for the pair's pools
+  /// @return _pools The pools for the given pair and fee tiers
+  function _getPoolsForTiers(
+    address _tokenA,
+    address _tokenB,
+    uint24[] memory _feeTiers
+  ) internal view virtual returns (address[] memory _pools) {
+    _pools = new address[](_feeTiers.length);
+    uint256 _validPools;
+    for (uint256 i; i < _feeTiers.length; i++) {
+      address _pool = PoolAddress.computeAddress(address(UNISWAP_V3_FACTORY), PoolAddress.getPoolKey(_tokenA, _tokenB, _feeTiers[i]));
+      if (Address.isContract(_pool)) {
+        _pools[_validPools++] = _pool;
+      }
+    }
+
+    _resizeArray(_pools, _validPools);
+  }
+
+  function _resizeArray(address[] memory _array, uint256 _amountOfValidElements) internal pure {
+    // If all elements are valid, then nothing to do here
+    if (_array.length == _amountOfValidElements) return;
+
+    // If not, then resize the array
+    assembly {
+      mstore(_array, _amountOfValidElements)
+    }
+  }
+}
+// ===== END SOURCE FILE: contracts/oracles/UniswapV3StaticOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/USSD.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+pragma abicoder v2;
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+
+import "./interfaces/IStableOracle.sol";
+import "./interfaces/IUSSDRebalancer.sol";
+
+import "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+
+/**
+    @notice USSD: Autonomous on-chain stablecoin
+ */
+contract USSD is
+    IUSSD,
+    ERC20Upgradeable,
+    AccessControlUpgradeable
+{
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using AddressUpgradeable for address payable;
+
+    IUSSDRebalancer public rebalancer;
+
+    // allowed to manage collateral, set tresholds and perform management tasks
+    bytes32 public constant STABLE_CONTROL_ROLE = keccak256("STABLECONTROL");
+
+    function initialize(
+        string memory name,
+        string memory symbol
+    ) public initializer {
+        __Context_init_unchained();
+        __AccessControl_init_unchained();
+        __ERC20_init_unchained(name, symbol);
+
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+
+        // mint 10k USSD to create initial pool
+        _mint(msg.sender, 10_000 * 1e6);
+    }
+
+    function decimals() public view virtual override returns (uint8) {
+        return 6;
+    }
+
+    /**
+        @dev restrict calls only by STABLE_CONTROL_ROLE role
+     */
+    modifier onlyControl() {
+        require(hasRole(STABLE_CONTROL_ROLE, msg.sender), "control only");
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                Events
+    //////////////////////////////////////////////////////////////*/
+
+    event Mint(
+        address indexed from,
+        address indexed to,
+        address token,
+        uint256 amountToken,
+        uint256 amountStable
+    );
+
+    /*//////////////////////////////////////////////////////////////
+                          COLLATERAL MANAGEMENT
+    //////////////////////////////////////////////////////////////*/
+
+    CollateralInfo[] private collateral;
+
+    function collateralList()
+        public
+        view
+        override
+        returns (CollateralInfo[] memory)
+    {
+        return collateral;
+    }
+
+    function addCollateral(
+        address _address,
+        address _oracle,
+        bool _mint,
+        bool _redeem,
+        uint256[] calldata _ratios,
+        bytes memory _pathbuy,
+        bytes memory _pathsell,
+        uint256 index
+    ) public onlyControl {
+        CollateralInfo memory newCollateral = CollateralInfo({
+            token: _address,
+            mint: _mint,
+            redeem: _redeem,
+            oracle: IStableOracle(_oracle),
+            pathbuy: _pathbuy,
+            pathsell: _pathsell,
+            ratios: _ratios
+        });
+        if (index < collateral.length) {
+            collateral[index] = newCollateral; // for editing
+        } else {
+            collateral.push(newCollateral); // for adding new collateral
+        }
+    }
+
+    function swapCollateralIndexes(
+        uint256 _index1,
+        uint256 _index2
+    ) public onlyControl {
+        // cannot use (a, b) = (b, a) for storage variables
+        CollateralInfo memory tmp = collateral[_index1];
+        collateral[_index1] = collateral[_index2];
+        collateral[_index2] = tmp;
+    }
+
+    function removeCollateral(uint256 _index) public onlyControl {
+        collateral[_index] = collateral[collateral.length - 1];
+        collateral.pop();
+    }
+
+    function getCollateralIndex(
+        address _token
+    ) public view returns (uint256 index) {
+        for (index = 0; index < collateral.length; index++) {
+            if (collateral[index].token == _token) {
+                return index;
+            }
+        }
+    }
+
+    function hasCollateralMint(
+        address _token
+    ) public view returns (bool present) {
+        for (uint256 i = 0; i < collateral.length; i++) {
+            if (collateral[i].token == _token && collateral[i].mint) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                             MINT LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    /// Mint specific AMOUNT OF STABLE by giving token
+    function mintForToken(
+        address token,
+        uint256 tokenAmount,
+        address to
+    ) public returns (uint256 stableCoinAmount) {
+        require(hasCollateralMint(token), "unsupported token");
+
+        IERC20Upgradeable(token).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenAmount
+        );
+        stableCoinAmount = calculateMint(token, tokenAmount);
+        _mint(to, stableCoinAmount);
+
+        emit Mint(msg.sender, to, token, tokenAmount, stableCoinAmount);
+    }
+
+    /// @dev Return how much STABLECOIN does user receive for AMOUNT of asset
+    function calculateMint(address _token, uint256 _amount) public view returns (uint256 stableCoinAmount) {
+        uint256 assetPrice = collateral[getCollateralIndex(_token)].oracle.getPriceUSD();
+        return (((assetPrice * _amount) / 1e18) * (10 ** decimals())) / (10 ** IERC20MetadataUpgradeable(_token).decimals());
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                         ACCOUNTING LOGIC
+    //////////////////////////////////////////////////////////////*/
+
+    function collateralFactor() public view override returns (uint256) {
+        uint256 totalAssetsUSD = 0;
+        for (uint256 i = 0; i < collateral.length; i++) {
+            totalAssetsUSD +=
+                (((IERC20Upgradeable(collateral[i].token).balanceOf(
+                    address(this)
+                ) * 1e18) /
+                    (10 **
+                        IERC20MetadataUpgradeable(collateral[i].token)
+                            .decimals())) *
+                    collateral[i].oracle.getPriceUSD()) /
+                1e18;
+        }
+
+        return (totalAssetsUSD * 1e6) / totalSupply();
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               REBALANCER
+    //////////////////////////////////////////////////////////////*/
+
+    function setRebalancer(address _rebalancer) public onlyControl {
+        rebalancer = IUSSDRebalancer(_rebalancer);
+    }
+
+    function mintRebalancer(uint256 amount) public override {
+        _mint(address(this), amount);
+    }
+
+    function burnRebalancer(uint256 amount) public override {
+        _burn(address(this), amount);
+    }
+
+    modifier onlyBalancer() {
+        require(msg.sender == address(rebalancer), "bal");
+        _;
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                               UNISWAP
+    //////////////////////////////////////////////////////////////*/
+
+    IV3SwapRouter public uniRouter; // uniswap router to handle operations
+
+    function setUniswapRouter(address _router) public onlyControl {
+        uniRouter = IV3SwapRouter(_router);
+    }
+
+    function UniV3SwapInput(
+        bytes memory _path,
+        uint256 _sellAmount
+    ) public override onlyBalancer {
+        IV3SwapRouter.ExactInputParams memory params = IV3SwapRouter
+            .ExactInputParams({
+                path: _path,
+                recipient: address(this),
+                //deadline: block.timestamp,
+                amountIn: _sellAmount,
+                amountOutMinimum: 0
+            });
+        uniRouter.exactInput(params);
+    }
+
+    function approveToRouter(address _token) public {
+        IERC20Upgradeable(_token).approve(
+            address(uniRouter),
+            0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/USSD.sol =====
+// ===== BEGIN SOURCE FILE: contracts/USSDRebalancer.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.6;
+
+import "./interfaces/IUSSDRebalancer.sol";
+
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+
+import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+
+import "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol";
+
+/**
+    @dev rebalancer module for USSD ERC20 token. Performs swaps to return USSD/DAI pool balance 1-to-1
+         selling USSD for buying collateral or buying and burning USSD for selling collateral
+ */
+contract USSDRebalancer is AccessControlUpgradeable, IUSSDRebalancer {
+    using SafeERC20Upgradeable for IERC20Upgradeable;
+
+    // main USSD/DAI pool
+    IUniswapV3Pool public uniPool;
+
+    // USSD token
+    address public USSD;
+
+    // boundary to make rebalancing
+    uint256 private threshold;
+
+    // ratios of collateralization for different collateral accumulating
+    uint256[] public flutterRatios;
+    
+    // base asset for other pool leg (DAI)
+    address private baseAsset;
+
+    // role to perform rebalancer management functions
+    bytes32 public constant STABLE_CONTROL_ROLE = keccak256("STABLECONTROL");
+
+    function initialize(address _ussd) public initializer {
+        _setupRole(DEFAULT_ADMIN_ROLE, _msgSender());
+
+        threshold = 1e4;
+        USSD = _ussd;
+    }
+
+    modifier onlyControl() {
+        require(hasRole(STABLE_CONTROL_ROLE, msg.sender), "control only");
+        _;
+    }
+
+    function setPoolAddress(address _pool) public onlyControl {
+      uniPool = IUniswapV3Pool(_pool);
+    }
+
+    function getPool() public view override returns (address) {
+        return address(uniPool);
+    }
+
+    function setTreshold(uint256 _threshold) public onlyControl {
+      threshold = _threshold;
+    }
+
+    function setFlutterRatios(uint256[] calldata _flutterRatios) public onlyControl {
+      flutterRatios = _flutterRatios;
+    }
+
+    function setBaseAsset(address _baseAsset) public onlyControl {
+      baseAsset = _baseAsset;
+    }
+
+    /// @dev get price estimation to DAI using pool address and uniswap price
+    function getOwnValuation() public view returns (uint256 price) {
+      (uint160 sqrtPriceX96,,,,,,) =  uniPool.slot0();
+      if(uniPool.token0() == USSD) {
+        price = uint(sqrtPriceX96)*(uint(sqrtPriceX96))/(1e6) >> (96 * 2);
+      } else {
+        price = uint(sqrtPriceX96)*(uint(sqrtPriceX96))*(1e18 /* 1e12 + 1e6 decimal representation */) >> (96 * 2);
+        // flip the fraction
+        price = (1e24 / price) / 1e12;
+      }
+    }
+
+    /// @dev return pool balances with USSD first
+    function getSupplyProportion() public view returns (uint256, uint256) {
+      uint256 vol1 = IERC20Upgradeable(uniPool.token0()).balanceOf(address(uniPool));
+      uint256 vol2 = IERC20Upgradeable(uniPool.token1()).balanceOf(address(uniPool));
+      if (uniPool.token0() == USSD) {
+        return (vol1, vol2);
+      }
+      return (vol2, vol1);
+    }
+
+    function rebalance() override public {
+      uint256 ownval = getOwnValuation();
+      (uint256 USSDamount, uint256 DAIamount) = getSupplyProportion();
+      if (ownval < 1e6 - threshold) {
+        // peg-down recovery
+        BuyUSSDSellCollateral((USSDamount - DAIamount / 1e12)/2);
+      } else if (ownval > 1e6 + threshold) {
+        // mint and buy collateral
+        // never sell too much USSD for DAI so it 'overshoots' (becomes more in quantity than DAI on the pool)
+        // otherwise could be arbitraged through mint/redeem
+        // the execution difference due to fee should be taken into accounting too
+        // take 1% safety margin (estimated as 2 x 0.5% fee)
+        IUSSD(USSD).mintRebalancer(((DAIamount / 1e12 - USSDamount)/2) * 99 / 100); // mint ourselves amount till balance recover
+        SellUSSDBuyCollateral();
+      }
+    }
+
+    function BuyUSSDSellCollateral(uint256 amountToBuy) internal {
+      CollateralInfo[] memory collateral = IUSSD(USSD).collateralList();
+      //uint amountToBuyLeftUSD = amountToBuy * 1e12 * 1e6 / getOwnValuation();
+      uint amountToBuyLeftUSD = amountToBuy * 1e12;
+      uint DAItosell = 0;
+      // Sell collateral in order of collateral array
+      for (uint256 i = 0; i < collateral.length; i++) {
+        uint256 collateralval = IERC20Upgradeable(collateral[i].token).balanceOf(USSD) * 1e18 / (10**IERC20MetadataUpgradeable(collateral[i].token).decimals()) * collateral[i].oracle.getPriceUSD() / 1e18;
+        if (collateralval > amountToBuyLeftUSD) {
+          // sell a portion of collateral and exit
+          if (collateral[i].pathsell.length > 0) {
+            uint256 amountBefore = IERC20Upgradeable(baseAsset).balanceOf(USSD);
+            uint256 amountToSellUnits = IERC20Upgradeable(collateral[i].token).balanceOf(USSD) * ((amountToBuyLeftUSD * 1e18 / collateralval) / 1e18) / 1e18;
+            IUSSD(USSD).UniV3SwapInput(collateral[i].pathsell, amountToSellUnits);
+            amountToBuyLeftUSD -= (IERC20Upgradeable(baseAsset).balanceOf(USSD) - amountBefore);
+            DAItosell += (IERC20Upgradeable(baseAsset).balanceOf(USSD) - amountBefore);
+          } else {
+            // no need to swap DAI
+            DAItosell = IERC20Upgradeable(collateral[i].token).balanceOf(USSD) * amountToBuyLeftUSD / collateralval;
+          }
+          break;
+        } else {
+          // sell all or skip (if collateral is too little, 5% treshold)
+          if (collateralval >= amountToBuyLeftUSD / 20) {
+            uint256 amountBefore = IERC20Upgradeable(baseAsset).balanceOf(USSD);
+            // sell all collateral and move to next one
+            IUSSD(USSD).UniV3SwapInput(collateral[i].pathsell, IERC20Upgradeable(collateral[i].token).balanceOf(USSD));
+            amountToBuyLeftUSD -= (IERC20Upgradeable(baseAsset).balanceOf(USSD) - amountBefore);
+            DAItosell += (IERC20Upgradeable(baseAsset).balanceOf(USSD) - amountBefore);
+          }
+        }
+      }
+
+      // buy USSD (sell DAI) to burn
+      // never sell too much DAI so USSD 'overshoots' (becomes less in quantity than DAI on the pool)
+      // otherwise could be arbitraged through mint/redeem
+      // the remainder (should be small, due to oracle twap lag) to be left as DAI collateral
+      // the execution difference due to fee should be taken into accounting too
+      // take 1% safety margin (estimated as 2 x 0.5% fee)
+      if (DAItosell > amountToBuy * 1e12 * 99 / 100) {
+        DAItosell = amountToBuy * 1e12 * 99 / 100;
+      }
+
+      if (DAItosell > 0) {
+        if (uniPool.token0() == USSD) {
+            IUSSD(USSD).UniV3SwapInput(bytes.concat(abi.encodePacked(uniPool.token1(), hex"0001f4", uniPool.token0())), DAItosell);
+        } else {
+            IUSSD(USSD).UniV3SwapInput(bytes.concat(abi.encodePacked(uniPool.token0(), hex"0001f4", uniPool.token1())), DAItosell);
+        }
+      }
+
+      IUSSD(USSD).burnRebalancer(IUSSD(USSD).balanceOf(USSD));
+    }
+
+    function SellUSSDBuyCollateral() internal {
+      uint256 amount = IUSSD(USSD).balanceOf(USSD);
+      // sell for DAI then swap by DAI routes
+      uint256 daibought = 0;
+      if (uniPool.token0() == USSD) {
+        daibought = IERC20Upgradeable(baseAsset).balanceOf(USSD);
+        IUSSD(USSD).UniV3SwapInput(bytes.concat(abi.encodePacked(uniPool.token0(), hex"0001f4", uniPool.token1())), amount);
+        daibought = IERC20Upgradeable(baseAsset).balanceOf(USSD) - daibought; // would revert if not bought
+      } else {
+        daibought = IERC20Upgradeable(baseAsset).balanceOf(USSD);
+        IUSSD(USSD).UniV3SwapInput(bytes.concat(abi.encodePacked(uniPool.token1(), hex"0001f4", uniPool.token0())), amount);
+        daibought = IERC20Upgradeable(baseAsset).balanceOf(USSD) - daibought; // would revert if not bought
+      }
+
+      // total collateral portions
+      uint256 cf = IUSSD(USSD).collateralFactor();
+      uint256 flutter = 0;
+      for (flutter = 0; flutter < flutterRatios.length; flutter++) {
+        if (cf < flutterRatios[flutter]) {
+          break;
+        }
+      }
+
+      CollateralInfo[] memory collateral = IUSSD(USSD).collateralList();
+      uint portions = 0;
+      uint ownval = (getOwnValuation() * 1e18 / 1e6) * IUSSD(USSD).totalSupply() / 1e6; // 1e18 total USSD value
+      for (uint256 i = 0; i < collateral.length; i++) {
+        uint256 collateralval = IERC20Upgradeable(collateral[i].token).balanceOf(USSD) * 1e18 / (10**IERC20MetadataUpgradeable(collateral[i].token).decimals()) * collateral[i].oracle.getPriceUSD() / 1e18;
+        if (collateralval * 1e18 / ownval < collateral[i].ratios[flutter]) {
+          portions++;
+        }
+      }
+
+      for (uint256 i = 0; i < collateral.length; i++) {
+        uint256 collateralval = IERC20Upgradeable(collateral[i].token).balanceOf(USSD) * 1e18 / (10**IERC20MetadataUpgradeable(collateral[i].token).decimals()) * collateral[i].oracle.getPriceUSD() / 1e18;
+        if (collateralval * 1e18 / ownval < collateral[i].ratios[flutter]) {
+          if (collateral[i].token != uniPool.token0() || collateral[i].token != uniPool.token1()) {
+            // don't touch DAI if it's needed to be bought (it's already bought)
+            IUSSD(USSD).UniV3SwapInput(collateral[i].pathbuy, daibought/portions);
+          }
+        }
+      }
+    }
+}
+// ===== END SOURCE FILE: contracts/USSDRebalancer.sol =====

@@ -1,0 +1,187 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2023-05-ussd",
+  "working_directory": "ussd-contracts",
+  "source_root_relative_to_repo": "ussd-contracts",
+  "expected_resolved_commit": "6d7a9fdfb1f1ed838632c25b6e1b01748d0bafda",
+  "actual_git_head": "6d7a9fdfb1f1ed838632c25b6e1b01748d0bafda",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 12,
+  "excluded_solidity_file_count": 0,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 11087,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 11087,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/interfaces/IStableOracle.sol",
+          "sha256": "1133fdfae304ce3a66ab9937da8a0ffe12f7d26e00f7ade5e09f1bbfe699a44f",
+          "source_bytes_utf8": 193,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 8
+        },
+        {
+          "file": "contracts/interfaces/IStaticOracle.sol",
+          "sha256": "e09b6bffb54e5c38c0154907a4e29869bab94d59148adc18371f61250144d6c8",
+          "source_bytes_utf8": 8194,
+          "source_line_count": 150,
+          "imports": [
+            "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol"
+          ],
+          "bundle_marker_line": 10,
+          "bundle_source_start_line": 11,
+          "bundle_source_end_line": 160
+        },
+        {
+          "file": "contracts/interfaces/IUSSDRebalancer.sol",
+          "sha256": "dd90bd3f024d872d46e4531be0d9643c70fc05b9454606e1538a55fe58c6f752",
+          "source_bytes_utf8": 1381,
+          "source_line_count": 34,
+          "imports": [
+            "./IStableOracle.sol",
+            "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol"
+          ],
+          "bundle_marker_line": 162,
+          "bundle_source_start_line": 163,
+          "bundle_source_end_line": 196
+        },
+        {
+          "file": "contracts/Migrations.sol",
+          "sha256": "4a104baa57470a5820fef3c733cbee456fbd2acc7f26d84f292fba512338f4c4",
+          "source_bytes_utf8": 813,
+          "source_line_count": 27,
+          "imports": [],
+          "bundle_marker_line": 198,
+          "bundle_source_start_line": 199,
+          "bundle_source_end_line": 225
+        },
+        {
+          "file": "contracts/oracles/SimOracle.sol",
+          "sha256": "3fdbd959a93a6e7f48bee6d917bdf6617ace11a744a333606dd315eb859f0987",
+          "source_bytes_utf8": 477,
+          "source_line_count": 22,
+          "imports": [
+            "../interfaces/IStableOracle.sol"
+          ],
+          "bundle_marker_line": 227,
+          "bundle_source_start_line": 228,
+          "bundle_source_end_line": 249
+        },
+        {
+          "file": "contracts/oracles/StableOracleDAI.sol",
+          "sha256": "f1a0e15f871b2e41d478d9ddce20408c7ae7cfa3896640317c2ab1a1198eb8a3",
+          "source_bytes_utf8": 2235,
+          "source_line_count": 54,
+          "imports": [
+            "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol",
+            "./UniswapV3StaticOracle.sol",
+            "../interfaces/IStableOracle.sol",
+            "../interfaces/IStaticOracle.sol"
+          ],
+          "bundle_marker_line": 251,
+          "bundle_source_start_line": 252,
+          "bundle_source_end_line": 305
+        },
+        {
+          "file": "contracts/oracles/StableOracleWBGL.sol",
+          "sha256": "d860b93b4e41a0189f74849821c180ba0e450255317e8e44b90a5c684330bdd0",
+          "source_bytes_utf8": 1323,
+          "source_line_count": 40,
+          "imports": [
+            "./UniswapV3StaticOracle.sol",
+            "../interfaces/IStableOracle.sol",
+            "../interfaces/IStaticOracle.sol"
+          ],
+          "bundle_marker_line": 307,
+          "bundle_source_start_line": 308,
+          "bundle_source_end_line": 347
+        },
+        {
+          "file": "contracts/oracles/StableOracleWBTC.sol",
+          "sha256": "9c02532e875f207433ae02f1d2e719fbe1dd3a048d243da53350cddf05459991",
+          "source_bytes_utf8": 903,
+          "source_line_count": 27,
+          "imports": [
+            "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol",
+            "../interfaces/IStableOracle.sol"
+          ],
+          "bundle_marker_line": 349,
+          "bundle_source_start_line": 350,
+          "bundle_source_end_line": 376
+        },
+        {
+          "file": "contracts/oracles/StableOracleWETH.sol",
+          "sha256": "bde4545059c395751f331df85bb219aa670925b3f9c16bfc5362aabcd489e291",
+          "source_bytes_utf8": 904,
+          "source_line_count": 27,
+          "imports": [
+            "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol",
+            "../interfaces/IStableOracle.sol"
+          ],
+          "bundle_marker_line": 378,
+          "bundle_source_start_line": 379,
+          "bundle_source_end_line": 405
+        },
+        {
+          "file": "contracts/oracles/UniswapV3StaticOracle.sol",
+          "sha256": "93078d1bd0ef220ee07733e877d0125981342380a9f917cddfa3f60fd3dded12",
+          "source_bytes_utf8": 9103,
+          "source_line_count": 234,
+          "imports": [
+            "@openzeppelin/contracts/utils/Address.sol",
+            "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol",
+            "@uniswap/v3-periphery/contracts/libraries/PoolAddress.sol",
+            "@uniswap/v3-periphery/contracts/libraries/OracleLibrary.sol",
+            "../interfaces/IStaticOracle.sol"
+          ],
+          "bundle_marker_line": 407,
+          "bundle_source_start_line": 408,
+          "bundle_source_end_line": 641
+        },
+        {
+          "file": "contracts/USSD.sol",
+          "sha256": "ca5dceb2a55453fd15f77942ef4b14f686584db52c05d42ba6a59935a263c06e",
+          "source_bytes_utf8": 7870,
+          "source_line_count": 248,
+          "imports": [
+            "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol",
+            "./interfaces/IStableOracle.sol",
+            "./interfaces/IUSSDRebalancer.sol",
+            "@uniswap/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol"
+          ],
+          "bundle_marker_line": 643,
+          "bundle_source_start_line": 644,
+          "bundle_source_end_line": 891
+        },
+        {
+          "file": "contracts/USSDRebalancer.sol",
+          "sha256": "b498d6af253219e9bce780012717eea74ab75c034852ab10a0451b82538172e8",
+          "source_bytes_utf8": 9313,
+          "source_line_count": 206,
+          "imports": [
+            "./interfaces/IUSSDRebalancer.sol",
+            "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol",
+            "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/token/ERC20/extensions/IERC20MetadataUpgradeable.sol"
+          ],
+          "bundle_marker_line": 893,
+          "bundle_source_start_line": 894,
+          "bundle_source_end_line": 1099
+        }
+      ]
+    }
+  ],
+  "excluded_files": [],
+  "source_repo_dir": "2023-05-USSD"
+}

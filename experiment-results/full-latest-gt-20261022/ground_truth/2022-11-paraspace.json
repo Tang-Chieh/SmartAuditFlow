@@ -1,0 +1,102 @@
+{
+  "repo_id": "2022-11-paraspace",
+  "ground_truth": [
+    {
+      "title": "[H-05] Attacker can manipulate low TVL Uniswap V3 pool to borrow and swap to make Lending Pool in loss",
+      "description": "UniswapV3OracleWrapper.getOnchainPositionData() reads the pool's current price, but getTokenPrice() does not use that value. Instead, getTokenPrice() derives a square-root price from the protocol's token oracles and passes it to LiquidityAmounts.getAmountsForLiquidity(), then sums the resulting token amounts and pending fees at those oracle prices. The wrapper does not require a pool whitelist or a minimum TVL before valuing the position. An attacker can create a low-liquidity pool whose position is primarily theirs, deposit that position as collateral, borrow against the reported value, and swap the pool so the position's actual token composition no longer supports the collateral value.",
+      "impact": "An attacker can use a self-created low-TVL Uniswap V3 position as overvalued collateral, borrow from Paraspace, and then alter the position's pool composition so its realizable value falls below the outstanding debt, leaving the Lending Pool with a loss.",
+      "vulnerable_code": [
+        {
+          "file": "paraspace-core/contracts/misc/UniswapV3OracleWrapper.sol",
+          "contract": "UniswapV3OracleWrapper",
+          "function": "getTokenPrice(uint256)",
+          "start_line": 156,
+          "end_line": 181
+        }
+      ],
+      "mitigation": "Only allow Uniswap V3 positions from whitelisted pools that satisfy a sufficiently high TVL threshold before accepting them as collateral.",
+      "finding_id": "H-05",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-04] Fallback oracle is using spot price in Uniswap liquidity pool, which is very vulnerable to flashloan price manipulation",
+      "description": "When ParaSpaceOracle.getAssetPrice() has no nonzero primary-source price, it delegates to ParaSpaceFallbackOracle.getAssetPrice(), which derives the token price from the current WETH/token Uniswap V2 reserves and the router's getAmountOut(). Because these reserves are mutable spot state and the fallback does not use a manipulation-resistant oracle, a flash-loan attacker can move the pool price used for fallback valuation before a protocol operation reads it.",
+      "impact": "If the primary oracle is unavailable, an attacker can manipulate the fallback spot price to overvalue collateral and borrow more than the collateral supports, or cause a malicious liquidation, leaving ParaSpace with bad debt.",
+      "vulnerable_code": [
+        {
+          "file": "paraspace-core/contracts/misc/ParaSpaceOracle.sol",
+          "contract": "ParaSpaceOracle",
+          "function": "getAssetPrice(address)",
+          "start_line": 115,
+          "end_line": 136
+        },
+        {
+          "file": "paraspace-core/contracts/misc/ParaSpaceFallbackOracle.sol",
+          "contract": "ParaSpaceFallbackOracle",
+          "function": "getAssetPrice(address)",
+          "start_line": 34,
+          "end_line": 60
+        }
+      ],
+      "mitigation": "Do not use the Uniswap V2 spot price as a fallback when the primary oracle is unavailable; revert instead of returning a manipulable fallback price.",
+      "finding_id": "M-04",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-05] Front-running admin setPrice call allows a single compromised oracle to set any price, allowing the oracle manipulator to drain all protocol funds",
+      "description": "NFTFloorOracle.setPrice() allows an administrator to finalize a price directly, while non-admin feeders pass through _checkValidity() and _combine(). For a newly added asset whose aggregated twap and updatedAt are zero, _checkValidity() accepts any positive first price and _combine() returns that feeder's value. A compromised feeder can front-run the administrator's enabling flow and submit an arbitrary initial price before the normal multi-feeder protections apply, making the newly accepted NFT appear overvalued.",
+      "impact": "A compromised feeder can set an arbitrary initial NFT price, use the overvalued NFT as collateral, and borrow protocol funds, potentially draining protocol liquidity.",
+      "vulnerable_code": [
+        {
+          "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+          "contract": "NFTFloorOracle",
+          "function": "setPrice(address,uint256)",
+          "start_line": 195,
+          "end_line": 216
+        },
+        {
+          "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+          "contract": "NFTFloorOracle",
+          "function": "_checkValidity(address,uint256)",
+          "start_line": 351,
+          "end_line": 364
+        },
+        {
+          "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+          "contract": "NFTFloorOracle",
+          "function": "_combine(address,uint256)",
+          "start_line": 397,
+          "end_line": 407
+        }
+      ],
+      "mitigation": "Require an administrator to set a nonzero initial price before a new asset can be unpaused, or otherwise prevent an asset with a zero price from entering the feeder update flow.",
+      "finding_id": "M-05",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-22] Price can deviate by much more than maxDeviationRate",
+      "description": "NFTFloorOracle._checkValidity() compares a proposed twap only with the immediately prior aggregated twap and rejects a single update when its ratio reaches config.maxPriceDeviation. Because setPrice() can be called repeatedly and each accepted value becomes the next reference, individually permitted updates can compound within a short period; the oracle has no elapsed-time bound that limits the cumulative price movement.",
+      "impact": "The configured maxPriceDeviation does not bound NFT floor-price movement over a short period, allowing the protocol to rely on a materially manipulated price despite the per-update deviation check.",
+      "vulnerable_code": [
+        {
+          "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+          "contract": "NFTFloorOracle",
+          "function": "setPrice(address,uint256)",
+          "start_line": 195,
+          "end_line": 216
+        },
+        {
+          "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+          "contract": "NFTFloorOracle",
+          "function": "_checkValidity(address,uint256)",
+          "start_line": 351,
+          "end_line": 374
+        }
+      ],
+      "mitigation": "Use elapsed time and lastUpdated data to limit the maximum price change per oracle over a time interval, rather than only comparing consecutive updates.",
+      "finding_id": "M-22",
+      "review_status": "gold_verified"
+    }
+  ]
+}
+

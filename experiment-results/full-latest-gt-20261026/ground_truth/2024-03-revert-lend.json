@@ -1,0 +1,43 @@
+{
+  "repo_id": "2024-03-revert-lend",
+  "ground_truth": [
+    {
+      "title": "[M-19] `V3Oracle` susceptible to price manipulation",
+      "description": "V3Oracle.getValue() computes position token amounts from the current Uniswap V3 slot0() price and values them using oracle-derived token prices. _checkPoolPrice() bounds the current pool price against the oracle-implied pool price through maxPoolPriceDifference, but an overly permissive setting can still materially distort the valuation of tight-range positions.",
+      "impact": "With a tight-range position and a fringe or incorrect maxPoolPriceDifference configuration, an attacker can cause non-dust collateral misvaluation and borrow against an overstated position value. The check limits the effect for wide-range positions and properly constrained configurations; repay() is unaffected because it does not use the oracle.",
+      "vulnerable_code": [
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "getValue(uint256,address)",
+          "start_line": 95,
+          "end_line": 131
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "getPositionBreakdown(uint256)",
+          "start_line": 162,
+          "end_line": 181
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "_initializeState(uint256)",
+          "start_line": 395,
+          "end_line": 423
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "contract": "V3Oracle",
+          "function": "_getAmounts(PositionState)",
+          "start_line": 426,
+          "end_line": 442
+        }
+      ],
+      "mitigation": "Calculate amount0 and amount1 from the oracle-derived price rather than the current pool spot price returned by slot0().",
+      "finding_id": "M-19",
+      "review_status": "gold_verified"
+    }
+  ]
+}

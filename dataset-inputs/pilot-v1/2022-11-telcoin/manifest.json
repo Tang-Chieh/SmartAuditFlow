@@ -1,0 +1,155 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2022-11-telcoin",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "5baaefe0a29c2eccede8b8e1a390fd8931606684",
+  "actual_git_head": "5baaefe0a29c2eccede8b8e1a390fd8931606684",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 8,
+  "excluded_solidity_file_count": 6,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 9620,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 9620,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/fee-buyback/FeeBuyback.sol",
+          "sha256": "bf4142341ca7722398386bb7a736aaff7440704f4d95a2d7cdea32b1cc71f96d",
+          "source_bytes_utf8": 3906,
+          "source_line_count": 98,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./TieredOwnership.sol",
+            "./IFeeBuyback.sol",
+            "./ISimplePlugin.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 99
+        },
+        {
+          "file": "contracts/fee-buyback/IFeeBuyback.sol",
+          "sha256": "b2dc4c37855db0b6d0b776ea928544737d1e370bba87598206c04894f85e4cc5",
+          "source_bytes_utf8": 561,
+          "source_line_count": 11,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 101,
+          "bundle_source_start_line": 102,
+          "bundle_source_end_line": 112
+        },
+        {
+          "file": "contracts/fee-buyback/ISimplePlugin.sol",
+          "sha256": "7a666c9f1b47df6e45e1c72e264174c7b337a389d8dcedfb9dc2b9092a31eb12",
+          "source_bytes_utf8": 182,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 114,
+          "bundle_source_start_line": 115,
+          "bundle_source_end_line": 120
+        },
+        {
+          "file": "contracts/fee-buyback/TieredOwnership.sol",
+          "sha256": "4329c0c9cb9b9e2885dd5aa45e0a64001d3e89ab736f799b636fcf0f5af6c5aa",
+          "source_bytes_utf8": 3724,
+          "source_line_count": 118,
+          "imports": [
+            "@openzeppelin/contracts/utils/Context.sol"
+          ],
+          "bundle_marker_line": 122,
+          "bundle_source_start_line": 123,
+          "bundle_source_end_line": 240
+        },
+        {
+          "file": "contracts/interfaces/IPlugin.sol",
+          "sha256": "7afc090a35a7ee627bd4150920510057130bbeb9e16ae6375ed1ad23269d6fa4",
+          "source_bytes_utf8": 625,
+          "source_line_count": 11,
+          "imports": [],
+          "bundle_marker_line": 242,
+          "bundle_source_start_line": 243,
+          "bundle_source_end_line": 253
+        },
+        {
+          "file": "contracts/libraries/AuxDataLib.sol",
+          "sha256": "45190a3b647f687f9cf9c96645e636ac3c8202f05153685ee866ae744a3c85ef",
+          "source_bytes_utf8": 2383,
+          "source_line_count": 63,
+          "imports": [
+            "solidity-bytes-utils/contracts/BytesLib.sol"
+          ],
+          "bundle_marker_line": 255,
+          "bundle_source_start_line": 256,
+          "bundle_source_end_line": 318
+        },
+        {
+          "file": "contracts/SimplePlugin.sol",
+          "sha256": "e11205ad1f8dac467ff73b798889915b60c8077d541667fadbe22e4a74fbd913",
+          "source_bytes_utf8": 6236,
+          "source_line_count": 168,
+          "imports": [
+            "./interfaces/IPlugin.sol",
+            "./StakingModule.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/Checkpoints.sol"
+          ],
+          "bundle_marker_line": 320,
+          "bundle_source_start_line": 321,
+          "bundle_source_end_line": 488
+        },
+        {
+          "file": "contracts/StakingModule.sol",
+          "sha256": "066b1075ce271efa059b2c4321386d81bfe762d33969f24e61872db371142325",
+          "source_bytes_utf8": 19767,
+          "source_line_count": 467,
+          "imports": [
+            "@openzeppelin/contracts-upgradeable/access/AccessControlEnumerableUpgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/security/PausableUpgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol",
+            "@openzeppelin/contracts-upgradeable/utils/CheckpointsUpgradeable.sol",
+            "./interfaces/IPlugin.sol"
+          ],
+          "bundle_marker_line": 490,
+          "bundle_source_start_line": 491,
+          "bundle_source_end_line": 957
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/test/AuxDataLibWrapper.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/InsecureWallet.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/MockStakingModule.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/TEL.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/Token.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "contracts/test/YieldSource.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ],
+  "source_repo_dir": "2022-11-telcoin"
+}

@@ -1,0 +1,5339 @@
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolAddressesProvider.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {IParaProxy} from "../interfaces/IParaProxy.sol";
+
+/**
+ * @title IPoolAddressesProvider
+ *
+ * @notice Defines the basic interface for a Pool Addresses Provider.
+ **/
+interface IPoolAddressesProvider {
+    /**
+     * @dev Emitted when the market identifier is updated.
+     * @param oldMarketId The old id of the market
+     * @param newMarketId The new id of the market
+     */
+    event MarketIdSet(string indexed oldMarketId, string indexed newMarketId);
+
+    /**
+     * @dev Emitted when the pool is updated.
+     * @param implementationParams The old address of the Pool
+     * @param _init The new address to call upon upgrade
+     * @param _calldata The calldata input for the call
+     */
+    event PoolUpdated(
+        IParaProxy.ProxyImplementation[] indexed implementationParams,
+        address _init,
+        bytes _calldata
+    );
+
+    /**
+     * @dev Emitted when the pool configurator is updated.
+     * @param oldAddress The old address of the PoolConfigurator
+     * @param newAddress The new address of the PoolConfigurator
+     */
+    event PoolConfiguratorUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the WETH is updated.
+     * @param oldAddress The old address of the WETH
+     * @param newAddress The new address of the WETH
+     */
+    event WETHUpdated(address indexed oldAddress, address indexed newAddress);
+
+    /**
+     * @dev Emitted when the price oracle is updated.
+     * @param oldAddress The old address of the PriceOracle
+     * @param newAddress The new address of the PriceOracle
+     */
+    event PriceOracleUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the ACL manager is updated.
+     * @param oldAddress The old address of the ACLManager
+     * @param newAddress The new address of the ACLManager
+     */
+    event ACLManagerUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the ACL admin is updated.
+     * @param oldAddress The old address of the ACLAdmin
+     * @param newAddress The new address of the ACLAdmin
+     */
+    event ACLAdminUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the price oracle sentinel is updated.
+     * @param oldAddress The old address of the PriceOracleSentinel
+     * @param newAddress The new address of the PriceOracleSentinel
+     */
+    event PriceOracleSentinelUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the pool data provider is updated.
+     * @param oldAddress The old address of the PoolDataProvider
+     * @param newAddress The new address of the PoolDataProvider
+     */
+    event ProtocolDataProviderUpdated(
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when a new proxy is created.
+     * @param id The identifier of the proxy
+     * @param proxyAddress The address of the created proxy contract
+     * @param implementationAddress The address of the implementation contract
+     */
+    event ProxyCreated(
+        bytes32 indexed id,
+        address indexed proxyAddress,
+        address indexed implementationAddress
+    );
+
+    /**
+     * @dev Emitted when a new proxy is created.
+     * @param id The identifier of the proxy
+     * @param proxyAddress The address of the created proxy contract
+     * @param implementationParams The params of the implementation update
+     */
+    event ParaProxyCreated(
+        bytes32 indexed id,
+        address indexed proxyAddress,
+        IParaProxy.ProxyImplementation[] indexed implementationParams
+    );
+
+    /**
+     * @dev Emitted when a new proxy is created.
+     * @param id The identifier of the proxy
+     * @param proxyAddress The address of the created proxy contract
+     * @param implementationParams The params of the implementation update
+     */
+    event ParaProxyUpdated(
+        bytes32 indexed id,
+        address indexed proxyAddress,
+        IParaProxy.ProxyImplementation[] indexed implementationParams
+    );
+
+    /**
+     * @dev Emitted when a new non-proxied contract address is registered.
+     * @param id The identifier of the contract
+     * @param oldAddress The address of the old contract
+     * @param newAddress The address of the new contract
+     */
+    event AddressSet(
+        bytes32 indexed id,
+        address indexed oldAddress,
+        address indexed newAddress
+    );
+
+    /**
+     * @dev Emitted when the implementation of the proxy registered with id is updated
+     * @param id The identifier of the contract
+     * @param proxyAddress The address of the proxy contract
+     * @param oldImplementationAddress The address of the old implementation contract
+     * @param newImplementationAddress The address of the new implementation contract
+     */
+    event AddressSetAsProxy(
+        bytes32 indexed id,
+        address indexed proxyAddress,
+        address oldImplementationAddress,
+        address indexed newImplementationAddress
+    );
+
+    /**
+     * @dev Emitted when the marketplace registered is updated
+     * @param id The identifier of the marketplace
+     * @param marketplace The address of the marketplace contract
+     * @param adapter The address of the marketplace adapter contract
+     * @param operator The address of the marketplace transfer helper
+     * @param paused Is the marketplace adapter paused
+     */
+    event MarketplaceUpdated(
+        bytes32 indexed id,
+        address indexed marketplace,
+        address indexed adapter,
+        address operator,
+        bool paused
+    );
+
+    /**
+     * @notice Returns the id of the ParaSpace market to which this contract points to.
+     * @return The market id
+     **/
+    function getMarketId() external view returns (string memory);
+
+    /**
+     * @notice Associates an id with a specific PoolAddressesProvider.
+     * @dev This can be used to create an onchain registry of PoolAddressesProviders to
+     * identify and validate multiple ParaSpace markets.
+     * @param newMarketId The market id
+     */
+    function setMarketId(string calldata newMarketId) external;
+
+    /**
+     * @notice Returns an address by its identifier.
+     * @dev The returned address might be an EOA or a contract, potentially proxied
+     * @dev It returns ZERO if there is no registered address with the given id
+     * @param id The id
+     * @return The address of the registered for the specified id
+     */
+    function getAddress(bytes32 id) external view returns (address);
+
+    /**
+     * @notice General function to update the implementation of a proxy registered with
+     * certain `id`. If there is no proxy registered, it will instantiate one and
+     * set as implementation the `newImplementationAddress`.
+     * @dev IMPORTANT Use this function carefully, only for ids that don't have an explicit
+     * setter function, in order to avoid unexpected consequences
+     * @param id The id
+     * @param newImplementationAddress The address of the new implementation
+     */
+    function setAddressAsProxy(bytes32 id, address newImplementationAddress)
+        external;
+
+    /**
+     * @notice Sets an address for an id replacing the address saved in the addresses map.
+     * @dev IMPORTANT Use this function carefully, as it will do a hard replacement
+     * @param id The id
+     * @param newAddress The address to set
+     */
+    function setAddress(bytes32 id, address newAddress) external;
+
+    /**
+     * @notice Returns the address of the Pool proxy.
+     * @return The Pool proxy address
+     **/
+    function getPool() external view returns (address);
+
+    /**
+     * @notice Updates the implementation of the Pool, or creates a proxy
+     * setting the new `pool` implementation when the function is called for the first time.
+     * @param implementationParams Contains the implementation addresses and function selectors
+     * @param _init The address of the contract or implementation to execute _calldata
+     * @param _calldata A function call, including function selector and arguments
+     *                  _calldata is executed with delegatecall on _init
+     **/
+    function updatePoolImpl(
+        IParaProxy.ProxyImplementation[] calldata implementationParams,
+        address _init,
+        bytes calldata _calldata
+    ) external;
+
+    /**
+     * @notice Returns the address of the PoolConfigurator proxy.
+     * @return The PoolConfigurator proxy address
+     **/
+    function getPoolConfigurator() external view returns (address);
+
+    /**
+     * @notice Updates the implementation of the PoolConfigurator, or creates a proxy
+     * setting the new `PoolConfigurator` implementation when the function is called for the first time.
+     * @param newPoolConfiguratorImpl The new PoolConfigurator implementation
+     **/
+    function setPoolConfiguratorImpl(address newPoolConfiguratorImpl) external;
+
+    /**
+     * @notice Returns the address of the price oracle.
+     * @return The address of the PriceOracle
+     */
+    function getPriceOracle() external view returns (address);
+
+    /**
+     * @notice Updates the address of the price oracle.
+     * @param newPriceOracle The address of the new PriceOracle
+     */
+    function setPriceOracle(address newPriceOracle) external;
+
+    /**
+     * @notice Returns the address of the ACL manager.
+     * @return The address of the ACLManager
+     */
+    function getACLManager() external view returns (address);
+
+    /**
+     * @notice Updates the address of the ACL manager.
+     * @param newAclManager The address of the new ACLManager
+     **/
+    function setACLManager(address newAclManager) external;
+
+    /**
+     * @notice Returns the address of the ACL admin.
+     * @return The address of the ACL admin
+     */
+    function getACLAdmin() external view returns (address);
+
+    /**
+     * @notice Updates the address of the ACL admin.
+     * @param newAclAdmin The address of the new ACL admin
+     */
+    function setACLAdmin(address newAclAdmin) external;
+
+    /**
+     * @notice Returns the address of the price oracle sentinel.
+     * @return The address of the PriceOracleSentinel
+     */
+    function getPriceOracleSentinel() external view returns (address);
+
+    /**
+     * @notice Updates the address of the price oracle sentinel.
+     * @param newPriceOracleSentinel The address of the new PriceOracleSentinel
+     **/
+    function setPriceOracleSentinel(address newPriceOracleSentinel) external;
+
+    /**
+     * @notice Returns the address of the data provider.
+     * @return The address of the DataProvider
+     */
+    function getPoolDataProvider() external view returns (address);
+
+    /**
+     * @notice Returns the address of the Wrapped ETH.
+     * @return The address of the Wrapped ETH
+     */
+    function getWETH() external view returns (address);
+
+    /**
+     * @notice Returns the info of the marketplace.
+     * @return The info of the marketplace
+     */
+    function getMarketplace(bytes32 id)
+        external
+        view
+        returns (DataTypes.Marketplace memory);
+
+    /**
+     * @notice Updates the address of the data provider.
+     * @param newDataProvider The address of the new DataProvider
+     **/
+    function setProtocolDataProvider(address newDataProvider) external;
+
+    /**
+     * @notice Updates the address of the WETH.
+     * @param newWETH The address of the new WETH
+     **/
+    function setWETH(address newWETH) external;
+
+    /**
+     * @notice Updates the info of the marketplace.
+     * @param marketplace The address of the marketplace
+     *  @param adapter The contract which handles marketplace logic
+     * @param operator The contract which operates users' tokens
+     **/
+    function setMarketplace(
+        bytes32 id,
+        address marketplace,
+        address adapter,
+        address operator,
+        bool paused
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolAddressesProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolAddressesProviderRegistry.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IPoolAddressesProviderRegistry
+ *
+ * @notice Defines the basic interface for an ParaSpace Pool Addresses Provider Registry.
+ **/
+interface IPoolAddressesProviderRegistry {
+    /**
+     * @dev Emitted when a new AddressesProvider is registered.
+     * @param addressesProvider The address of the registered PoolAddressesProvider
+     * @param id The id of the registered PoolAddressesProvider
+     */
+    event AddressesProviderRegistered(
+        address indexed addressesProvider,
+        uint256 indexed id
+    );
+
+    /**
+     * @dev Emitted when an AddressesProvider is unregistered.
+     * @param addressesProvider The address of the unregistered PoolAddressesProvider
+     * @param id The id of the unregistered PoolAddressesProvider
+     */
+    event AddressesProviderUnregistered(
+        address indexed addressesProvider,
+        uint256 indexed id
+    );
+
+    /**
+     * @notice Returns the list of registered addresses providers
+     * @return The list of addresses providers
+     **/
+    function getAddressesProvidersList()
+        external
+        view
+        returns (address[] memory);
+
+    /**
+     * @notice Returns the id of a registered PoolAddressesProvider
+     * @param addressesProvider The address of the PoolAddressesProvider
+     * @return The id of the PoolAddressesProvider or 0 if is not registered
+     */
+    function getAddressesProviderIdByAddress(address addressesProvider)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the address of a registered PoolAddressesProvider
+     * @param id The id of the market
+     * @return The address of the PoolAddressesProvider with the given id or zero address if it is not registered
+     */
+    function getAddressesProviderAddressById(uint256 id)
+        external
+        view
+        returns (address);
+
+    /**
+     * @notice Registers an addresses provider
+     * @dev The PoolAddressesProvider must not already be registered in the registry
+     * @dev The id must not be used by an already registered PoolAddressesProvider
+     * @param provider The address of the new PoolAddressesProvider
+     * @param id The id for the new PoolAddressesProvider, referring to the market it belongs to
+     **/
+    function registerAddressesProvider(address provider, uint256 id) external;
+
+    /**
+     * @notice Removes an addresses provider from the list of registered addresses providers
+     * @param provider The PoolAddressesProvider address
+     **/
+    function unregisterAddressesProvider(address provider) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolAddressesProviderRegistry.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolApeStaking.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import "../dependencies/yoga-labs/ApeCoinStaking.sol";
+
+/**
+ * @title IPoolApeStaking
+ *
+ * @notice Defines the basic interface for an ParaSpace Ape Staking Pool.
+ **/
+interface IPoolApeStaking {
+    struct StakingInfo {
+        // Contract address of BAYC/MAYC
+        address nftAsset;
+        // Borrow amount of Ape from lending pool
+        uint256 borrowAmount;
+        // Cash amount of Ape from user wallet
+        uint256 cashAmount;
+    }
+
+    /**
+     * @notice Deposit ape coin to BAYC/MAYC pool or BAKC pool
+     * @param stakingInfo Detail info of the staking
+     * @param _nfts Array of BAYC/MAYC NFT's with staked amounts
+     * @param _nftPairs Array of Paired BAYC/MAYC NFT's with staked amounts
+     * @dev Need check User health factor > 1.
+     */
+    function borrowApeAndStake(
+        StakingInfo calldata stakingInfo,
+        ApeCoinStaking.SingleNft[] calldata _nfts,
+        ApeCoinStaking.PairNftWithAmount[] calldata _nftPairs
+    ) external;
+
+    /**
+     * @notice Withdraw staked ApeCoin from the BAYC/MAYC pool
+     * @param nftAsset Contract address of BAYC/MAYC
+     * @param _nfts Array of BAYC/MAYC NFT's with staked amounts
+     * @dev Need check User health factor > 1.
+     */
+    function withdrawApeCoin(
+        address nftAsset,
+        ApeCoinStaking.SingleNft[] calldata _nfts
+    ) external;
+
+    /**
+     * @notice Claim rewards for array of tokenIds from the BAYC/MAYC pool
+     * @param nftAsset Contract address of BAYC/MAYC
+     * @param _nfts Array of NFTs owned and committed by the msg.sender
+     * @dev Need check User health factor > 1.
+     */
+    function claimApeCoin(address nftAsset, uint256[] calldata _nfts) external;
+
+    /**
+     * @notice Withdraw staked ApeCoin from the BAKC pool
+     * @param nftAsset Contract address of BAYC/MAYC
+     * @param _nftPairs Array of Paired BAYC/MAYC NFT's with staked amounts
+     * @dev Need check User health factor > 1.
+     */
+    function withdrawBAKC(
+        address nftAsset,
+        ApeCoinStaking.PairNftWithAmount[] memory _nftPairs
+    ) external;
+
+    /**
+     * @notice Claim rewards for array of tokenIds from the BAYC/MAYC pool
+     * @param nftAsset Contract address of BAYC/MAYC
+     * @param _nftPairs Array of Paired BAYC/MAYC NFT's
+     * @dev Need check User health factor > 1.
+     */
+    function claimBAKC(
+        address nftAsset,
+        ApeCoinStaking.PairNft[] calldata _nftPairs
+    ) external;
+
+    /**
+     * @notice Unstake user Ape coin staking position and repay user debt
+     * @param nftAsset Contract address of BAYC/MAYC
+     * @param tokenId Token id of the ape staking position on
+     * @dev Need check User health factor > 1.
+     */
+    function unstakeApePositionAndRepay(address nftAsset, uint256 tokenId)
+        external;
+
+    /**
+     * @notice repay asset and supply asset for user
+     * @param underlyingAsset Contract address of BAYC/MAYC
+     * @param repayAsset Asset address to repay and supply
+     * @param onBehalfOf The beneficiary of the repay and supply
+     * @dev Convenient callback function for unstakeApePositionAndRepay. Only NToken of BAYC/MAYC can call this.
+     */
+    function repayAndSupply(
+        address underlyingAsset,
+        address repayAsset,
+        address onBehalfOf,
+        uint256 repayAmount,
+        uint256 supplyAmount
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolApeStaking.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolConfigurator.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {ConfiguratorInputTypes} from "../protocol/libraries/types/ConfiguratorInputTypes.sol";
+
+/**
+ * @title IPoolConfigurator
+ *
+ * @notice Defines the basic interface for a Pool configurator.
+ **/
+interface IPoolConfigurator {
+    /**
+     * @dev Emitted when a reserve is initialized.
+     * @param asset The address of the underlying asset of the reserve
+     * @param xToken The address of the associated xToken contract
+     * @param variableDebtToken The address of the associated variable rate debt token
+     * @param interestRateStrategyAddress The address of the interest rate strategy for the reserve
+     **/
+    event ReserveInitialized(
+        address indexed asset,
+        address indexed xToken,
+        address variableDebtToken,
+        address interestRateStrategyAddress
+    );
+
+    /**
+     * @dev Emitted when borrowing is enabled or disabled on a reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param enabled True if borrowing is enabled, false otherwise
+     **/
+    event ReserveBorrowing(address indexed asset, bool enabled);
+
+    /**
+     * @dev Emitted when the collateralization risk parameters for the specified asset are updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param ltv The loan to value of the asset when used as collateral
+     * @param liquidationThreshold The threshold at which loans using this asset as collateral will be considered undercollateralized
+     * @param liquidationBonus The bonus liquidators receive to liquidate this asset
+     **/
+    event CollateralConfigurationChanged(
+        address indexed asset,
+        uint256 ltv,
+        uint256 liquidationThreshold,
+        uint256 liquidationBonus
+    );
+
+    /**
+     * @dev Emitted when a reserve is activated or deactivated
+     * @param asset The address of the underlying asset of the reserve
+     * @param active True if reserve is active, false otherwise
+     **/
+    event ReserveActive(address indexed asset, bool active);
+
+    /**
+     * @dev Emitted when a reserve is frozen or unfrozen
+     * @param asset The address of the underlying asset of the reserve
+     * @param frozen True if reserve is frozen, false otherwise
+     **/
+    event ReserveFrozen(address indexed asset, bool frozen);
+
+    /**
+     * @dev Emitted when a reserve is paused or unpaused
+     * @param asset The address of the underlying asset of the reserve
+     * @param paused True if reserve is paused, false otherwise
+     **/
+    event ReservePaused(address indexed asset, bool paused);
+
+    /**
+     * @dev Emitted when a reserve is dropped.
+     * @param asset The address of the underlying asset of the reserve
+     **/
+    event ReserveDropped(address indexed asset);
+
+    /**
+     * @dev Emitted when a reserve factor is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldReserveFactor The old reserve factor, expressed in bps
+     * @param newReserveFactor The new reserve factor, expressed in bps
+     **/
+    event ReserveFactorChanged(
+        address indexed asset,
+        uint256 oldReserveFactor,
+        uint256 newReserveFactor
+    );
+
+    /**
+     * @dev Emitted when the borrow cap of a reserve is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldBorrowCap The old borrow cap
+     * @param newBorrowCap The new borrow cap
+     **/
+    event BorrowCapChanged(
+        address indexed asset,
+        uint256 oldBorrowCap,
+        uint256 newBorrowCap
+    );
+
+    /**
+     * @dev Emitted when the supply cap of a reserve is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldSupplyCap The old supply cap
+     * @param newSupplyCap The new supply cap
+     **/
+    event SupplyCapChanged(
+        address indexed asset,
+        uint256 oldSupplyCap,
+        uint256 newSupplyCap
+    );
+
+    /**
+     * @dev Emitted when the liquidation protocol fee of a reserve is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldFee The old liquidation protocol fee, expressed in bps
+     * @param newFee The new liquidation protocol fee, expressed in bps
+     **/
+    event LiquidationProtocolFeeChanged(
+        address indexed asset,
+        uint256 oldFee,
+        uint256 newFee
+    );
+
+    /**
+     * @dev Emitted when a reserve interest strategy contract is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldStrategy The address of the old interest strategy contract
+     * @param newStrategy The address of the new interest strategy contract
+     **/
+    event ReserveInterestRateStrategyChanged(
+        address indexed asset,
+        address oldStrategy,
+        address newStrategy
+    );
+
+    /**
+     * @dev Emitted when a reserve auction strategy contract is updated.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldStrategy The address of the old auction strategy contract
+     * @param newStrategy The address of the new auction strategy contract
+     **/
+    event ReserveAuctionStrategyChanged(
+        address indexed asset,
+        address oldStrategy,
+        address newStrategy
+    );
+
+    /**
+     * @dev Emitted when an xToken implementation is upgraded.
+     * @param asset The address of the underlying asset of the reserve
+     * @param proxy The xToken proxy address
+     * @param implementation The new xToken implementation
+     **/
+    event XTokenUpgraded(
+        address indexed asset,
+        address indexed proxy,
+        address indexed implementation
+    );
+
+    /**
+     * @dev Emitted when the implementation of a variable debt token is upgraded.
+     * @param asset The address of the underlying asset of the reserve
+     * @param proxy The variable debt token proxy address
+     * @param implementation The new xToken implementation
+     **/
+    event VariableDebtTokenUpgraded(
+        address indexed asset,
+        address indexed proxy,
+        address indexed implementation
+    );
+
+    /**
+     * @dev Emitted when the the siloed borrowing state for an asset is changed.
+     * @param asset The address of the underlying asset of the reserve
+     * @param oldState The old siloed borrowing state
+     * @param newState The new siloed borrowing state
+     **/
+    event SiloedBorrowingChanged(
+        address indexed asset,
+        bool oldState,
+        bool newState
+    );
+
+    /**
+     * @notice Initializes multiple reserves.
+     * @param input The array of initialization parameters
+     **/
+    function initReserves(
+        ConfiguratorInputTypes.InitReserveInput[] calldata input
+    ) external;
+
+    /**
+     * @dev Updates the pToken implementation for the reserve.
+     * @param input The pToken update parameters
+     **/
+    function updatePToken(
+        ConfiguratorInputTypes.UpdatePTokenInput calldata input
+    ) external;
+
+    /**
+     * @dev Updates the nToken implementation for the reserve.
+     * @param input The nToken update parameters
+     **/
+    function updateNToken(
+        ConfiguratorInputTypes.UpdateNTokenInput calldata input
+    ) external;
+
+    /**
+     * @notice Updates the variable debt token implementation for the asset.
+     * @param input The variableDebtToken update parameters
+     **/
+    function updateVariableDebtToken(
+        ConfiguratorInputTypes.UpdateDebtTokenInput calldata input
+    ) external;
+
+    /**
+     * @notice Configures borrowing on a reserve.
+     * @dev Can only be disabled (set to false) if stable borrowing is disabled
+     * @param asset The address of the underlying asset of the reserve
+     * @param enabled True if borrowing needs to be enabled, false otherwise
+     **/
+    function setReserveBorrowing(address asset, bool enabled) external;
+
+    /**
+     * @notice Configures the reserve collateralization parameters.
+     * @dev All the values are expressed in bps. A value of 10000, results in 100.00%
+     * @dev The `liquidationBonus` is always above 100%. A value of 105% means the liquidator will receive a 5% bonus
+     * @param asset The address of the underlying asset of the reserve
+     * @param ltv The loan to value of the asset when used as collateral
+     * @param liquidationThreshold The threshold at which loans using this asset as collateral will be considered undercollateralized
+     * @param liquidationBonus The bonus liquidators receive to liquidate this asset
+     **/
+    function configureReserveAsCollateral(
+        address asset,
+        uint256 ltv,
+        uint256 liquidationThreshold,
+        uint256 liquidationBonus
+    ) external;
+
+    /**
+     * @notice Activate or deactivate a reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @param active True if the reserve needs to be active, false otherwise
+     **/
+    function setReserveActive(address asset, bool active) external;
+
+    /**
+     * @notice Freeze or unfreeze a reserve. A frozen reserve doesn't allow any new supply, borrow
+     * or rate swap but allows repayments, liquidations, rate rebalances and withdrawals.
+     * @param asset The address of the underlying asset of the reserve
+     * @param freeze True if the reserve needs to be frozen, false otherwise
+     **/
+    function setReserveFreeze(address asset, bool freeze) external;
+
+    /**
+     * @notice Pauses a reserve. A paused reserve does not allow any interaction (supply, borrow, repay,
+     * swap interest rate, liquidate, xtoken transfers).
+     * @param asset The address of the underlying asset of the reserve
+     * @param paused True if pausing the reserve, false if unpausing
+     **/
+    function setReservePause(address asset, bool paused) external;
+
+    /**
+     * @notice set the auction recovery health factor
+     * @param value The auction recovery health factor
+     */
+    function setAuctionRecoveryHealthFactor(uint64 value) external;
+
+    /**
+     * @notice Updates the reserve factor of a reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param newReserveFactor The new reserve factor of the reserve
+     **/
+    function setReserveFactor(address asset, uint256 newReserveFactor) external;
+
+    /**
+     * @notice Sets the interest rate strategy of a reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param newRateStrategyAddress The address of the new interest strategy contract
+     **/
+    function setReserveInterestRateStrategyAddress(
+        address asset,
+        address newRateStrategyAddress
+    ) external;
+
+    /**
+     * @notice Sets the auction strategy of a reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @param newAuctionStrategyAddress The address of the new auction strategy contract
+     **/
+    function setReserveAuctionStrategyAddress(
+        address asset,
+        address newAuctionStrategyAddress
+    ) external;
+
+    /**
+     * @notice Pauses or unpauses all the protocol reserves. In the paused state all the protocol interactions
+     * are suspended.
+     * @param paused True if protocol needs to be paused, false otherwise
+     **/
+    function setPoolPause(bool paused) external;
+
+    /**
+     * @notice Updates the borrow cap of a reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param newBorrowCap The new borrow cap of the reserve
+     **/
+    function setBorrowCap(address asset, uint256 newBorrowCap) external;
+
+    /**
+     * @notice Updates the supply cap of a reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param newSupplyCap The new supply cap of the reserve
+     **/
+    function setSupplyCap(address asset, uint256 newSupplyCap) external;
+
+    /**
+     * @notice Updates the liquidation protocol fee of reserve.
+     * @param asset The address of the underlying asset of the reserve
+     * @param newFee The new liquidation protocol fee of the reserve, expressed in bps
+     **/
+    function setLiquidationProtocolFee(address asset, uint256 newFee) external;
+
+    /**
+     * @notice Drops a reserve entirely.
+     * @param asset The address of the reserve to drop
+     **/
+    function dropReserve(address asset) external;
+
+    /**
+     * @notice Sets siloed borrowing for an asset
+     * @param siloed The new siloed borrowing state
+     */
+    function setSiloedBorrowing(address asset, bool siloed) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolConfigurator.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolCore.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title IPool
+ *
+ * @notice Defines the basic interface for an ParaSpace Pool.
+ **/
+interface IPoolCore {
+    /**
+     * @dev Emitted on supply()
+     * @param reserve The address of the underlying asset of the reserve
+     * @param user The address initiating the supply
+     * @param onBehalfOf The beneficiary of the supply, receiving the xTokens
+     * @param amount The amount supplied
+     * @param referralCode The referral code used
+     **/
+    event Supply(
+        address indexed reserve,
+        address user,
+        address indexed onBehalfOf,
+        uint256 amount,
+        uint16 indexed referralCode
+    );
+
+    event SupplyERC721(
+        address indexed reserve,
+        address user,
+        address indexed onBehalfOf,
+        DataTypes.ERC721SupplyParams[] tokenData,
+        uint16 indexed referralCode,
+        bool fromNToken
+    );
+
+    /**
+     * @dev Emitted on withdraw()
+     * @param reserve The address of the underlying asset being withdrawn
+     * @param user The address initiating the withdrawal, owner of xTokens
+     * @param to The address that will receive the underlying asset
+     * @param amount The amount to be withdrawn
+     **/
+    event Withdraw(
+        address indexed reserve,
+        address indexed user,
+        address indexed to,
+        uint256 amount
+    );
+
+    /**
+     * @dev Emitted on withdrawERC721()
+     * @param reserve The address of the underlying asset being withdrawn
+     * @param user The address initiating the withdrawal, owner of xTokens
+     * @param to The address that will receive the underlying asset
+     * @param tokenIds The tokenIds to be withdrawn
+     **/
+    event WithdrawERC721(
+        address indexed reserve,
+        address indexed user,
+        address indexed to,
+        uint256[] tokenIds
+    );
+
+    /**
+     * @dev Emitted on borrow() and flashLoan() when debt needs to be opened
+     * @param reserve The address of the underlying asset being borrowed
+     * @param user The address of the user initiating the borrow(), receiving the funds on borrow() or just
+     * initiator of the transaction on flashLoan()
+     * @param onBehalfOf The address that will be getting the debt
+     * @param amount The amount borrowed out
+     * @param borrowRate The numeric rate at which the user has borrowed, expressed in ray
+     * @param referralCode The referral code used
+     **/
+    event Borrow(
+        address indexed reserve,
+        address user,
+        address indexed onBehalfOf,
+        uint256 amount,
+        uint256 borrowRate,
+        uint16 indexed referralCode
+    );
+
+    /**
+     * @dev Emitted on repay()
+     * @param reserve The address of the underlying asset of the reserve
+     * @param user The beneficiary of the repayment, getting his debt reduced
+     * @param repayer The address of the user initiating the repay(), providing the funds
+     * @param amount The amount repaid
+     * @param usePTokens True if the repayment is done using xTokens, `false` if done with underlying asset directly
+     **/
+    event Repay(
+        address indexed reserve,
+        address indexed user,
+        address indexed repayer,
+        uint256 amount,
+        bool usePTokens
+    );
+    /**
+     * @dev Emitted on setUserUseERC20AsCollateral()
+     * @param reserve The address of the underlying asset of the reserve
+     * @param user The address of the user enabling the usage as collateral
+     **/
+    event ReserveUsedAsCollateralEnabled(
+        address indexed reserve,
+        address indexed user
+    );
+
+    /**
+     * @dev Emitted on setUserUseERC20AsCollateral()
+     * @param reserve The address of the underlying asset of the reserve
+     * @param user The address of the user enabling the usage as collateral
+     **/
+    event ReserveUsedAsCollateralDisabled(
+        address indexed reserve,
+        address indexed user
+    );
+
+    /**
+     * @dev Emitted when a borrower is liquidated.
+     * @param collateralAsset The address of the underlying asset used as collateral, to receive as result of the liquidation
+     * @param liquidationAsset The address of the underlying borrowed asset to be repaid with the liquidation
+     * @param borrower The address of the borrower getting liquidated
+     * @param liquidationAmount The debt amount of borrowed `asset` the liquidator wants to cover
+     * @param liquidatedCollateralAmount The amount of collateral received by the liquidator
+     * @param liquidator The address of the liquidator
+     * @param receivePToken True if the liquidators wants to receive the collateral xTokens, `false` if he wants
+     * to receive the underlying collateral asset directly
+     **/
+    event LiquidateERC20(
+        address indexed collateralAsset,
+        address indexed liquidationAsset,
+        address indexed borrower,
+        uint256 liquidationAmount,
+        uint256 liquidatedCollateralAmount,
+        address liquidator,
+        bool receivePToken
+    );
+
+    /**
+     * @dev Emitted when a borrower's ERC721 asset is liquidated.
+     * @param collateralAsset The address of the underlying asset used as collateral, to receive as result of the liquidation
+     * @param liquidationAsset The address of the underlying borrowed asset to be repaid with the liquidation
+     * @param borrower The address of the borrower getting liquidated
+     * @param liquidationAmount The debt amount of borrowed `asset` the liquidator wants to cover
+     * @param liquidatedCollateralTokenId The token id of ERC721 asset received by the liquidator
+     * @param liquidator The address of the liquidator
+     * @param receiveNToken True if the liquidators wants to receive the collateral NTokens, `false` if he wants
+     * to receive the underlying collateral asset directly
+     **/
+    event LiquidateERC721(
+        address indexed collateralAsset,
+        address indexed liquidationAsset,
+        address indexed borrower,
+        uint256 liquidationAmount,
+        uint256 liquidatedCollateralTokenId,
+        address liquidator,
+        bool receiveNToken
+    );
+
+    /**
+     * @dev Emitted on flashClaim
+     * @param target The address of the flash loan receiver contract
+     * @param initiator The address initiating the flash claim
+     * @param nftAsset address of the underlying asset of NFT
+     * @param tokenId The token id of the asset being flash borrowed
+     **/
+    event FlashClaim(
+        address indexed target,
+        address indexed initiator,
+        address indexed nftAsset,
+        uint256 tokenId
+    );
+
+    /**
+     * @dev Allows smart contracts to access the tokens within one transaction, as long as the tokens taken is returned.
+     *
+     * Requirements:
+     *  - `nftTokenIds` must exist.
+     *
+     * @param receiverAddress The address of the contract receiving the tokens, implementing the IFlashClaimReceiver interface
+     * @param nftAsset address of the underlying asset of NFT
+     * @param nftTokenIds token ids of the underlying asset
+     * @param params Variadic packed params to pass to the receiver as extra information
+     */
+    function flashClaim(
+        address receiverAddress,
+        address nftAsset,
+        uint256[] calldata nftTokenIds,
+        bytes calldata params
+    ) external;
+
+    /**
+     * @notice Supplies an `amount` of underlying asset into the reserve, receiving in return overlying xTokens.
+     * - E.g. User supplies 100 USDC and gets in return 100 pUSDC
+     * @param asset The address of the underlying asset to supply
+     * @param amount The amount to be supplied
+     * @param onBehalfOf The address that will receive the xTokens, same as msg.sender if the user
+     *   wants to receive them on his own wallet, or a different address if the beneficiary of xTokens
+     *   is a different wallet
+     * @param referralCode Code used to register the integrator originating the operation, for potential rewards.
+     *   0 if the action is executed directly by the user, without any middle-man
+     **/
+    function supply(
+        address asset,
+        uint256 amount,
+        address onBehalfOf,
+        uint16 referralCode
+    ) external;
+
+    /**
+     * @notice Supplies multiple `tokenIds` of underlying ERC721 asset into the reserve, receiving in return overlying nTokens.
+     * - E.g. User supplies 2 BAYC and gets in return 2 nBAYC
+     * @param asset The address of the underlying asset to supply
+     * @param tokenData The list of tokenIds and their collateral configs to be supplied
+     * @param onBehalfOf The address that will receive the xTokens, same as msg.sender if the user
+     *   wants to receive them on his own wallet, or a different address if the beneficiary of xTokens
+     *   is a different wallet
+     * @param referralCode Code used to register the integrator originating the operation, for potential rewards.
+     *   0 if the action is executed directly by the user, without any middle-man
+     **/
+    function supplyERC721(
+        address asset,
+        DataTypes.ERC721SupplyParams[] calldata tokenData,
+        address onBehalfOf,
+        uint16 referralCode
+    ) external;
+
+    /**
+     * @notice Same as `supplyERC721` but this can only be called by NToken contract and doesn't require sending the underlying asset.
+     * @param asset The address of the underlying asset to supply
+     * @param tokenData The list of tokenIds and their collateral configs to be supplied
+     * @param onBehalfOf The address that will receive the xTokens
+     **/
+    function supplyERC721FromNToken(
+        address asset,
+        DataTypes.ERC721SupplyParams[] calldata tokenData,
+        address onBehalfOf
+    ) external;
+
+    /**
+     * @notice Supply with transfer approval of asset to be supplied done via permit function
+     * see: https://eips.ethereum.org/EIPS/eip-2612 and https://eips.ethereum.org/EIPS/eip-713
+     * @param asset The address of the underlying asset to supply
+     * @param amount The amount to be supplied
+     * @param onBehalfOf The address that will receive the xTokens, same as msg.sender if the user
+     *   wants to receive them on his own wallet, or a different address if the beneficiary of xTokens
+     *   is a different wallet
+     * @param deadline The deadline timestamp that the permit is valid
+     * @param referralCode Code used to register the integrator originating the operation, for potential rewards.
+     *   0 if the action is executed directly by the user, without any middle-man
+     * @param permitV The V parameter of ERC712 permit sig
+     * @param permitR The R parameter of ERC712 permit sig
+     * @param permitS The S parameter of ERC712 permit sig
+     **/
+    function supplyWithPermit(
+        address asset,
+        uint256 amount,
+        address onBehalfOf,
+        uint16 referralCode,
+        uint256 deadline,
+        uint8 permitV,
+        bytes32 permitR,
+        bytes32 permitS
+    ) external;
+
+    /**
+     * @notice Withdraws an `amount` of underlying asset from the reserve, burning the equivalent xTokens owned
+     * E.g. User has 100 pUSDC, calls withdraw() and receives 100 USDC, burning the 100 pUSDC
+     * @param asset The address of the underlying asset to withdraw
+     * @param amount The underlying amount to be withdrawn
+     *   - Send the value type(uint256).max in order to withdraw the whole xToken balance
+     * @param to The address that will receive the underlying, same as msg.sender if the user
+     *   wants to receive it on his own wallet, or a different address if the beneficiary is a
+     *   different wallet
+     * @return The final amount withdrawn
+     **/
+    function withdraw(
+        address asset,
+        uint256 amount,
+        address to
+    ) external returns (uint256);
+
+    /**
+     * @notice Withdraws multiple `tokenIds` of underlying ERC721  asset from the reserve, burning the equivalent nTokens owned
+     * E.g. User has 2 nBAYC, calls withdraw() and receives 2 BAYC, burning the 2 nBAYC
+     * @param asset The address of the underlying asset to withdraw
+     * @param tokenIds The underlying tokenIds to be withdrawn
+     *   - Send the value type(uint256).max in order to withdraw the whole xToken balance
+     * @param to The address that will receive the underlying, same as msg.sender if the user
+     *   wants to receive it on his own wallet, or a different address if the beneficiary is a
+     *   different wallet
+     * @return The final amount withdrawn
+     **/
+    function withdrawERC721(
+        address asset,
+        uint256[] calldata tokenIds,
+        address to
+    ) external returns (uint256);
+
+    /**
+     * @notice Decreases liquidity for underlying Uniswap V3 NFT LP and validates
+     * that the user respects liquidation checks.
+     * @param asset The asset address of uniswapV3
+     * @param tokenId The id of the erc721 token
+     * @param liquidityDecrease The amount of liquidity to remove of LP
+     * @param amount0Min The minimum amount to remove of token0
+     * @param amount1Min The minimum amount to remove of token1
+     * @param receiveEthAsWeth If convert weth to ETH
+     */
+    function decreaseUniswapV3Liquidity(
+        address asset,
+        uint256 tokenId,
+        uint128 liquidityDecrease,
+        uint256 amount0Min,
+        uint256 amount1Min,
+        bool receiveEthAsWeth
+    ) external;
+
+    /**
+     * @notice Allows users to borrow a specific `amount` of the reserve underlying asset, provided that the borrower
+     * already supplied enough collateral, or he was given enough allowance by a credit delegator on the
+     * corresponding debt token (VariableDebtToken)
+     * - E.g. User borrows 100 USDC passing as `onBehalfOf` his own address, receiving the 100 USDC in his wallet
+     *   and 100 stable/variable debt tokens
+     * @param asset The address of the underlying asset to borrow
+     * @param amount The amount to be borrowed
+     * @param referralCode The code used to register the integrator originating the operation, for potential rewards.
+     *   0 if the action is executed directly by the user, without any middle-man
+     * @param onBehalfOf The address of the user who will receive the debt. Should be the address of the borrower itself
+     * calling the function if he wants to borrow against his own collateral, or the address of the credit delegator
+     * if he has been given credit delegation allowance
+     **/
+    function borrow(
+        address asset,
+        uint256 amount,
+        uint16 referralCode,
+        address onBehalfOf
+    ) external;
+
+    /**
+     * @notice Repays a borrowed `amount` on a specific reserve, burning the equivalent debt tokens owned
+     * - E.g. User repays 100 USDC, burning 100 variable/stable debt tokens of the `onBehalfOf` address
+     * @param asset The address of the borrowed underlying asset previously borrowed
+     * @param amount The amount to repay
+     * - Send the value type(uint256).max in order to repay the whole debt for `asset` on the specific `debtMode`
+     * @param onBehalfOf The address of the user who will get his debt reduced/removed. Should be the address of the
+     * user calling the function if he wants to reduce/remove his own debt, or the address of any other
+     * other borrower whose debt should be removed
+     * @return The final amount repaid
+     **/
+    function repay(
+        address asset,
+        uint256 amount,
+        address onBehalfOf
+    ) external returns (uint256);
+
+    /**
+     * @notice Repays a borrowed `amount` on a specific reserve using the reserve xTokens, burning the
+     * equivalent debt tokens
+     * - E.g. User repays 100 USDC using 100 pUSDC, burning 100 variable/stable debt tokens
+     * @dev  Passing uint256.max as amount will clean up any residual xToken dust balance, if the user xToken
+     * balance is not enough to cover the whole debt
+     * @param asset The address of the borrowed underlying asset previously borrowed
+     * @param amount The amount to repay
+     * - Send the value type(uint256).max in order to repay the whole debt for `asset` on the specific `debtMode`
+     * @return The final amount repaid
+     **/
+    function repayWithPTokens(address asset, uint256 amount)
+        external
+        returns (uint256);
+
+    /**
+     * @notice Repay with transfer approval of asset to be repaid done via permit function
+     * see: https://eips.ethereum.org/EIPS/eip-2612 and https://eips.ethereum.org/EIPS/eip-713
+     * @param asset The address of the borrowed underlying asset previously borrowed
+     * @param amount The amount to repay
+     * - Send the value type(uint256).max in order to repay the whole debt for `asset` on the specific `debtMode`
+     * @param onBehalfOf Address of the user who will get his debt reduced/removed. Should be the address of the
+     * user calling the function if he wants to reduce/remove his own debt, or the address of any other
+     * other borrower whose debt should be removed
+     * @param deadline The deadline timestamp that the permit is valid
+     * @param permitV The V parameter of ERC712 permit sig
+     * @param permitR The R parameter of ERC712 permit sig
+     * @param permitS The S parameter of ERC712 permit sig
+     * @return The final amount repaid
+     **/
+    function repayWithPermit(
+        address asset,
+        uint256 amount,
+        address onBehalfOf,
+        uint256 deadline,
+        uint8 permitV,
+        bytes32 permitR,
+        bytes32 permitS
+    ) external returns (uint256);
+
+    /**
+     * @notice Allows suppliers to enable/disable a specific supplied asset as collateral
+     * @param asset The address of the underlying asset supplied
+     * @param useAsCollateral True if the user wants to use the supply as collateral, false otherwise
+     **/
+    function setUserUseERC20AsCollateral(address asset, bool useAsCollateral)
+        external;
+
+    /**
+     * @notice Allows suppliers to enable/disable a specific supplied ERC721 asset with a tokenID as collateral
+     * @param asset The address of the underlying asset supplied
+     * @param tokenIds the ids of the supplied ERC721 token
+     * @param useAsCollateral True if the user wants to use the supply as collateral, false otherwise
+     **/
+    function setUserUseERC721AsCollateral(
+        address asset,
+        uint256[] calldata tokenIds,
+        bool useAsCollateral
+    ) external;
+
+    /**
+     * @notice Function to liquidate a non-healthy position collateral-wise, with Health Factor below 1
+     * - The caller (liquidator) covers `liquidationAmount` amount of debt of the user getting liquidated, and receives
+     *   a proportionally amount of the `collateralAsset` plus a bonus to cover market risk
+     * @param collateralAsset The address of the underlying asset used as collateral, to receive as result of the liquidation
+     * @param liquidationAsset The address of the underlying borrowed asset to be repaid with the liquidation
+     * @param user The address of the borrower getting liquidated
+     * @param liquidationAmount The debt amount of borrowed `asset` the liquidator wants to cover
+     * @param receivePToken True if the liquidators wants to receive the collateral xTokens, `false` if he wants
+     * to receive the underlying collateral asset directly
+     **/
+    function liquidateERC20(
+        address collateralAsset,
+        address liquidationAsset,
+        address user,
+        uint256 liquidationAmount,
+        bool receivePToken
+    ) external payable;
+
+    function liquidateERC721(
+        address collateralAsset,
+        address user,
+        uint256 collateralTokenId,
+        uint256 liquidationAmount,
+        bool receiveNToken
+    ) external payable;
+
+    /**
+     * @notice Start the auction on user's specific NFT collateral
+     * @param user The address of the user
+     * @param collateralAsset The address of the NFT collateral
+     * @param collateralTokenId The tokenId of the NFT collateral
+     **/
+    function startAuction(
+        address user,
+        address collateralAsset,
+        uint256 collateralTokenId
+    ) external;
+
+    /**
+     * @notice End specific user's auction
+     * @param user The address of the user
+     * @param collateralAsset The address of the NFT collateral
+     * @param collateralTokenId The tokenId of the NFT collateral
+     **/
+    function endAuction(
+        address user,
+        address collateralAsset,
+        uint256 collateralTokenId
+    ) external;
+
+    /**
+     * @notice Returns the configuration of the user across all the reserves
+     * @param user The user address
+     * @return The configuration of the user
+     **/
+    function getUserConfiguration(address user)
+        external
+        view
+        returns (DataTypes.UserConfigurationMap memory);
+
+    /**
+     * @notice Returns the configuration of the reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @return The configuration of the reserve
+     **/
+    function getConfiguration(address asset)
+        external
+        view
+        returns (DataTypes.ReserveConfigurationMap memory);
+
+    /**
+     * @notice Returns the normalized income normalized income of the reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @return The reserve's normalized income
+     */
+    function getReserveNormalizedIncome(address asset)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the normalized variable debt per unit of asset
+     * @param asset The address of the underlying asset of the reserve
+     * @return The reserve normalized variable debt
+     */
+    function getReserveNormalizedVariableDebt(address asset)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the state and configuration of the reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @return The state and configuration data of the reserve
+     **/
+    function getReserveData(address asset)
+        external
+        view
+        returns (DataTypes.ReserveData memory);
+
+    /**
+     * @notice Validates and finalizes an PToken transfer
+     * @dev Only callable by the overlying xToken of the `asset`
+     * @param asset The address of the underlying asset of the xToken
+     * @param from The user from which the xTokens are transferred
+     * @param to The user receiving the xTokens
+     * @param amount The amount being transferred/withdrawn
+     * @param balanceFromBefore The xToken balance of the `from` user before the transfer
+     * @param balanceToBefore The xToken balance of the `to` user before the transfer
+     */
+    function finalizeTransfer(
+        address asset,
+        address from,
+        address to,
+        bool usedAsCollateral,
+        uint256 amount,
+        uint256 balanceFromBefore,
+        uint256 balanceToBefore
+    ) external;
+
+    /**
+     * @notice Validates and finalizes an NToken transfer
+     * @dev Only callable by the overlying xToken of the `asset`
+     * @param asset The address of the underlying asset of the xToken
+     * @param tokenId The tokenId of the ERC721 asset
+     * @param from The user from which the xTokens are transferred
+     * @param to The user receiving the xTokens
+     * @param balanceFromBefore The xToken balance of the `from` user before the transfer
+     * @param balanceToBefore The xToken balance of the `to` user before the transfer
+     */
+    function finalizeTransferERC721(
+        address asset,
+        uint256 tokenId,
+        address from,
+        address to,
+        bool usedAsCollateral,
+        uint256 balanceFromBefore,
+        uint256 balanceToBefore
+    ) external;
+
+    /**
+     * @notice Returns the list of the underlying assets of all the initialized reserves
+     * @dev It does not include dropped reserves
+     * @return The addresses of the underlying assets of the initialized reserves
+     **/
+    function getReservesList() external view returns (address[] memory);
+
+    /**
+     * @notice Returns the address of the underlying asset of a reserve by the reserve id as stored in the DataTypes.ReserveData struct
+     * @param id The id of the reserve as stored in the DataTypes.ReserveData struct
+     * @return The address of the reserve associated with id
+     **/
+    function getReserveAddressById(uint16 id) external view returns (address);
+
+    /**
+     * @notice Returns the auction related data of specific asset collection and token id.
+     * @param ntokenAsset The address of ntoken
+     * @param tokenId The token id which is currently auctioned for liquidation
+     * @return The auction related data of the corresponding (ntokenAsset, tokenId)
+     */
+    function getAuctionData(address ntokenAsset, uint256 tokenId)
+        external
+        view
+        returns (DataTypes.AuctionData memory);
+
+    // function getAuctionData(address user, address) external view returns (DataTypes.AuctionData memory);
+    /**
+     * @notice Returns the PoolAddressesProvider connected to this contract
+     * @return The address of the PoolAddressesProvider
+     **/
+    function ADDRESSES_PROVIDER()
+        external
+        view
+        returns (IPoolAddressesProvider);
+
+    /**
+     * @notice Returns the maximum number of reserves supported to be listed in this Pool
+     * @return The maximum number of reserves supported
+     */
+    function MAX_NUMBER_RESERVES() external view returns (uint16);
+
+    /**
+     * @notice Returns the auction recovery health factor
+     * @return The auction recovery health factor
+     */
+    function AUCTION_RECOVERY_HEALTH_FACTOR() external view returns (uint64);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolCore.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolMarketplace.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title IPool
+ *
+ * @notice Defines the basic interface for an ParaSpace Pool.
+ **/
+interface IPoolMarketplace {
+    event BuyWithCredit(
+        bytes32 indexed marketplaceId,
+        DataTypes.OrderInfo orderInfo,
+        DataTypes.Credit credit
+    );
+
+    event AcceptBidWithCredit(
+        bytes32 indexed marketplaceId,
+        DataTypes.OrderInfo orderInfo,
+        DataTypes.Credit credit
+    );
+
+    /**
+     * @notice Implements the buyWithCredit feature. BuyWithCredit allows users to buy NFT from various NFT marketplaces
+     * including OpenSea, LooksRare, X2Y2 etc. Users can use NFT's credit and will need to pay at most (1 - LTV) * $NFT
+     * @dev
+     * @param marketplaceId The marketplace identifier
+     * @param payload The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credit The credit that user would like to use for this purchase
+     * @param referralCode The referral code used
+     */
+    function buyWithCredit(
+        bytes32 marketplaceId,
+        bytes calldata payload,
+        DataTypes.Credit calldata credit,
+        uint16 referralCode
+    ) external payable;
+
+    /**
+     * @notice Implements the batchBuyWithCredit feature. BuyWithCredit allows users to buy NFT from various NFT marketplaces
+     * including OpenSea, LooksRare, X2Y2 etc. Users can use NFT's credit and will need to pay at most (1 - LTV) * $NFT
+     * @dev marketplaceIds[i] should match payload[i] and credits[i]
+     * @param marketplaceIds The marketplace identifiers
+     * @param payloads The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credits The credits that user would like to use for this purchase
+     * @param referralCode The referral code used
+     */
+    function batchBuyWithCredit(
+        bytes32[] calldata marketplaceIds,
+        bytes[] calldata payloads,
+        DataTypes.Credit[] calldata credits,
+        uint16 referralCode
+    ) external payable;
+
+    /**
+     * @notice Implements the acceptBidWithCredit feature. AcceptBidWithCredit allows users to
+     * accept a leveraged bid on ParaSpace NFT marketplace. Users can submit leveraged bid and pay
+     * at most (1 - LTV) * $NFT
+     * @dev The nft receiver just needs to do the downpayment
+     * @param marketplaceId The marketplace identifier
+     * @param payload The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credit The credit that user would like to use for this purchase
+     * @param onBehalfOf Address of the user who will sell the NFT
+     * @param referralCode The referral code used
+     */
+    function acceptBidWithCredit(
+        bytes32 marketplaceId,
+        bytes calldata payload,
+        DataTypes.Credit calldata credit,
+        address onBehalfOf,
+        uint16 referralCode
+    ) external;
+
+    /**
+     * @notice Implements the batchAcceptBidWithCredit feature. AcceptBidWithCredit allows users to
+     * accept a leveraged bid on ParaSpace NFT marketplace. Users can submit leveraged bid and pay
+     * at most (1 - LTV) * $NFT
+     * @dev The nft receiver just needs to do the downpayment
+     * @param marketplaceIds The marketplace identifiers
+     * @param payloads The encoded parameters to be passed to marketplace contract (selector eliminated)
+     * @param credits The credits that the makers have approved to use for this purchase
+     * @param onBehalfOf Address of the user who will sell the NFTs
+     * @param referralCode The referral code used
+     */
+    function batchAcceptBidWithCredit(
+        bytes32[] calldata marketplaceIds,
+        bytes[] calldata payloads,
+        DataTypes.Credit[] calldata credits,
+        address onBehalfOf,
+        uint16 referralCode
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolMarketplace.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPoolParameters.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title IPool
+ *
+ * @notice Defines the basic interface for an ParaSpace Pool.
+ **/
+interface IPoolParameters {
+    /**
+     * @dev Emitted when the state of a reserve is updated.
+     * @param reserve The address of the underlying asset of the reserve
+     * @param liquidityRate The next liquidity rate
+     * @param variableBorrowRate The next variable borrow rate
+     * @param liquidityIndex The next liquidity index
+     * @param variableBorrowIndex The next variable borrow index
+     **/
+    event ReserveDataUpdated(
+        address indexed reserve,
+        uint256 liquidityRate,
+        uint256 variableBorrowRate,
+        uint256 liquidityIndex,
+        uint256 variableBorrowIndex
+    );
+
+    /**
+     * @notice Initializes a reserve, activating it, assigning an xToken and debt tokens and an
+     * interest rate strategy
+     * @dev Only callable by the PoolConfigurator contract
+     * @param asset The address of the underlying asset of the reserve
+     * @param xTokenAddress The address of the xToken that will be assigned to the reserve
+     * @param variableDebtAddress The address of the VariableDebtToken that will be assigned to the reserve
+     * @param interestRateStrategyAddress The address of the interest rate strategy contract
+     **/
+    function initReserve(
+        address asset,
+        address xTokenAddress,
+        address variableDebtAddress,
+        address interestRateStrategyAddress,
+        address auctionStrategyAddress
+    ) external;
+
+    /**
+     * @notice Drop a reserve
+     * @dev Only callable by the PoolConfigurator contract
+     * @param asset The address of the underlying asset of the reserve
+     **/
+    function dropReserve(address asset) external;
+
+    /**
+     * @notice Updates the address of the interest rate strategy contract
+     * @dev Only callable by the PoolConfigurator contract
+     * @param asset The address of the underlying asset of the reserve
+     * @param rateStrategyAddress The address of the interest rate strategy contract
+     **/
+    function setReserveInterestRateStrategyAddress(
+        address asset,
+        address rateStrategyAddress
+    ) external;
+
+    /**
+     * @notice Updates the address of the auction strategy contract
+     * @dev Only callable by the PoolConfigurator contract
+     * @param asset The address of the underlying asset of the reserve
+     * @param auctionStrategyAddress The address of the auction strategy contract
+     **/
+    function setReserveAuctionStrategyAddress(
+        address asset,
+        address auctionStrategyAddress
+    ) external;
+
+    /**
+     * @notice Sets the configuration bitmap of the reserve as a whole
+     * @dev Only callable by the PoolConfigurator contract
+     * @param asset The address of the underlying asset of the reserve
+     * @param configuration The new configuration bitmap
+     **/
+    function setConfiguration(
+        address asset,
+        DataTypes.ReserveConfigurationMap calldata configuration
+    ) external;
+
+    /**
+     * @notice Mints the assets accrued through the reserve factor to the treasury in the form of xTokens
+     * @param assets The list of reserves for which the minting needs to be executed
+     **/
+    function mintToTreasury(address[] calldata assets) external;
+
+    /**
+     * @notice Rescue and transfer tokens locked in this contract
+     * @param assetType The asset type of the token
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amountOrTokenId The amount or id of token to transfer
+     */
+    function rescueTokens(
+        DataTypes.AssetType assetType,
+        address token,
+        address to,
+        uint256 amountOrTokenId
+    ) external;
+
+    /**
+     * @notice Set the auction recovery health factor
+     * @param value The new auction health factor
+     */
+    function setAuctionRecoveryHealthFactor(uint64 value) external;
+
+    /**
+     * @notice Set auction validity time, all auctions triggered before the validity time will be considered as invalid
+     * @param user The user address
+     */
+    function setAuctionValidityTime(address user) external;
+
+    /**
+     * @notice Returns the user account data across all the reserves
+     * @param user The address of the user
+     * @return totalCollateralBase The total collateral of the user in the base currency used by the price feed
+     * @return totalDebtBase The total debt of the user in the base currency used by the price feed
+     * @return availableBorrowsBase The borrowing power left of the user in the base currency used by the price feed
+     * @return currentLiquidationThreshold The liquidation threshold of the user
+     * @return ltv The loan to value of The user
+     * @return healthFactor The current health factor of the user
+     **/
+    function getUserAccountData(address user)
+        external
+        view
+        returns (
+            uint256 totalCollateralBase,
+            uint256 totalDebtBase,
+            uint256 availableBorrowsBase,
+            uint256 currentLiquidationThreshold,
+            uint256 ltv,
+            uint256 healthFactor,
+            uint256 erc721HealthFactor
+        );
+
+    /**
+     * @notice Returns Ltv and Liquidation Threshold for the asset
+     * @param asset The address of the asset
+     * @param tokenId The tokenId of the asset
+     * @return ltv The loan to value of the asset
+     * @return lt The liquidation threshold value of the asset
+     **/
+    function getAssetLtvAndLT(address asset, uint256 tokenId)
+        external
+        view
+        returns (uint256 ltv, uint256 lt);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPoolParameters.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPriceOracle.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IPriceOracle
+ *
+ * @notice Defines the basic interface for a Price oracle.
+ **/
+interface IPriceOracle {
+    /**
+     * @notice Returns the asset price in the base currency
+     * @param asset The address of the asset
+     * @return The price of the asset
+     **/
+    function getAssetPrice(address asset) external view returns (uint256);
+
+    /**
+     * @notice Set the price of the asset
+     * @param asset The address of the asset
+     * @param price The price of the asset
+     **/
+    function setAssetPrice(address asset, uint256 price) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPriceOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPriceOracleGetter.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IPriceOracleGetter
+ *
+ * @notice Interface for the ParaSpace price oracle.
+ **/
+interface IPriceOracleGetter {
+    /**
+     * @notice Returns the base currency address
+     * @dev Address 0x0 is reserved for USD as base currency.
+     * @return Returns the base currency address.
+     **/
+    function BASE_CURRENCY() external view returns (address);
+
+    /**
+     * @notice Returns the base currency unit
+     * @dev 1 ether for ETH, 1e8 for USD.
+     * @return Returns the base currency unit.
+     **/
+    function BASE_CURRENCY_UNIT() external view returns (uint256);
+
+    /**
+     * @notice Returns the asset price in the base currency
+     * @param asset The address of the asset
+     * @return The price of the asset
+     **/
+    function getAssetPrice(address asset) external view returns (uint256);
+
+    /**
+     * @notice Returns the price of a token
+     * @param asset the asset address
+     * @param tokenId the token id
+     * @return The price of the given token
+     */
+    function getTokenPrice(address asset, uint256 tokenId)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPriceOracleGetter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPriceOracleSentinel.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IPoolAddressesProvider} from "./IPoolAddressesProvider.sol";
+
+/**
+ * @title IPriceOracleSentinel
+ *
+ * @notice Defines the basic interface for the PriceOracleSentinel
+ */
+interface IPriceOracleSentinel {
+    /**
+     * @dev Emitted after the sequencer oracle is updated
+     * @param newSequencerOracle The new sequencer oracle
+     */
+    event SequencerOracleUpdated(address newSequencerOracle);
+
+    /**
+     * @dev Emitted after the grace period is updated
+     * @param newGracePeriod The new grace period value
+     */
+    event GracePeriodUpdated(uint256 newGracePeriod);
+
+    /**
+     * @notice Returns the PoolAddressesProvider
+     * @return The address of the PoolAddressesProvider contract
+     */
+    function ADDRESSES_PROVIDER()
+        external
+        view
+        returns (IPoolAddressesProvider);
+
+    /**
+     * @notice Returns true if the `borrow` operation is allowed.
+     * @dev Operation not allowed when PriceOracle is down or grace period not passed.
+     * @return True if the `borrow` operation is allowed, false otherwise.
+     */
+    function isBorrowAllowed() external view returns (bool);
+
+    /**
+     * @notice Returns true if the `liquidation` operation is allowed.
+     * @dev Operation not allowed when PriceOracle is down or grace period not passed.
+     * @return True if the `liquidation` operation is allowed, false otherwise.
+     */
+    function isLiquidationAllowed() external view returns (bool);
+
+    /**
+     * @notice Updates the address of the sequencer oracle
+     * @param newSequencerOracle The address of the new Sequencer Oracle to use
+     */
+    function setSequencerOracle(address newSequencerOracle) external;
+
+    /**
+     * @notice Updates the duration of the grace period
+     * @param newGracePeriod The value of the new grace period duration
+     */
+    function setGracePeriod(uint256 newGracePeriod) external;
+
+    /**
+     * @notice Returns the SequencerOracle
+     * @return The address of the sequencer oracle contract
+     */
+    function getSequencerOracle() external view returns (address);
+
+    /**
+     * @notice Returns the grace period
+     * @return The duration of the grace period
+     */
+    function getGracePeriod() external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPriceOracleSentinel.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IProtocolDataProvider.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+interface IProtocolDataProvider {
+    /**
+     * @notice Returns the reserve data
+     * @param asset The address of the underlying asset of the reserve
+     * @return accruedToTreasuryScaled The scaled amount of tokens accrued to treasury that is to be minted
+     * @return totalPToken The total supply of the xToken
+     * @return totalVariableDebt The total variable debt of the reserve
+     * @return liquidityRate The liquidity rate of the reserve
+     * @return variableBorrowRate The variable borrow rate of the reserve
+     * @return liquidityIndex The liquidity index of the reserve
+     * @return variableBorrowIndex The variable borrow index of the reserve
+     * @return lastUpdateTimestamp The timestamp of the last update of the reserve
+     **/
+    function getReserveData(address asset)
+        external
+        view
+        returns (
+            uint256 accruedToTreasuryScaled,
+            uint256 totalPToken,
+            uint256 totalVariableDebt,
+            uint256 liquidityRate,
+            uint256 variableBorrowRate,
+            uint256 liquidityIndex,
+            uint256 variableBorrowIndex,
+            uint40 lastUpdateTimestamp
+        );
+
+    /**
+     * @notice Returns the total supply of xTokens for a given asset
+     * @param asset The address of the underlying asset of the reserve
+     * @return The total supply of the xToken
+     **/
+    function getXTokenTotalSupply(address asset)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the total debt for a given asset
+     * @param asset The address of the underlying asset of the reserve
+     * @return The total debt for asset
+     **/
+    function getTotalDebt(address asset) external view returns (uint256);
+
+    /**
+     * @notice Returns the list of the existing reserves in the pool.
+     * @dev Handling MKR and ETH in a different way since they do not have standard `symbol` functions.
+     * @return The list of reserves, pairs of symbols and addresses
+     */
+    function getAllReservesTokens()
+        external
+        view
+        returns (DataTypes.TokenData[] memory);
+
+    /**
+     * @notice Returns the list of the existing XTokens(PToken+NToken) in the pool.
+     * @return The list of XTokens, pairs of symbols and addresses
+     */
+    function getAllXTokens()
+        external
+        view
+        returns (DataTypes.TokenData[] memory);
+
+    /**
+     * @notice Returns the configuration data of the reserve
+     * @dev Not returning borrow and supply caps for compatibility, nor pause flag
+     * @param asset The address of the underlying asset of the reserve
+     **/
+    function getReserveConfigurationData(address asset)
+        external
+        view
+        returns (DataTypes.ReserveConfigData memory reserveData);
+
+    /**
+     * @notice Returns the caps parameters of the reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @return borrowCap The borrow cap of the reserve
+     * @return supplyCap The supply cap of the reserve
+     **/
+    function getReserveCaps(address asset)
+        external
+        view
+        returns (uint256, uint256);
+
+    /**
+     * @notice Returns the siloed borrowing flag
+     * @param asset The address of the underlying asset of the reserve
+     * @return True if the asset is siloed for borrowing
+     **/
+    function getSiloedBorrowing(address asset) external view returns (bool);
+
+    /**
+     * @notice Returns the protocol fee on the liquidation bonus
+     * @param asset The address of the underlying asset of the reserve
+     * @return The protocol fee on liquidation
+     **/
+    function getLiquidationProtocolFee(address asset)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the user data in a reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @param user The address of the user
+     * @return currentXTokenBalance The current XToken balance of the user
+     * @return scaledXTokenBalance The scaled XToken balance of the user
+     * @return collateralizedBalance The collateralized balance of the user
+     * @return currentVariableDebt The current variable debt of the user
+     * @return scaledVariableDebt The scaled variable debt of the user
+     * @return liquidityRate The liquidity rate of the reserve
+     * @return usageAsCollateralEnabled True if the user is using the asset as collateral, false
+     *         otherwise
+     **/
+    function getUserReserveData(address asset, address user)
+        external
+        view
+        returns (
+            uint256 currentXTokenBalance,
+            uint256 scaledXTokenBalance,
+            uint256 collateralizedBalance,
+            uint256 currentVariableDebt,
+            uint256 scaledVariableDebt,
+            uint256 liquidityRate,
+            bool usageAsCollateralEnabled
+        );
+
+    /**
+     * @notice Returns the token addresses of the reserve
+     * @param asset The address of the underlying asset of the reserve
+     * @return xTokenAddress The PToken address of the reserve
+     * @return variableDebtTokenAddress The VariableDebtToken address of the reserve
+     */
+    function getReserveTokensAddresses(address asset)
+        external
+        view
+        returns (address xTokenAddress, address variableDebtTokenAddress);
+
+    /**
+     * @notice Returns the address of the Interest Rate strategy
+     * @param asset The address of the underlying asset of the reserve
+     * @return interestRateStrategyAddress The address of the Interest Rate strategy
+     * @return auctionStrategyAddress The address of the Auction strategy
+     */
+    function getStrategyAddresses(address asset)
+        external
+        view
+        returns (
+            address interestRateStrategyAddress,
+            address auctionStrategyAddress
+        );
+}
+// ===== END SOURCE FILE: contracts/interfaces/IProtocolDataProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IPToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IERC20} from "../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IScaledBalanceToken} from "./IScaledBalanceToken.sol";
+import {IInitializablePToken} from "./IInitializablePToken.sol";
+import {IXTokenType} from "./IXTokenType.sol";
+
+/**
+ * @title IPToken
+ *
+ * @notice Defines the basic interface for an PToken.
+ **/
+interface IPToken is
+    IERC20,
+    IScaledBalanceToken,
+    IInitializablePToken,
+    IXTokenType
+{
+    /**
+     * @notice Mints `amount` xTokens to `user`
+     * @param caller The address performing the mint
+     * @param onBehalfOf The address of the user that will receive the minted xTokens
+     * @param amount The amount of tokens getting minted
+     * @param index The next liquidity index of the reserve
+     * @return `true` if the the previous balance of the user was 0
+     */
+    function mint(
+        address caller,
+        address onBehalfOf,
+        uint256 amount,
+        uint256 index
+    ) external returns (bool);
+
+    /**
+     * @notice Burns xTokens from `user` and sends the equivalent amount of underlying to `receiverOfUnderlying`
+     * @dev In some instances, the mint event could be emitted from a burn transaction
+     * if the amount to burn is less than the interest that the user accrued
+     * @param from The address from which the xTokens will be burned
+     * @param receiverOfUnderlying The address that will receive the underlying
+     * @param amount The amount being burned
+     * @param index The next liquidity index of the reserve
+     **/
+    function burn(
+        address from,
+        address receiverOfUnderlying,
+        uint256 amount,
+        uint256 index
+    ) external;
+
+    /**
+     * @notice Mints xTokens to the reserve treasury
+     * @param amount The amount of tokens getting minted
+     * @param index The next liquidity index of the reserve
+     */
+    function mintToTreasury(uint256 amount, uint256 index) external;
+
+    /**
+     * @notice Transfers xTokens in the event of a borrow being liquidated, in case the liquidators reclaims the xToken
+     * @param from The address getting liquidated, current owner of the xTokens
+     * @param to The recipient
+     * @param value The amount of tokens getting transferred
+     **/
+    function transferOnLiquidation(
+        address from,
+        address to,
+        uint256 value
+    ) external;
+
+    /**
+     * @notice Transfers the underlying asset to `target`.
+     * @dev Used by the Pool to transfer assets in borrow(), withdraw() and flashLoan()
+     * @param user The recipient of the underlying
+     * @param amount The amount getting transferred
+     **/
+    function transferUnderlyingTo(address user, uint256 amount) external;
+
+    /**
+     * @notice Handles the underlying received by the xToken after the transfer has been completed.
+     * @dev The default implementation is empty as with standard ERC20 tokens, nothing needs to be done after the
+     * transfer is concluded. However in the future there may be xTokens that allow for example to stake the underlying
+     * to receive LM rewards. In that case, `handleRepayment()` would perform the staking of the underlying asset.
+     * @param user The user executing the repayment
+     * @param amount The amount getting repaid
+     **/
+    function handleRepayment(address user, uint256 amount) external;
+
+    /**
+     * @notice Allow passing a signed message to approve spending
+     * @dev implements the permit function as for
+     * https://github.com/ethereum/EIPs/blob/8a34d644aacf0f9f8f00815307fd7dd5da07655f/EIPS/eip-2612.md
+     * @param owner The owner of the funds
+     * @param spender The spender
+     * @param value The amount
+     * @param deadline The deadline timestamp, type(uint256).max for max deadline
+     * @param v Signature param
+     * @param s Signature param
+     * @param r Signature param
+     */
+    function permit(
+        address owner,
+        address spender,
+        uint256 value,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+
+    /**
+     * @notice Returns the address of the underlying asset of this xToken (E.g. WETH for pWETH)
+     * @return The address of the underlying asset
+     **/
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+
+    /**
+     * @notice Returns the address of the ParaSpace treasury, receiving the fees on this xToken.
+     * @return Address of the ParaSpace treasury
+     **/
+    function RESERVE_TREASURY_ADDRESS() external view returns (address);
+
+    /**
+     * @notice Get the domain separator for the token
+     * @dev Return cached value if chainId matches cache, otherwise recomputes separator
+     * @return The domain separator of the token at current chain
+     */
+    function DOMAIN_SEPARATOR() external view returns (bytes32);
+
+    /**
+     * @notice Returns the nonce for owner.
+     * @param owner The address of the owner
+     * @return The nonce of the owner
+     **/
+    function nonces(address owner) external view returns (uint256);
+
+    /**
+     * @notice Rescue and transfer tokens locked in this contract
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amount The amount of token to transfer
+     */
+    function rescueTokens(
+        address token,
+        address to,
+        uint256 amount
+    ) external;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IPToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IReserveAuctionStrategy.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IReserveAuctionStrategy
+ *
+ * @notice Interface for the calculation of current auction price
+ */
+interface IReserveAuctionStrategy {
+    function getMaxPriceMultiplier() external view returns (uint256);
+
+    function getMinExpPriceMultiplier() external view returns (uint256);
+
+    function getMinPriceMultiplier() external view returns (uint256);
+
+    function getStepLinear() external view returns (uint256);
+
+    function getStepExp() external view returns (uint256);
+
+    function getTickLength() external view returns (uint256);
+
+    /**
+     * @notice Calculates the interest rates depending on the reserve's state and configurations
+     * @param auctionStartTimestamp The auction start block timestamp
+     * @param currentTimestamp The current block timestamp
+     * @return auctionPrice The current auction price
+     **/
+    function calculateAuctionPriceMultiplier(
+        uint256 auctionStartTimestamp,
+        uint256 currentTimestamp
+    ) external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IReserveAuctionStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IReserveInterestRateStrategy.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+
+/**
+ * @title IReserveInterestRateStrategy
+ *
+ * @notice Interface for the calculation of the interest rates
+ */
+interface IReserveInterestRateStrategy {
+    /**
+     * @notice Returns the base variable borrow rate
+     * @return The base variable borrow rate, expressed in ray
+     **/
+    function getBaseVariableBorrowRate() external view returns (uint256);
+
+    /**
+     * @notice Returns the maximum variable borrow rate
+     * @return The maximum variable borrow rate, expressed in ray
+     **/
+    function getMaxVariableBorrowRate() external view returns (uint256);
+
+    /**
+     * @notice Calculates the interest rates depending on the reserve's state and configurations
+     * @param params The parameters needed to calculate interest rates
+     * @return liquidityRate The liquidity rate expressed in rays
+     * @return variableBorrowRate The variable borrow rate expressed in rays
+     **/
+    function calculateInterestRates(
+        DataTypes.CalculateInterestRatesParams memory params
+    ) external view returns (uint256, uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IReserveInterestRateStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IRewardController.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IRewardController
+ *
+ * @notice Defines the basic interface for an ParaSpace Incentives Controller.
+ **/
+interface IRewardController {
+    /**
+     * @dev Emitted during `handleAction`, `claimRewards` and `claimRewardsOnBehalf`
+     * @param user The user that accrued rewards
+     * @param amount The amount of accrued rewards
+     */
+    event RewardsAccrued(address indexed user, uint256 amount);
+
+    event RewardsClaimed(
+        address indexed user,
+        address indexed to,
+        uint256 amount
+    );
+
+    /**
+     * @dev Emitted during `claimRewards` and `claimRewardsOnBehalf`
+     * @param user The address that accrued rewards
+     * @param to The address that will be receiving the rewards
+     * @param claimer The address that performed the claim
+     * @param amount The amount of rewards
+     */
+    event RewardsClaimed(
+        address indexed user,
+        address indexed to,
+        address indexed claimer,
+        uint256 amount
+    );
+
+    /**
+     * @dev Emitted during `setClaimer`
+     * @param user The address of the user
+     * @param claimer The address of the claimer
+     */
+    event ClaimerSet(address indexed user, address indexed claimer);
+
+    /**
+     * @notice Returns the configuration of the distribution for a certain asset
+     * @param asset The address of the reference asset of the distribution
+     * @return The asset index
+     * @return The emission per second
+     * @return The last updated timestamp
+     **/
+    function getAssetData(address asset)
+        external
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256
+        );
+
+    /**
+     * LEGACY **************************
+     * @dev Returns the configuration of the distribution for a certain asset
+     * @param asset The address of the reference asset of the distribution
+     * @return The asset index, the emission per second and the last updated timestamp
+     **/
+    function assets(address asset)
+        external
+        view
+        returns (
+            uint128,
+            uint128,
+            uint256
+        );
+
+    /**
+     * @notice Whitelists an address to claim the rewards on behalf of another address
+     * @param user The address of the user
+     * @param claimer The address of the claimer
+     */
+    function setClaimer(address user, address claimer) external;
+
+    /**
+     * @notice Returns the whitelisted claimer for a certain address (0x0 if not set)
+     * @param user The address of the user
+     * @return The claimer address
+     */
+    function getClaimer(address user) external view returns (address);
+
+    /**
+     * @notice Configure assets for a certain rewards emission
+     * @param assets The assets to incentivize
+     * @param emissionsPerSecond The emission for each asset
+     */
+    function configureAssets(
+        address[] calldata assets,
+        uint256[] calldata emissionsPerSecond
+    ) external;
+
+    /**
+     * @notice Called by the corresponding asset on any update that affects the rewards distribution
+     * @param asset The address of the user
+     * @param userBalance The balance of the user of the asset in the pool
+     * @param totalSupply The total supply of the asset in the pool
+     **/
+    function handleAction(
+        address asset,
+        uint256 totalSupply,
+        uint256 userBalance
+    ) external;
+
+    /**
+     * @notice Returns the total of rewards of a user, already accrued + not yet accrued
+     * @param assets The assets to accumulate rewards for
+     * @param user The address of the user
+     * @return The rewards
+     **/
+    function getRewardsBalance(address[] calldata assets, address user)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Claims reward for a user, on the assets of the pool, accumulating the pending rewards
+     * @param assets The assets to accumulate rewards for
+     * @param amount Amount of rewards to claim
+     * @param to Address that will be receiving the rewards
+     * @return Rewards claimed
+     **/
+    function claimRewards(
+        address[] calldata assets,
+        uint256 amount,
+        address to
+    ) external returns (uint256);
+
+    /**
+     * @notice Claims reward for a user on its behalf, on the assets of the pool, accumulating the pending rewards.
+     * @dev The caller must be whitelisted via "allowClaimOnBehalf" function by the RewardsAdmin role manager
+     * @param assets The assets to accumulate rewards for
+     * @param amount The amount of rewards to claim
+     * @param user The address to check and claim rewards
+     * @param to The address that will be receiving the rewards
+     * @return The amount of rewards claimed
+     **/
+    function claimRewardsOnBehalf(
+        address[] calldata assets,
+        uint256 amount,
+        address user,
+        address to
+    ) external returns (uint256);
+
+    /**
+     * @notice Returns the unclaimed rewards of the user
+     * @param user The address of the user
+     * @return The unclaimed user rewards
+     */
+    function getUserUnclaimedRewards(address user)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice Returns the user index for a specific asset
+     * @param user The address of the user
+     * @param asset The asset to incentivize
+     * @return The user index for the asset
+     */
+    function getUserAssetData(address user, address asset)
+        external
+        view
+        returns (uint256);
+
+    /**
+     * @notice for backward compatibility with previous implementation of the Incentives controller
+     * @return The address of the reward token
+     */
+    function REWARD_TOKEN() external view returns (address);
+
+    /**
+     * @notice for backward compatibility with previous implementation of the Incentives controller
+     * @return The precision used in the incentives controller
+     */
+    function PRECISION() external view returns (uint8);
+
+    /**
+     * @dev Gets the distribution end timestamp of the emissions
+     */
+    function DISTRIBUTION_END() external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IRewardController.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IScaledBalanceToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IScaledBalanceToken
+ *
+ * @notice Defines the basic interface for a scaledbalance token.
+ **/
+interface IScaledBalanceToken {
+    /**
+     * @dev Emitted after the mint action
+     * @param caller The address performing the mint
+     * @param onBehalfOf The address of the user that will receive the minted scaled balance tokens
+     * @param value The amount being minted (user entered amount + balance increase from interest)
+     * @param balanceIncrease The increase in balance since the last action of the user
+     * @param index The next liquidity index of the reserve
+     **/
+    event Mint(
+        address indexed caller,
+        address indexed onBehalfOf,
+        uint256 value,
+        uint256 balanceIncrease,
+        uint256 index
+    );
+
+    /**
+     * @dev Emitted after scaled balance tokens are burned
+     * @param from The address from which the scaled tokens will be burned
+     * @param target The address that will receive the underlying, if any
+     * @param value The amount being burned (user entered amount - balance increase from interest)
+     * @param balanceIncrease The increase in balance since the last action of the user
+     * @param index The next liquidity index of the reserve
+     **/
+    event Burn(
+        address indexed from,
+        address indexed target,
+        uint256 value,
+        uint256 balanceIncrease,
+        uint256 index
+    );
+
+    /**
+     * @notice Returns the scaled balance of the user.
+     * @dev The scaled balance is the sum of all the updated stored balance divided by the reserve's liquidity index
+     * at the moment of the update
+     * @param user The user whose balance is calculated
+     * @return The scaled balance of the user
+     **/
+    function scaledBalanceOf(address user) external view returns (uint256);
+
+    /**
+     * @notice Returns the scaled balance of the user and the scaled total supply.
+     * @param user The address of the user
+     * @return The scaled balance of the user
+     * @return The scaled total supply
+     **/
+    function getScaledUserBalanceAndSupply(address user)
+        external
+        view
+        returns (uint256, uint256);
+
+    /**
+     * @notice Returns the scaled total supply of the scaled balance token. Represents sum(debt/index)
+     * @return The scaled total supply
+     **/
+    function scaledTotalSupply() external view returns (uint256);
+
+    /**
+     * @notice Returns last index interest was accrued to the user's balance
+     * @param user The address of the user
+     * @return The last index interest was accrued to the user's balance, expressed in ray
+     **/
+    function getPreviousIndex(address user) external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IScaledBalanceToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/ISequencerOracle.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title ISequencerOracle
+ *
+ * @notice Defines the basic interface for a Sequencer oracle.
+ */
+interface ISequencerOracle {
+    /**
+     * @notice Returns the health status of the sequencer.
+     * @return roundId The round ID from the aggregator for which the data was retrieved combined with a phase to ensure
+     * that round IDs get larger as time moves forward.
+     * @return answer The answer for the latest round: 0 if the sequencer is up, 1 if it is down.
+     * @return startedAt The timestamp when the round was started.
+     * @return updatedAt The timestamp of the block in which the answer was updated on L1.
+     * @return answeredInRound The round ID of the round in which the answer was computed.
+     */
+    function latestRoundData()
+        external
+        view
+        returns (
+            uint80 roundId,
+            int256 answer,
+            uint256 startedAt,
+            uint256 updatedAt,
+            uint80 answeredInRound
+        );
+}
+// ===== END SOURCE FILE: contracts/interfaces/ISequencerOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface IToken {
+    function balanceOf(address) external view returns (uint256);
+
+    function totalSupply() external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IUniswapV3OracleWrapper.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IAtomicPriceAggregator} from "../interfaces/IAtomicPriceAggregator.sol";
+import {IUniswapV3PositionInfoProvider} from "../interfaces/IUniswapV3PositionInfoProvider.sol";
+
+interface IUniswapV3OracleWrapper is
+    IAtomicPriceAggregator,
+    IUniswapV3PositionInfoProvider
+{}
+// ===== END SOURCE FILE: contracts/interfaces/IUniswapV3OracleWrapper.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IUniswapV3PositionInfoProvider.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+struct UinswapV3PositionData {
+    address token0;
+    address token1;
+    uint24 fee;
+    int24 tickLower;
+    int24 tickUpper;
+    int24 currentTick;
+    uint160 currentPrice;
+    uint128 liquidity;
+    uint256 feeGrowthInside0LastX128;
+    uint256 feeGrowthInside1LastX128;
+    uint256 tokensOwed0;
+    uint256 tokensOwed1;
+}
+
+/************
+@title IUniswapV3PositionInfoProvider interface
+@notice Interface for UniswapV3 Lp token position info.*/
+
+interface IUniswapV3PositionInfoProvider {
+    function getOnchainPositionData(uint256 tokenId)
+        external
+        view
+        returns (UinswapV3PositionData memory);
+
+    function getLiquidityAmountFromPositionData(
+        UinswapV3PositionData memory positionData
+    ) external view returns (uint256 token0Amount, uint256 token1Amount);
+
+    function getLpFeeAmountFromPositionData(
+        UinswapV3PositionData memory positionData
+    ) external view returns (uint256 token0Amount, uint256 token1Amount);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IUniswapV3PositionInfoProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IVariableDebtToken.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+import {IScaledBalanceToken} from "./IScaledBalanceToken.sol";
+import {IInitializableDebtToken} from "./IInitializableDebtToken.sol";
+
+/**
+ * @title IVariableDebtToken
+ *
+ * @notice Defines the basic interface for a variable debt token.
+ **/
+interface IVariableDebtToken is IScaledBalanceToken, IInitializableDebtToken {
+    /**
+     * @notice Mints debt token to the `onBehalfOf` address
+     * @param user The address receiving the borrowed underlying, being the delegatee in case
+     * of credit delegate, or same as `onBehalfOf` otherwise
+     * @param onBehalfOf The address receiving the debt tokens
+     * @param amount The amount of debt being minted
+     * @param index The variable debt index of the reserve
+     * @return True if the previous balance of the user is 0, false otherwise
+     * @return The scaled total debt of the reserve
+     **/
+    function mint(
+        address user,
+        address onBehalfOf,
+        uint256 amount,
+        uint256 index
+    ) external returns (bool, uint256);
+
+    /**
+     * @notice Burns user variable debt
+     * @dev In some instances, a burn transaction will emit a mint event
+     * if the amount to burn is less than the interest that the user accrued
+     * @param from The address from which the debt will be burned
+     * @param amount The amount getting burned
+     * @param index The variable debt index of the reserve
+     * @return The scaled total debt of the reserve
+     **/
+    function burn(
+        address from,
+        uint256 amount,
+        uint256 index
+    ) external returns (uint256);
+
+    /**
+     * @notice Returns the address of the underlying asset of this debtToken (E.g. WETH for variableDebtWETH)
+     * @return The address of the underlying asset
+     **/
+    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IVariableDebtToken.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IX2Y2.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface IX2Y2 {
+    enum Op {
+        INVALID,
+        // off-chain
+        COMPLETE_SELL_OFFER,
+        COMPLETE_BUY_OFFER,
+        CANCEL_OFFER,
+        // auction
+        BID,
+        COMPLETE_AUCTION,
+        REFUND_AUCTION,
+        REFUND_AUCTION_STUCK_ITEM
+    }
+    struct OrderItem {
+        uint256 price;
+        bytes data;
+    }
+
+    struct Order {
+        uint256 salt;
+        address user;
+        uint256 network;
+        uint256 intent;
+        uint256 delegateType;
+        uint256 deadline;
+        address currency;
+        bytes dataMask;
+        OrderItem[] items;
+        // signature
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        uint8 signVersion;
+    }
+
+    struct Fee {
+        uint256 percentage;
+        address to;
+    }
+
+    struct SettleDetail {
+        Op op;
+        uint256 orderIdx;
+        uint256 itemIdx;
+        uint256 price;
+        bytes32 itemHash;
+        address executionDelegate;
+        bytes dataReplacement;
+        uint256 bidIncentivePct;
+        uint256 aucMinIncrementPct;
+        uint256 aucIncDurationSecs;
+        Fee[] fees;
+    }
+
+    struct SettleShared {
+        uint256 salt;
+        uint256 deadline;
+        uint256 amountToEth;
+        uint256 amountToWeth;
+        address user;
+        bool canFail;
+    }
+
+    struct RunInput {
+        Order[] orders;
+        SettleDetail[] details;
+        SettleShared shared;
+        // signature
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+    }
+
+    function run(RunInput memory input) external payable;
+}
+// ===== END SOURCE FILE: contracts/interfaces/IX2Y2.sol =====
+// ===== BEGIN SOURCE FILE: contracts/interfaces/IXTokenType.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IXTokenType
+ * @author ParallelFi
+ * @notice Defines the basic interface for an IXTokenType.
+ **/
+enum XTokenType {
+    PhantomData, // unused
+    NToken,
+    NTokenMoonBirds,
+    NTokenUniswapV3,
+    NTokenBAYC,
+    NTokenMAYC,
+    PToken,
+    DelegationAwarePToken,
+    RebasingPToken,
+    PTokenAToken,
+    PTokenStETH,
+    PTokenSApe
+}
+
+interface IXTokenType {
+    /**
+     * @notice return token type`of xToken
+     **/
+    function getXTokenType() external pure returns (XTokenType);
+}
+// ===== END SOURCE FILE: contracts/interfaces/IXTokenType.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/ERC721OracleWrapper.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IEACAggregatorProxy} from "../interfaces/IEACAggregatorProxy.sol";
+import {Errors} from "../protocol/libraries/helpers/Errors.sol";
+import {IACLManager} from "../interfaces/IACLManager.sol";
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {INFTFloorOracle} from "./interfaces/INFTFloorOracle.sol";
+
+contract ERC721OracleWrapper is IEACAggregatorProxy {
+    INFTFloorOracle private oracleAddress;
+    address private immutable asset;
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
+
+    /**
+     * @dev Only asset listing or pool admin can call functions marked by this modifier.
+     **/
+    modifier onlyAssetListingOrPoolAdmins() {
+        _onlyAssetListingOrPoolAdmins();
+        _;
+    }
+
+    function _onlyAssetListingOrPoolAdmins() internal view {
+        IACLManager aclManager = IACLManager(
+            ADDRESSES_PROVIDER.getACLManager()
+        );
+        require(
+            aclManager.isAssetListingAdmin(msg.sender) ||
+                aclManager.isPoolAdmin(msg.sender),
+            Errors.CALLER_NOT_ASSET_LISTING_OR_POOL_ADMIN
+        );
+    }
+
+    constructor(
+        address _provider,
+        address _oracleAddress,
+        address _asset
+    ) {
+        ADDRESSES_PROVIDER = IPoolAddressesProvider(_provider);
+        oracleAddress = INFTFloorOracle(_oracleAddress);
+        asset = _asset;
+    }
+
+    function setOracle(address _oracleAddress)
+        external
+        onlyAssetListingOrPoolAdmins
+    {
+        oracleAddress = INFTFloorOracle(_oracleAddress);
+    }
+
+    function decimals() external pure override returns (uint8) {
+        return 18;
+    }
+
+    function latestAnswer() external view override returns (int256) {
+        return int256(oracleAddress.getPrice(asset));
+    }
+
+    function latestTimestamp() external view override returns (uint256) {
+        return uint256(oracleAddress.getLastUpdateTime(asset));
+    }
+
+    function latestRound() external pure override returns (uint256) {
+        return 0;
+    }
+
+    function getAnswer(uint256) external view override returns (int256) {
+        return int256(oracleAddress.getPrice(asset));
+    }
+
+    function getTimestamp(uint256) external view override returns (uint256) {
+        return uint256(oracleAddress.getLastUpdateTime(asset));
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/ERC721OracleWrapper.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/flashclaim/AirdropFlashClaimReceiver.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import "../interfaces/IFlashClaimReceiver.sol";
+import "../../dependencies/openzeppelin/contracts/Address.sol";
+import "../../dependencies/openzeppelin/contracts/Ownable.sol";
+import "../../dependencies/openzeppelin/contracts/ReentrancyGuard.sol";
+import "../../dependencies/openzeppelin/contracts/IERC20.sol";
+import "../../dependencies/openzeppelin/contracts/IERC721.sol";
+import "../../dependencies/openzeppelin/contracts/IERC721Enumerable.sol";
+import "../../dependencies/openzeppelin/contracts/ERC721Holder.sol";
+import "../../dependencies/openzeppelin/contracts/IERC1155.sol";
+import "../../dependencies/openzeppelin/contracts/ERC1155Holder.sol";
+import {SafeERC20} from "../../dependencies/openzeppelin/contracts/SafeERC20.sol";
+
+contract AirdropFlashClaimReceiver is
+    IFlashClaimReceiver,
+    ReentrancyGuard,
+    Ownable,
+    ERC721Holder,
+    ERC1155Holder
+{
+    using SafeERC20 for IERC20;
+
+    address public immutable pool;
+    mapping(bytes32 => bool) public airdropClaimRecords;
+
+    constructor(address owner_, address pool_) {
+        require(owner_ != address(0), "zero owner address");
+        require(pool_ != address(0), "zero pool address");
+
+        pool = pool_;
+        transferOwnership(owner_);
+    }
+
+    /**
+     * @dev Only pool can call functions marked by this modifier.
+     **/
+    modifier onlyPool() {
+        require(_msgSender() == pool, "caller must be pool");
+        _;
+    }
+
+    struct ExecuteOperationLocalVars {
+        uint256[] airdropTokenTypes;
+        address[] airdropTokenAddresses;
+        uint256[] airdropTokenIds;
+        address airdropContract;
+        bytes airdropParams;
+        uint256 airdropBalance;
+        uint256 airdropTokenId;
+        bytes32 airdropKeyHash;
+    }
+
+    /**
+     * @notice execute flash claim airdrop
+     * @param nftAsset The NFT contract address for the airdrop
+     * @param nftTokenIds The tokenids for the airdrop
+     * @param params The params for the flash claim
+     **/
+    function executeOperation(
+        address nftAsset,
+        uint256[] calldata nftTokenIds,
+        bytes calldata params
+    ) external override onlyPool returns (bool) {
+        require(nftTokenIds.length > 0, "empty token list");
+
+        address initiator = owner();
+        ExecuteOperationLocalVars memory vars;
+        // decode parameters
+        (
+            vars.airdropTokenTypes,
+            vars.airdropTokenAddresses,
+            vars.airdropTokenIds,
+            vars.airdropContract,
+            vars.airdropParams
+        ) = abi.decode(
+            params,
+            (uint256[], address[], uint256[], address, bytes)
+        );
+
+        require(
+            vars.airdropTokenTypes.length > 0,
+            "invalid airdrop token type"
+        );
+        require(
+            vars.airdropTokenAddresses.length == vars.airdropTokenTypes.length,
+            "invalid airdrop token address length"
+        );
+        require(
+            vars.airdropTokenIds.length == vars.airdropTokenTypes.length,
+            "invalid airdrop token id length"
+        );
+
+        require(
+            vars.airdropContract != address(0),
+            "invalid airdrop contract address"
+        );
+        require(vars.airdropParams.length >= 4, "invalid airdrop parameters");
+
+        // allow pool transfer borrowed nfts back
+        IERC721(nftAsset).setApprovalForAll(pool, true);
+
+        // call project airdrop contract
+        Address.functionCall(
+            vars.airdropContract,
+            vars.airdropParams,
+            "call airdrop method failed"
+        );
+
+        vars.airdropKeyHash = getClaimKeyHash(
+            initiator,
+            nftAsset,
+            nftTokenIds,
+            params
+        );
+        airdropClaimRecords[vars.airdropKeyHash] = true;
+
+        // transfer airdrop tokens to owner
+        for (
+            uint256 typeIndex = 0;
+            typeIndex < vars.airdropTokenTypes.length;
+            typeIndex++
+        ) {
+            require(
+                vars.airdropTokenAddresses[typeIndex] != address(0),
+                "invalid airdrop token address"
+            );
+
+            if (vars.airdropTokenTypes[typeIndex] == 1) {
+                // ERC20
+                vars.airdropBalance = IERC20(
+                    vars.airdropTokenAddresses[typeIndex]
+                ).balanceOf(address(this));
+                if (vars.airdropBalance > 0) {
+                    IERC20(vars.airdropTokenAddresses[typeIndex]).safeTransfer(
+                        initiator,
+                        vars.airdropBalance
+                    );
+                }
+            } else if (vars.airdropTokenTypes[typeIndex] == 2) {
+                // ERC721 with Enumerate
+                vars.airdropBalance = IERC721(
+                    vars.airdropTokenAddresses[typeIndex]
+                ).balanceOf(address(this));
+                for (uint256 i = 0; i < vars.airdropBalance; i++) {
+                    vars.airdropTokenId = IERC721Enumerable(
+                        vars.airdropTokenAddresses[typeIndex]
+                    ).tokenOfOwnerByIndex(address(this), 0);
+                    IERC721Enumerable(vars.airdropTokenAddresses[typeIndex])
+                        .safeTransferFrom(
+                            address(this),
+                            initiator,
+                            vars.airdropTokenId
+                        );
+                }
+            } else if (vars.airdropTokenTypes[typeIndex] == 3) {
+                // ERC1155
+                vars.airdropBalance = IERC1155(
+                    vars.airdropTokenAddresses[typeIndex]
+                ).balanceOf(address(this), vars.airdropTokenIds[typeIndex]);
+                IERC1155(vars.airdropTokenAddresses[typeIndex])
+                    .safeTransferFrom(
+                        address(this),
+                        initiator,
+                        vars.airdropTokenIds[typeIndex],
+                        vars.airdropBalance,
+                        new bytes(0)
+                    );
+            } else if (vars.airdropTokenTypes[typeIndex] == 4) {
+                // ERC721 without Enumerate
+                IERC721Enumerable(vars.airdropTokenAddresses[typeIndex])
+                    .safeTransferFrom(
+                        address(this),
+                        initiator,
+                        vars.airdropTokenIds[typeIndex]
+                    );
+            }
+        }
+
+        return true;
+    }
+
+    /**
+     * @notice transfer ERC20 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amount The amount being transfer
+     **/
+    function transferERC20(
+        address token,
+        address to,
+        uint256 amount
+    ) external nonReentrant onlyOwner {
+        IERC20(token).safeTransfer(to, amount);
+    }
+
+    /**
+     * @notice transfer ERC721 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param id The tokenId being transfer
+     **/
+    function transferERC721(
+        address token,
+        address to,
+        uint256 id
+    ) external nonReentrant onlyOwner {
+        IERC721(token).safeTransferFrom(address(this), to, id);
+    }
+
+    /**
+     * @notice transfer ERC1155 Token.
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param id The tokenId being transfer
+     * @param amount The amount being transfer
+     **/
+    function transferERC1155(
+        address token,
+        address to,
+        uint256 id,
+        uint256 amount
+    ) external nonReentrant onlyOwner {
+        IERC1155(token).safeTransferFrom(
+            address(this),
+            to,
+            id,
+            amount,
+            new bytes(0)
+        );
+    }
+
+    /**
+     * @notice transfer ETH
+     * @param to The address of the recipient
+     * @param amount The amount being transfer
+     **/
+    function transferEther(address to, uint256 amount)
+        external
+        nonReentrant
+        onlyOwner
+    {
+        (bool success, ) = to.call{value: amount}(new bytes(0));
+        require(success, "ETH_TRANSFER_FAILED");
+    }
+
+    /**
+     * @notice get claim status for a flash claim
+     * @param initiator the address initiated the flash claim
+     * @param nftAsset The NFT contract address for the airdrop
+     * @param nftTokenIds The tokenids for the airdrop
+     * @param params The params of the initiated flash claim
+     **/
+    function getAirdropClaimRecord(
+        address initiator,
+        address nftAsset,
+        uint256[] calldata nftTokenIds,
+        bytes calldata params
+    ) public view returns (bool) {
+        bytes32 airdropKeyHash = getClaimKeyHash(
+            initiator,
+            nftAsset,
+            nftTokenIds,
+            params
+        );
+        return airdropClaimRecords[airdropKeyHash];
+    }
+
+    /**
+     * @notice encode flash claim param
+     * @param airdropTokenTypes the airdrop reward token type
+     * @param airdropTokenAddresses the airdrop reward token contract address
+     * @param airdropTokenIds the airdrop reward token ids
+     * @param airdropContract The address of third party airdrop contract
+     * @param airdropParams The params of the flash claim
+     **/
+    function encodeFlashLoanParams(
+        uint256[] calldata airdropTokenTypes,
+        address[] calldata airdropTokenAddresses,
+        uint256[] calldata airdropTokenIds,
+        address airdropContract,
+        bytes calldata airdropParams
+    ) public pure returns (bytes memory) {
+        return
+            abi.encode(
+                airdropTokenTypes,
+                airdropTokenAddresses,
+                airdropTokenIds,
+                airdropContract,
+                airdropParams
+            );
+    }
+
+    /**
+     * @notice calculate hash for a flash claim
+     * @param initiator the address initiated the flash claim
+     * @param nftAsset The NFT contract address for the airdrop
+     * @param nftTokenIds The tokenids for the airdrop
+     * @param params The params of the initiated flash claim
+     **/
+    function getClaimKeyHash(
+        address initiator,
+        address nftAsset,
+        uint256[] calldata nftTokenIds,
+        bytes calldata params
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(initiator, nftAsset, nftTokenIds, params));
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/flashclaim/AirdropFlashClaimReceiver.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/flashclaim/UserFlashclaimRegistry.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import "./AirdropFlashClaimReceiver.sol";
+import "../interfaces/IUserFlashclaimRegistry.sol";
+
+contract UserFlashclaimRegistry is IUserFlashclaimRegistry {
+    address public pool;
+    mapping(address => address) public userReceivers;
+
+    constructor(address pool_) {
+        pool = pool_;
+    }
+
+    /**
+     * @notice create a default receiver contract for the user
+     */
+    function createReceiver() public virtual override {
+        address caller = msg.sender;
+        AirdropFlashClaimReceiver receiver = new AirdropFlashClaimReceiver(
+            caller,
+            pool
+        );
+        userReceivers[caller] = address(receiver);
+    }
+
+    /**
+     * @notice get receiver contract address for the user
+     * @param user The user address
+     */
+    function getUserReceivers(address user)
+        external
+        view
+        virtual
+        override
+        returns (address)
+    {
+        return userReceivers[user];
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/flashclaim/UserFlashclaimRegistry.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IFlashClaimReceiver.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @title IFlashClaimReceiver interface
+ * @dev implement this interface to develop a flashclaim-compatible flashClaimReceiver contract
+ **/
+interface IFlashClaimReceiver {
+    function executeOperation(
+        address asset,
+        uint256[] calldata tokenIds,
+        bytes calldata params
+    ) external returns (bool);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IFlashClaimReceiver.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/INFTFloorOracle.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+interface INFTFloorOracle {
+    function getPrice(address token) external view returns (uint256 price);
+
+    function getLastUpdateTime(address token)
+        external
+        view
+        returns (uint256 timestamp);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/INFTFloorOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/INFTOracle.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+/************
+@title INFTOracle interface
+@notice Interface for NFT price oracle.*/
+interface INFTOracle {
+    /* CAUTION: Price uint is ETH based (WEI, 18 decimals) */
+    // get asset price
+    function getAssetPrice(address _nftContract)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/INFTOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IPunks.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+/**
+ * @dev Interface for a permittable ERC721 contract
+ * See https://eips.ethereum.org/EIPS/eip-2612[EIP-2612].
+ *
+ * Adds the {permit} method, which can be used to change an account's ERC72 allowance (see {IERC721-allowance}) by
+ * presenting a message signed by the account. By not relying on {IERC721-approve}, the token holder account doesn't
+ * need to send a transaction, and thus is not required to hold Ether at all.
+ */
+interface IPunks {
+    function balanceOf(address account) external view returns (uint256);
+
+    function punkIndexToAddress(uint256 punkIndex)
+        external
+        view
+        returns (address owner);
+
+    function buyPunk(uint256 punkIndex) external;
+
+    function transferPunk(address to, uint256 punkIndex) external;
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IPunks.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IUniswapV2Factory.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface IUniswapV2Factory {
+    function getPair(address tokenA, address tokenB)
+        external
+        view
+        returns (address pair);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IUniswapV2Factory.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IUniswapV2Pair.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity >=0.5.0;
+
+interface IUniswapV2Pair {
+    function getReserves()
+        external
+        view
+        returns (
+            uint112 reserve0,
+            uint112 reserve1,
+            uint32 blockTimestampLast
+        );
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IUniswapV2Pair.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IUniswapV2Router01.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface IUniswapV2Router01 {
+    function getAmountOut(
+        uint256 amountIn,
+        uint256 reserveIn,
+        uint256 reserveOut
+    ) external pure returns (uint256 amountOut);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IUniswapV2Router01.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IUserFlashclaimRegistry.sol =====
+// SPDX-License-Identifier: AGPL-3.0
+pragma solidity 0.8.10;
+
+interface IUserFlashclaimRegistry {
+    function createReceiver() external;
+
+    function getUserReceivers(address user) external view returns (address);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IUserFlashclaimRegistry.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IWETH.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+interface IWETH {
+    function deposit() external payable;
+
+    function withdraw(uint256) external;
+
+    function approve(address guy, uint256 wad) external returns (bool);
+
+    function transferFrom(
+        address src,
+        address dst,
+        uint256 wad
+    ) external returns (bool);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IWETH.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/interfaces/IWrappedPunks.sol =====
+// SPDX-License-Identifier: agpl-3.0
+pragma solidity 0.8.10;
+
+import {IERC721} from "../../../contracts/dependencies/openzeppelin/contracts/IERC721.sol";
+
+//import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+/**
+ * @dev Interface for a permittable ERC721 contract
+ * See https://eips.ethereum.org/EIPS/eip-2612[EIP-2612].
+ *
+ * Adds the {permit} method, which can be used to change an account's ERC72 allowance (see {IERC721-allowance}) by
+ * presenting a message signed by the account. By not relying on {IERC721-approve}, the token holder account doesn't
+ * need to send a transaction, and thus is not required to hold Ether at all.
+ */
+interface IWrappedPunks is IERC721 {
+    function punkContract() external view returns (address);
+
+    function mint(uint256 punkIndex) external;
+
+    function burn(uint256 punkIndex) external;
+
+    function registerProxy() external;
+
+    function proxyInfo(address user) external returns (address proxy);
+}
+// ===== END SOURCE FILE: contracts/misc/interfaces/IWrappedPunks.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/marketplaces/LooksRareAdapter.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../../protocol/libraries/types/DataTypes.sol";
+import {Errors} from "../../protocol/libraries/helpers/Errors.sol";
+import {OrderTypes} from "../../dependencies/looksrare/contracts/libraries/OrderTypes.sol";
+import {SeaportInterface} from "../../dependencies/seaport/contracts/interfaces/SeaportInterface.sol";
+import {ILooksRareExchange} from "../../dependencies/looksrare/contracts/interfaces/ILooksRareExchange.sol";
+import {SignatureChecker} from "../../dependencies/looksrare/contracts/libraries/SignatureChecker.sol";
+import {ConsiderationItem} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {AdvancedOrder, CriteriaResolver, Fulfillment, OfferItem, ItemType} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {Address} from "../../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC1271} from "../../dependencies/openzeppelin/contracts/IERC1271.sol";
+import {IMarketplace} from "../../interfaces/IMarketplace.sol";
+import {PoolStorage} from "../../protocol/pool/PoolStorage.sol";
+
+/**
+ * @title LooksRare Adapter
+ *
+ * @notice Implements the NFT <=> ERC20 exchange logic via LooksRare marketplace
+ */
+contract LooksRareAdapter is IMarketplace {
+    constructor() {}
+
+    function getAskOrderInfo(bytes memory params, address weth)
+        external
+        pure
+        override
+        returns (DataTypes.OrderInfo memory orderInfo)
+    {
+        (
+            OrderTypes.TakerOrder memory takerBid,
+            OrderTypes.MakerOrder memory makerAsk
+        ) = abi.decode(params, (OrderTypes.TakerOrder, OrderTypes.MakerOrder));
+        orderInfo.maker = makerAsk.signer;
+
+        OfferItem[] memory offer = new OfferItem[](1);
+        offer[0] = OfferItem(
+            ItemType.ERC721,
+            makerAsk.collection,
+            makerAsk.tokenId,
+            1,
+            1
+        );
+        orderInfo.offer = offer;
+
+        ConsiderationItem[] memory consideration = new ConsiderationItem[](1);
+
+        ItemType itemType = ItemType.ERC20;
+        address token = makerAsk.currency;
+        if (token == weth) {
+            itemType = ItemType.NATIVE;
+            token = address(0);
+        }
+        consideration[0] = ConsiderationItem(
+            itemType,
+            token,
+            0,
+            makerAsk.price, // TODO: take minPercentageToAsk into account
+            makerAsk.price,
+            payable(takerBid.taker)
+        );
+        orderInfo.id = abi.encodePacked(makerAsk.r, makerAsk.s, makerAsk.v);
+        orderInfo.consideration = consideration;
+    }
+
+    function getBidOrderInfo(
+        bytes memory /*params*/
+    ) external pure override returns (DataTypes.OrderInfo memory) {
+        revert(Errors.CALL_MARKETPLACE_FAILED);
+    }
+
+    function matchAskWithTakerBid(
+        address marketplace,
+        bytes calldata params,
+        uint256 value
+    ) external payable override returns (bytes memory) {
+        bytes4 selector;
+        if (value == 0) {
+            selector = ILooksRareExchange.matchAskWithTakerBid.selector;
+        } else {
+            selector = ILooksRareExchange
+                .matchAskWithTakerBidUsingETHAndWETH
+                .selector;
+        }
+        bytes memory data = abi.encodePacked(selector, params);
+        return
+            Address.functionCallWithValue(
+                marketplace,
+                data,
+                value,
+                Errors.CALL_MARKETPLACE_FAILED
+            );
+    }
+
+    function matchBidWithTakerAsk(address, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes memory)
+    {
+        revert(Errors.CALL_MARKETPLACE_FAILED);
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/marketplaces/LooksRareAdapter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/marketplaces/SeaportAdapter.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../../protocol/libraries/types/DataTypes.sol";
+import {Errors} from "../../protocol/libraries/helpers/Errors.sol";
+import {OrderTypes} from "../../dependencies/looksrare/contracts/libraries/OrderTypes.sol";
+import {SeaportInterface} from "../../dependencies/seaport/contracts/interfaces/SeaportInterface.sol";
+import {ILooksRareExchange} from "../../dependencies/looksrare/contracts/interfaces/ILooksRareExchange.sol";
+import {SignatureChecker} from "../../dependencies/looksrare/contracts/libraries/SignatureChecker.sol";
+import {ConsiderationItem} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {AdvancedOrder, CriteriaResolver, Fulfillment, OfferItem, ItemType} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {Address} from "../../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC1271} from "../../dependencies/openzeppelin/contracts/IERC1271.sol";
+import {IMarketplace} from "../../interfaces/IMarketplace.sol";
+import {PoolStorage} from "../../protocol/pool/PoolStorage.sol";
+
+/**
+ * @title Seaport Adapter
+ *
+ * @notice Implements the NFT <=> ERC20 exchange logic via OpenSea Seaport marketplace
+ */
+contract SeaportAdapter is IMarketplace {
+    constructor() {}
+
+    function getAskOrderInfo(bytes memory params, address)
+        external
+        pure
+        override
+        returns (DataTypes.OrderInfo memory orderInfo)
+    {
+        (
+            AdvancedOrder memory advancedOrder,
+            CriteriaResolver[] memory resolvers,
+            ,
+
+        ) = abi.decode(
+                params,
+                (AdvancedOrder, CriteriaResolver[], bytes32, address)
+            );
+        // support advanced order in the future
+        require(
+            // NOT criteria based and must be basic order
+            resolvers.length == 0 && isBasicOrder(advancedOrder),
+            Errors.INVALID_MARKETPLACE_ORDER
+        );
+        // the person who listed NFT to sell
+        orderInfo.maker = advancedOrder.parameters.offerer;
+        orderInfo.id = advancedOrder.signature;
+        // NFT, items will be checked inside MarketplaceLogic
+        orderInfo.offer = advancedOrder.parameters.offer;
+        require(orderInfo.offer.length > 0, Errors.INVALID_MARKETPLACE_ORDER);
+        // ERC20, items will be checked inside MarketplaceLogic
+        orderInfo.consideration = advancedOrder.parameters.consideration;
+        require(
+            orderInfo.consideration.length > 0,
+            Errors.INVALID_MARKETPLACE_ORDER
+        );
+    }
+
+    function getBidOrderInfo(bytes memory params)
+        external
+        pure
+        override
+        returns (DataTypes.OrderInfo memory orderInfo)
+    {
+        (AdvancedOrder[] memory advancedOrders, , ) = abi.decode(
+            params,
+            (AdvancedOrder[], CriteriaResolver[], Fulfillment[])
+        );
+        // support advanced order in the future
+        require(
+            // NOT criteria based and must be basic order
+            advancedOrders.length == 2 &&
+                isBasicOrder(advancedOrders[0]) &&
+                isBasicOrder(advancedOrders[1]),
+            Errors.INVALID_MARKETPLACE_ORDER
+        );
+        // the person who sends bid to buy NFT
+        orderInfo.maker = advancedOrders[0].parameters.offerer;
+        orderInfo.taker = advancedOrders[1].parameters.offerer;
+        orderInfo.id = advancedOrders[0].signature;
+        // NFT, items will be checked inside MarketplaceLogic
+        orderInfo.offer = advancedOrders[1].parameters.offer;
+        require(orderInfo.offer.length > 0, Errors.INVALID_MARKETPLACE_ORDER);
+        // ERC20, items will be checked inside MarketplaceLogic
+        orderInfo.consideration = advancedOrders[1].parameters.consideration;
+        require(
+            orderInfo.consideration.length > 0,
+            Errors.INVALID_MARKETPLACE_ORDER
+        );
+    }
+
+    function matchAskWithTakerBid(
+        address marketplace,
+        bytes calldata params,
+        uint256 value
+    ) external payable override returns (bytes memory) {
+        bytes4 selector = SeaportInterface.fulfillAdvancedOrder.selector;
+        bytes memory data = abi.encodePacked(selector, params);
+        return
+            Address.functionCallWithValue(
+                marketplace,
+                data,
+                value,
+                Errors.CALL_MARKETPLACE_FAILED
+            );
+    }
+
+    function matchBidWithTakerAsk(address marketplace, bytes calldata params)
+        external
+        override
+        returns (bytes memory)
+    {
+        bytes4 selector = SeaportInterface.matchAdvancedOrders.selector;
+        bytes memory data = abi.encodePacked(selector, params);
+        return
+            Address.functionCall(
+                marketplace,
+                data,
+                Errors.CALL_MARKETPLACE_FAILED
+            );
+    }
+
+    function isBasicOrder(AdvancedOrder memory advancedOrder)
+        private
+        pure
+        returns (bool)
+    {
+        return
+            // FULL_OPEN || FULL_RESTRICTED
+            (uint256(advancedOrder.parameters.orderType) == 0 ||
+                uint256(advancedOrder.parameters.orderType) == 2) &&
+            // NOT PARTIAL_FULFILLABLE
+            advancedOrder.numerator == 1 &&
+            advancedOrder.denominator == 1 &&
+            // NO ZONE
+            advancedOrder.extraData.length == 0;
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/marketplaces/SeaportAdapter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/marketplaces/X2Y2Adapter.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../../protocol/libraries/types/DataTypes.sol";
+import {Errors} from "../../protocol/libraries/helpers/Errors.sol";
+import {OrderTypes} from "../../dependencies/looksrare/contracts/libraries/OrderTypes.sol";
+import {SeaportInterface} from "../../dependencies/seaport/contracts/interfaces/SeaportInterface.sol";
+import {ILooksRareExchange} from "../../dependencies/looksrare/contracts/interfaces/ILooksRareExchange.sol";
+import {IX2Y2} from "../../interfaces/IX2Y2.sol";
+import {SignatureChecker} from "../../dependencies/looksrare/contracts/libraries/SignatureChecker.sol";
+import {ConsiderationItem} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {AdvancedOrder, CriteriaResolver, Fulfillment, OfferItem, ItemType} from "../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {Address} from "../../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC1271} from "../../dependencies/openzeppelin/contracts/IERC1271.sol";
+import {IMarketplace} from "../../interfaces/IMarketplace.sol";
+import {PoolStorage} from "../../protocol/pool/PoolStorage.sol";
+
+/**
+ * @title X2Y2 Adapter
+ *
+ * @notice Implements the NFT <=> ERC20 exchange logic via X2Y2 marketplace
+ */
+contract X2Y2Adapter is IMarketplace {
+    constructor() {}
+
+    struct ERC721Pair {
+        address token;
+        uint256 tokenId;
+    }
+
+    function getAskOrderInfo(bytes memory params, address)
+        external
+        pure
+        override
+        returns (DataTypes.OrderInfo memory orderInfo)
+    {
+        IX2Y2.RunInput memory runInput = abi.decode(params, (IX2Y2.RunInput));
+        require(runInput.details.length == 1, Errors.INVALID_MARKETPLACE_ORDER);
+
+        IX2Y2.SettleDetail memory detail = runInput.details[0];
+        IX2Y2.Order memory order = runInput.orders[detail.orderIdx];
+        IX2Y2.OrderItem memory item = order.items[detail.itemIdx];
+
+        require(
+            IX2Y2.Op.COMPLETE_SELL_OFFER == detail.op,
+            Errors.INVALID_MARKETPLACE_ORDER
+        );
+
+        ERC721Pair[] memory nfts = abi.decode(item.data, (ERC721Pair[]));
+
+        require(nfts.length == 1, Errors.INVALID_MARKETPLACE_ORDER);
+
+        OfferItem[] memory offer = new OfferItem[](1);
+        offer[0] = OfferItem(
+            ItemType.ERC721,
+            nfts[0].token,
+            nfts[0].tokenId,
+            1,
+            1
+        );
+        orderInfo.offer = offer;
+
+        ConsiderationItem[] memory consideration = new ConsiderationItem[](1);
+
+        ItemType itemType = ItemType.ERC20;
+        address token = order.currency;
+        consideration[0] = ConsiderationItem(
+            itemType,
+            token,
+            0,
+            detail.price,
+            detail.price,
+            payable(order.user)
+        );
+        orderInfo.id = abi.encodePacked(order.r, order.s, order.v);
+        orderInfo.consideration = consideration;
+    }
+
+    function getBidOrderInfo(bytes memory)
+        external
+        pure
+        override
+        returns (DataTypes.OrderInfo memory)
+    {
+        revert(Errors.CALL_MARKETPLACE_FAILED);
+    }
+
+    function matchAskWithTakerBid(
+        address marketplace,
+        bytes calldata params,
+        uint256 value
+    ) external payable override returns (bytes memory) {
+        bytes4 selector = IX2Y2.run.selector;
+        bytes memory data = abi.encodePacked(selector, params);
+        return
+            Address.functionCallWithValue(
+                marketplace,
+                data,
+                value,
+                Errors.CALL_MARKETPLACE_FAILED
+            );
+    }
+
+    function matchBidWithTakerAsk(address, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes memory)
+    {
+        revert(Errors.CALL_MARKETPLACE_FAILED);
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/marketplaces/X2Y2Adapter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/NFTFloorOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.10;
+
+import "../dependencies/openzeppelin/contracts/AccessControl.sol";
+import "../dependencies/openzeppelin/upgradeability/Initializable.sol";
+import "./interfaces/INFTFloorOracle.sol";
+
+//we need to deploy 3 oracles at least
+uint8 constant MIN_ORACLES_NUM = 3;
+//expirationPeriod at least the interval of client to feed data(currently 6h=21600s/12=1800 in mainnet)
+//we do not accept price lags behind to much
+uint128 constant EXPIRATION_PERIOD = 1800;
+//reject when price increase/decrease 1.5 times more than original value
+uint128 constant MAX_DEVIATION_RATE = 150;
+
+struct OracleConfig {
+    // Expiration Period for each feed price
+    uint128 expirationPeriod;
+    // Maximum deviation allowed between two consecutive oracle prices
+    uint128 maxPriceDeviation;
+}
+
+struct PriceInformation {
+    // last reported floor price(offchain twap)
+    uint256 twap;
+    // last updated blocknumber
+    uint256 updatedAt;
+    // last updated timestamp
+    uint256 updatedTimestamp;
+}
+
+struct FeederRegistrar {
+    // if asset registered or not
+    bool registered;
+    // index in asset list
+    uint8 index;
+    // if asset paused,reject the price
+    bool paused;
+    // feeder -> PriceInformation
+    mapping(address => PriceInformation) feederPrice;
+}
+
+struct FeederPosition {
+    // if feeder registered or not
+    bool registered;
+    // index in feeder list
+    uint8 index;
+}
+
+/// @title A simple on-chain price oracle mechanism
+/// @author github.com/drbh,github.com/yrong
+/// @notice Offchain clients can update the prices in this contract. The public can read prices
+/// aggeregate prices which are not expired from different feeders, if number of valid/unexpired prices
+/// not enough, we do not aggeregate and just use previous price
+contract NFTFloorOracle is Initializable, AccessControl, INFTFloorOracle {
+    event AssetAdded(address indexed asset);
+    event AssetRemoved(address indexed asset);
+    event AssetPaused(address indexed asset, bool paused);
+
+    event FeederAdded(address indexed feeder);
+    event FeederRemoved(address indexed feeder);
+
+    event OracleConfigSet(uint128 expirationPeriod, uint128 maxPriceDeviation);
+    event AssetDataSet(
+        address indexed asset,
+        uint256 twap,
+        uint256 lastUpdatedBlock
+    );
+
+    bytes32 public constant UPDATER_ROLE = keccak256("UPDATER_ROLE");
+
+    /// @dev Aggregated price with address
+    // the NFT contract -> latest price information
+    mapping(address => PriceInformation) public assetPriceMap;
+
+    /// @dev All feeders
+    address[] public feeders;
+
+    /// @dev feeder map
+    // feeder address -> index in feeder list
+    mapping(address => FeederPosition) private feederPositionMap;
+
+    /// @dev All asset list
+    address[] public assets;
+
+    /// @dev Original raw value to aggregate with
+    // the NFT contract address -> FeederRegistrar which contains price from each feeder
+    mapping(address => FeederRegistrar) public assetFeederMap;
+
+    /// @dev storage for oracle configurations
+    OracleConfig public config;
+
+    /// @notice Allow contract creator to set admin and updaters
+    /// @param _admin The admin who can change roles
+    /// @param _feeders The initial updaters
+    /// @param _assets The initial nft assets
+    function initialize(
+        address _admin,
+        address[] memory _feeders,
+        address[] memory _assets
+    ) public initializer {
+        _addAssets(_assets);
+        _addFeeders(_feeders);
+        _setupRole(DEFAULT_ADMIN_ROLE, _admin);
+        //still need to grant update_role to admin for emergency call
+        _setupRole(UPDATER_ROLE, _admin);
+        _setConfig(EXPIRATION_PERIOD, MAX_DEVIATION_RATE);
+    }
+
+    modifier whenNotPaused(address _asset) {
+        if (!hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            _whenNotPaused(_asset);
+        }
+        _;
+    }
+
+    modifier onlyWhenAssetExisted(address _asset) {
+        require(_isAssetExisted(_asset), "NFTOracle: asset not existed");
+        _;
+    }
+
+    modifier onlyWhenAssetNotExisted(address _asset) {
+        require(!_isAssetExisted(_asset), "NFTOracle: asset existed");
+        _;
+    }
+
+    modifier onlyWhenFeederExisted(address _feeder) {
+        require(_isFeederExisted(_feeder), "NFTOracle: feeder not existed");
+        _;
+    }
+
+    modifier onlyWhenFeederNotExisted(address _feeder) {
+        require(!_isFeederExisted(_feeder), "NFTOracle: feeder existed");
+        _;
+    }
+
+    /// @notice Allows owner to add assets.
+    /// @param _assets assets to add
+    function addAssets(address[] calldata _assets)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _addAssets(_assets);
+    }
+
+    /// @notice Allows owner to remove asset.
+    /// @param _asset asset to remove
+    function removeAsset(address _asset)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+        onlyWhenAssetExisted(_asset)
+    {
+        _removeAsset(_asset);
+    }
+
+    /// @notice Allows owner to add feeders.
+    /// @param _feeders feeders to add
+    function addFeeders(address[] calldata _feeders)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _addFeeders(_feeders);
+    }
+
+    /// @notice Allows owner to remove feeder.
+    /// @param _feeder feeder to remove
+    function removeFeeder(address _feeder)
+        external
+        onlyWhenFeederExisted(_feeder)
+    {
+        _removeFeeder(_feeder);
+    }
+
+    /// @notice Allows owner to update oracle configs
+    function setConfig(uint128 expirationPeriod, uint128 maxPriceDeviation)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _setConfig(expirationPeriod, maxPriceDeviation);
+    }
+
+    /// @notice Allows owner to pause asset
+    function setPause(address _asset, bool _flag)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        assetFeederMap[_asset].paused = _flag;
+        emit AssetPaused(_asset, _flag);
+    }
+
+    /// @notice Allows updater to set new price on PriceInformation and updates the
+    /// internal Median cumulativePrice.
+    /// @param _asset The nft contract to set a floor price for
+    /// @param _twap The last floor twap
+    function setPrice(address _asset, uint256 _twap)
+        public
+        onlyRole(UPDATER_ROLE)
+        onlyWhenAssetExisted(_asset)
+        whenNotPaused(_asset)
+    {
+        bool dataValidity = false;
+        if (hasRole(DEFAULT_ADMIN_ROLE, msg.sender)) {
+            _finalizePrice(_asset, _twap);
+            return;
+        }
+        dataValidity = _checkValidity(_asset, _twap);
+        require(dataValidity, "NFTOracle: invalid price data");
+        // add price to raw feeder storage
+        _addRawValue(_asset, _twap);
+        uint256 medianPrice;
+        // set twap price only when median value is valid
+        (dataValidity, medianPrice) = _combine(_asset, _twap);
+        if (dataValidity) {
+            _finalizePrice(_asset, medianPrice);
+        }
+    }
+
+    /// @notice Allows owner to set new price on PriceInformation and updates the
+    /// internal Median cumulativePrice.
+    /// @param _assets The nft contract to set a floor price for
+    function setMultiplePrices(
+        address[] calldata _assets,
+        uint256[] calldata _twaps
+    ) external onlyRole(UPDATER_ROLE) {
+        require(
+            _assets.length == _twaps.length,
+            "NFTOracle: Tokens and price length differ"
+        );
+        for (uint256 i = 0; i < _assets.length; i++) {
+            setPrice(_assets[i], _twaps[i]);
+        }
+    }
+
+    /// @param _asset The nft contract
+    /// @return price The most recent price on chain
+    function getPrice(address _asset)
+        external
+        view
+        override
+        returns (uint256 price)
+    {
+        uint256 updatedAt = assetPriceMap[_asset].updatedAt;
+        require(
+            (block.number - updatedAt) <= config.expirationPeriod,
+            "NFTOracle: asset price expired"
+        );
+        return assetPriceMap[_asset].twap;
+    }
+
+    /// @param _asset The nft contract
+    /// @return timestamp The timestamp of the last update for an asset
+    function getLastUpdateTime(address _asset)
+        external
+        view
+        override
+        returns (uint256 timestamp)
+    {
+        return assetPriceMap[_asset].updatedTimestamp;
+    }
+
+    function getFeederSize() public view returns (uint256) {
+        return feeders.length;
+    }
+
+    function _whenNotPaused(address _asset) internal view {
+        bool _paused = assetFeederMap[_asset].paused;
+        require(!_paused, "NFTOracle: nft price feed paused");
+    }
+
+    function _isAssetExisted(address _asset) internal view returns (bool) {
+        return assetFeederMap[_asset].registered;
+    }
+
+    function _isFeederExisted(address _feeder) internal view returns (bool) {
+        return feederPositionMap[_feeder].registered;
+    }
+
+    function _addAsset(address _asset)
+        internal
+        onlyWhenAssetNotExisted(_asset)
+    {
+        assetFeederMap[_asset].registered = true;
+        assets.push(_asset);
+        assetFeederMap[_asset].index = uint8(assets.length - 1);
+        emit AssetAdded(_asset);
+    }
+
+    /// @notice add nft assets.
+    /// @param _assets assets to add
+    function _addAssets(address[] memory _assets) internal {
+        for (uint256 i = 0; i < _assets.length; i++) {
+            _addAsset(_assets[i]);
+        }
+    }
+
+    function _removeAsset(address _asset)
+        internal
+        onlyWhenAssetExisted(_asset)
+    {
+        uint8 assetIndex = assetFeederMap[_asset].index;
+        delete assets[assetIndex];
+        delete assetPriceMap[_asset];
+        delete assetFeederMap[_asset];
+        emit AssetRemoved(_asset);
+    }
+
+    function _addFeeder(address _feeder)
+        internal
+        onlyWhenFeederNotExisted(_feeder)
+    {
+        feeders.push(_feeder);
+        feederPositionMap[_feeder].index = uint8(feeders.length - 1);
+        feederPositionMap[_feeder].registered = true;
+        _setupRole(UPDATER_ROLE, _feeder);
+        emit FeederAdded(_feeder);
+    }
+
+    /// @notice set feeders.
+    /// @param _feeders feeders to set
+    function _addFeeders(address[] memory _feeders) internal {
+        for (uint256 i = 0; i < _feeders.length; i++) {
+            _addFeeder(_feeders[i]);
+        }
+    }
+
+    function _removeFeeder(address _feeder)
+        internal
+        onlyWhenFeederExisted(_feeder)
+    {
+        uint8 feederIndex = feederPositionMap[_feeder].index;
+        if (feederIndex >= 0 && feeders[feederIndex] == _feeder) {
+            feeders[feederIndex] = feeders[feeders.length - 1];
+            feeders.pop();
+        }
+        delete feederPositionMap[_feeder];
+        revokeRole(UPDATER_ROLE, _feeder);
+        emit FeederRemoved(_feeder);
+    }
+
+    /// @notice set oracle configs
+    /// @param _expirationPeriod only prices not expired will be aggregated with
+    /// @param _maxPriceDeviation use to reject when price increase/decrease rate more than this value
+    function _setConfig(uint128 _expirationPeriod, uint128 _maxPriceDeviation)
+        internal
+    {
+        config.expirationPeriod = _expirationPeriod;
+        config.maxPriceDeviation = _maxPriceDeviation;
+        emit OracleConfigSet(_expirationPeriod, _maxPriceDeviation);
+    }
+
+    function _checkValidity(address _asset, uint256 _twap)
+        internal
+        view
+        returns (bool)
+    {
+        require(_twap > 0, "NFTOracle: price should be more than 0");
+        PriceInformation memory assetPriceMapEntry = assetPriceMap[_asset];
+        uint256 _priorTwap = assetPriceMapEntry.twap;
+        uint256 _updatedAt = assetPriceMapEntry.updatedAt;
+        uint256 priceDeviation;
+        //first price is always valid
+        if (_priorTwap == 0 || _updatedAt == 0) {
+            return true;
+        }
+        priceDeviation = _twap > _priorTwap
+            ? (_twap * 100) / _priorTwap
+            : (_priorTwap * 100) / _twap;
+
+        // config maxPriceDeviation as multiple directly(not percent) for simplicity
+        if (priceDeviation >= config.maxPriceDeviation) {
+            return false;
+        }
+        return true;
+    }
+
+    function _finalizePrice(address _asset, uint256 _twap) internal {
+        PriceInformation storage assetPriceMapEntry = assetPriceMap[_asset];
+        assetPriceMapEntry.twap = _twap;
+        assetPriceMapEntry.updatedAt = block.number;
+        assetPriceMapEntry.updatedTimestamp = block.timestamp;
+        emit AssetDataSet(
+            _asset,
+            assetPriceMapEntry.twap,
+            assetPriceMapEntry.updatedAt
+        );
+    }
+
+    function _addRawValue(address _asset, uint256 _twap) internal {
+        FeederRegistrar storage feederRegistrar = assetFeederMap[_asset];
+        PriceInformation storage priceInfo = feederRegistrar.feederPrice[
+            msg.sender
+        ];
+        priceInfo.twap = _twap;
+        priceInfo.updatedAt = block.number;
+    }
+
+    function _combine(address _asset, uint256 _twap)
+        internal
+        view
+        returns (bool, uint256)
+    {
+        FeederRegistrar storage feederRegistrar = assetFeederMap[_asset];
+        uint256 currentBlock = block.number;
+        //first time just use the feeding value
+        if (assetPriceMap[_asset].twap == 0) {
+            return (true, _twap);
+        }
+        //use memory here so allocate with maximum length
+        uint256 feederSize = feeders.length;
+        uint256[] memory validPriceList = new uint256[](feederSize);
+        uint256 validNum = 0;
+        //aggeregate with price from all feeders
+        for (uint256 i = 0; i < feederSize; i++) {
+            PriceInformation memory priceInfo = feederRegistrar.feederPrice[
+                feeders[i]
+            ];
+            if (priceInfo.updatedAt > 0) {
+                uint256 diffBlock = currentBlock - priceInfo.updatedAt;
+                if (diffBlock <= config.expirationPeriod) {
+                    validPriceList[validNum] = priceInfo.twap;
+                    validNum++;
+                }
+            }
+        }
+        if (validNum < MIN_ORACLES_NUM) {
+            return (false, assetPriceMap[_asset].twap);
+        }
+        _quickSort(validPriceList, 0, int256(validNum - 1));
+        return (true, validPriceList[validNum / 2]);
+    }
+
+    function _quickSort(
+        uint256[] memory arr,
+        int256 left,
+        int256 right
+    ) internal pure {
+        int256 i = left;
+        int256 j = right;
+        if (i == j) return;
+        uint256 pivot = arr[uint256(left + (right - left) / 2)];
+        while (i <= j) {
+            while (arr[uint256(i)] < pivot) i++;
+            while (pivot < arr[uint256(j)]) j--;
+            if (i <= j) {
+                (arr[uint256(i)], arr[uint256(j)]) = (
+                    arr[uint256(j)],
+                    arr[uint256(i)]
+                );
+                i++;
+                j--;
+            }
+        }
+        if (left < j) _quickSort(arr, left, j);
+        if (i < right) _quickSort(arr, i, right);
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/NFTFloorOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/ParaSpaceFallbackOracle.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {INFTOracle} from "./interfaces/INFTOracle.sol";
+import {IUniswapV2Factory} from "./interfaces/IUniswapV2Factory.sol";
+import {IUniswapV2Router01} from "./interfaces/IUniswapV2Router01.sol";
+import {IUniswapV2Pair} from "./interfaces/IUniswapV2Pair.sol";
+import {IERC165} from "../dependencies/openzeppelin/contracts/IERC165.sol";
+import {ERC20} from "../dependencies/openzeppelin/contracts/ERC20.sol";
+
+contract ParaSpaceFallbackOracle {
+    address public immutable BEND_DAO;
+    address public immutable UNISWAP_FACTORY;
+    address public immutable UNISWAP_ROUTER;
+    address public immutable WETH;
+    address public immutable USDC;
+
+    bytes4 private constant INTERFACE_ID_ERC721 = 0x80ac58cd;
+
+    constructor(
+        address bendDAO,
+        address uniswapFactory,
+        address uniswapRouter,
+        address weth,
+        address usdc
+    ) {
+        BEND_DAO = bendDAO;
+        UNISWAP_FACTORY = uniswapFactory;
+        UNISWAP_ROUTER = uniswapRouter;
+        WETH = weth;
+        USDC = usdc;
+    }
+
+    function getAssetPrice(address asset) public view returns (uint256) {
+        try IERC165(asset).supportsInterface(INTERFACE_ID_ERC721) returns (
+            bool supported
+        ) {
+            if (supported == true) {
+                return INFTOracle(BEND_DAO).getAssetPrice(asset);
+            }
+        } catch {}
+
+        address pairAddress = IUniswapV2Factory(UNISWAP_FACTORY).getPair(
+            WETH,
+            asset
+        );
+        require(pairAddress != address(0x00), "pair not found");
+        IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
+        (uint256 left, uint256 right, ) = pair.getReserves();
+        (uint256 tokenReserves, uint256 ethReserves) = (asset < WETH)
+            ? (left, right)
+            : (right, left);
+        uint8 decimals = ERC20(asset).decimals();
+        //returns price in 18 decimals
+        return
+            IUniswapV2Router01(UNISWAP_ROUTER).getAmountOut(
+                10**decimals,
+                tokenReserves,
+                ethReserves
+            );
+    }
+
+    function getEthUsdPrice() public view returns (uint256) {
+        address pairAddress = IUniswapV2Factory(UNISWAP_FACTORY).getPair(
+            USDC,
+            WETH
+        );
+        require(pairAddress != address(0x00), "pair not found");
+        IUniswapV2Pair pair = IUniswapV2Pair(pairAddress);
+        (uint256 left, uint256 right, ) = pair.getReserves();
+        (uint256 usdcReserves, uint256 ethReserves) = (USDC < WETH)
+            ? (left, right)
+            : (right, left);
+        uint8 ethDecimals = ERC20(WETH).decimals();
+        //uint8 usdcDecimals = ERC20(USDC).decimals();
+        //returns price in 6 decimals
+        return
+            IUniswapV2Router01(UNISWAP_ROUTER).getAmountOut(
+                10**ethDecimals,
+                ethReserves,
+                usdcReserves
+            );
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/ParaSpaceFallbackOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/ParaSpaceOracle.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IEACAggregatorProxy} from "../interfaces/IEACAggregatorProxy.sol";
+
+import {Errors} from "../protocol/libraries/helpers/Errors.sol";
+import {IACLManager} from "../interfaces/IACLManager.sol";
+import {IAtomicPriceAggregator} from "../interfaces/IAtomicPriceAggregator.sol";
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {IPriceOracleGetter} from "../interfaces/IPriceOracleGetter.sol";
+import {IParaSpaceOracle} from "../interfaces/IParaSpaceOracle.sol";
+
+/**
+ * @title ParaSpaceOracle
+ *
+ * @notice Contract to get asset prices, manage price sources and update the fallback oracle
+ * - Use of Chainlink Aggregators as first source of price
+ * - If the returned price by a Chainlink aggregator is <= 0, the call is forwarded to a fallback oracle
+ * - Owned by the ParaSpace governance
+ */
+contract ParaSpaceOracle is IParaSpaceOracle {
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
+
+    // Map of asset price sources (asset => priceSource)
+    mapping(address => address) private assetsSources;
+
+    IPriceOracleGetter private _fallbackOracle;
+    address public immutable override BASE_CURRENCY;
+    uint256 public immutable override BASE_CURRENCY_UNIT;
+
+    /**
+     * @dev Only asset listing or pool admin can call functions marked by this modifier.
+     **/
+    modifier onlyAssetListingOrPoolAdmins() {
+        _onlyAssetListingOrPoolAdmins();
+        _;
+    }
+
+    /**
+     * @notice Constructor
+     * @param provider The address of the new PoolAddressesProvider
+     * @param assets The addresses of the assets
+     * @param sources The address of the source of each asset
+     * @param fallbackOracle The address of the fallback oracle to use if the data of an
+     *        aggregator is not consistent
+     * @param baseCurrency The base currency used for the price quotes. If USD is used, base currency is 0x0
+     * @param baseCurrencyUnit The unit of the base currency
+     */
+    constructor(
+        IPoolAddressesProvider provider,
+        address[] memory assets,
+        address[] memory sources,
+        address fallbackOracle,
+        address baseCurrency,
+        uint256 baseCurrencyUnit
+    ) {
+        ADDRESSES_PROVIDER = provider;
+        BASE_CURRENCY = baseCurrency;
+        BASE_CURRENCY_UNIT = baseCurrencyUnit;
+        _setFallbackOracle(fallbackOracle);
+        _setAssetsSources(assets, sources);
+        emit BaseCurrencySet(baseCurrency, baseCurrencyUnit);
+    }
+
+    /// @inheritdoc IParaSpaceOracle
+    function setAssetSources(
+        address[] calldata assets,
+        address[] calldata sources
+    ) external override onlyAssetListingOrPoolAdmins {
+        _setAssetsSources(assets, sources);
+    }
+
+    /// @inheritdoc IParaSpaceOracle
+    function setFallbackOracle(address fallbackOracle)
+        external
+        override
+        onlyAssetListingOrPoolAdmins
+    {
+        _setFallbackOracle(fallbackOracle);
+    }
+
+    /**
+     * @notice Internal function to set the sources for each asset
+     * @param assets The addresses of the assets
+     * @param sources The address of the source of each asset
+     */
+    function _setAssetsSources(
+        address[] memory assets,
+        address[] memory sources
+    ) internal {
+        require(
+            assets.length == sources.length,
+            Errors.INCONSISTENT_PARAMS_LENGTH
+        );
+        for (uint256 i = 0; i < assets.length; i++) {
+            require(
+                assets[i] != BASE_CURRENCY,
+                Errors.SET_ORACLE_SOURCE_NOT_ALLOWED
+            );
+            assetsSources[assets[i]] = sources[i];
+            emit AssetSourceUpdated(assets[i], sources[i]);
+        }
+    }
+
+    /**
+     * @notice Internal function to set the fallback oracle
+     * @param fallbackOracle The address of the fallback oracle
+     */
+    function _setFallbackOracle(address fallbackOracle) internal {
+        _fallbackOracle = IPriceOracleGetter(fallbackOracle);
+        emit FallbackOracleUpdated(fallbackOracle);
+    }
+
+    /// @inheritdoc IPriceOracleGetter
+    function getAssetPrice(address asset)
+        public
+        view
+        override
+        returns (uint256)
+    {
+        if (asset == BASE_CURRENCY) {
+            return BASE_CURRENCY_UNIT;
+        }
+
+        uint256 price = 0;
+        IEACAggregatorProxy source = IEACAggregatorProxy(assetsSources[asset]);
+        if (address(source) != address(0)) {
+            price = uint256(source.latestAnswer());
+        }
+        if (price == 0 && address(_fallbackOracle) != address(0)) {
+            price = _fallbackOracle.getAssetPrice(asset);
+        }
+
+        require(price != 0, Errors.ORACLE_PRICE_NOT_READY);
+        return price;
+    }
+
+    function getTokenPrice(address asset, uint256 tokenId)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        IAtomicPriceAggregator source = IAtomicPriceAggregator(
+            assetsSources[asset]
+        );
+
+        if (address(source) != address(0)) {
+            return source.getTokenPrice(tokenId);
+        }
+
+        revert(Errors.ORACLE_PRICE_NOT_READY);
+    }
+
+    function getTokensPrices(address asset, uint256[] calldata tokenIds)
+        external
+        view
+        override
+        returns (uint256[] memory)
+    {
+        IAtomicPriceAggregator source = IAtomicPriceAggregator(
+            assetsSources[asset]
+        );
+
+        if (address(source) != address(0)) {
+            return source.getTokensPrices(tokenIds);
+        }
+
+        revert(Errors.ORACLE_PRICE_NOT_READY);
+    }
+
+    function getTokensPricesSum(address asset, uint256[] calldata tokenIds)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        IAtomicPriceAggregator source = IAtomicPriceAggregator(
+            assetsSources[asset]
+        );
+
+        if (address(source) != address(0)) {
+            return source.getTokensPricesSum(tokenIds);
+        }
+
+        revert(Errors.ORACLE_PRICE_NOT_READY);
+    }
+
+    /// @inheritdoc IParaSpaceOracle
+    function getAssetsPrices(address[] calldata assets)
+        external
+        view
+        override
+        returns (uint256[] memory)
+    {
+        uint256[] memory prices = new uint256[](assets.length);
+        for (uint256 i = 0; i < assets.length; i++) {
+            prices[i] = getAssetPrice(assets[i]);
+        }
+        return prices;
+    }
+
+    /// @inheritdoc IParaSpaceOracle
+    function getSourceOfAsset(address asset)
+        external
+        view
+        override
+        returns (address)
+    {
+        return assetsSources[asset];
+    }
+
+    /// @inheritdoc IParaSpaceOracle
+    function getFallbackOracle() external view returns (address) {
+        return address(_fallbackOracle);
+    }
+
+    function _onlyAssetListingOrPoolAdmins() internal view {
+        IACLManager aclManager = IACLManager(
+            ADDRESSES_PROVIDER.getACLManager()
+        );
+        require(
+            aclManager.isAssetListingAdmin(msg.sender) ||
+                aclManager.isPoolAdmin(msg.sender),
+            Errors.CALLER_NOT_ASSET_LISTING_OR_POOL_ADMIN
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/ParaSpaceOracle.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/ProtocolDataProvider.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC20Detailed} from "../dependencies/openzeppelin/contracts/IERC20Detailed.sol";
+import {IERC721Metadata} from "../dependencies/openzeppelin/contracts/IERC721Metadata.sol";
+import {ReserveConfiguration} from "../protocol/libraries/configuration/ReserveConfiguration.sol";
+import {UserConfiguration} from "../protocol/libraries/configuration/UserConfiguration.sol";
+import {DataTypes} from "../protocol/libraries/types/DataTypes.sol";
+import {WadRayMath} from "../protocol/libraries/math/WadRayMath.sol";
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {IVariableDebtToken} from "../interfaces/IVariableDebtToken.sol";
+import {ICollateralizableERC721} from "../interfaces/ICollateralizableERC721.sol";
+import {IScaledBalanceToken} from "../interfaces/IScaledBalanceToken.sol";
+import {INToken} from "../interfaces/INToken.sol";
+import {IPToken} from "../interfaces/IPToken.sol";
+import {IPool} from "../interfaces/IPool.sol";
+import {IProtocolDataProvider} from "../interfaces/IProtocolDataProvider.sol";
+
+/**
+ * @title ProtocolDataProvider
+ *
+ * @notice Peripheral contract to collect and pre-process information from the Pool.
+ */
+contract ProtocolDataProvider is IProtocolDataProvider {
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+    using WadRayMath for uint256;
+
+    address constant MKR = 0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2;
+    address constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
+    address constant SAPE = address(0x1);
+
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
+
+    constructor(IPoolAddressesProvider addressesProvider) {
+        ADDRESSES_PROVIDER = addressesProvider;
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getAllReservesTokens()
+        external
+        view
+        returns (DataTypes.TokenData[] memory)
+    {
+        IPool pool = IPool(ADDRESSES_PROVIDER.getPool());
+        address[] memory reserves = pool.getReservesList();
+        DataTypes.TokenData[] memory reservesTokens = new DataTypes.TokenData[](
+            reserves.length
+        );
+        for (uint256 i = 0; i < reserves.length; i++) {
+            if (reserves[i] == MKR) {
+                reservesTokens[i] = DataTypes.TokenData({
+                    symbol: "MKR",
+                    tokenAddress: reserves[i]
+                });
+                continue;
+            }
+            if (reserves[i] == ETH) {
+                reservesTokens[i] = DataTypes.TokenData({
+                    symbol: "ETH",
+                    tokenAddress: reserves[i]
+                });
+                continue;
+            }
+            if (reserves[i] == SAPE) {
+                reservesTokens[i] = DataTypes.TokenData({
+                    symbol: "SApe",
+                    tokenAddress: reserves[i]
+                });
+                continue;
+            }
+            reservesTokens[i] = DataTypes.TokenData({
+                symbol: IERC20Detailed(reserves[i]).symbol(),
+                tokenAddress: reserves[i]
+            });
+        }
+        return reservesTokens;
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getAllXTokens()
+        external
+        view
+        returns (DataTypes.TokenData[] memory)
+    {
+        IPool pool = IPool(ADDRESSES_PROVIDER.getPool());
+        address[] memory reserves = pool.getReservesList();
+        DataTypes.TokenData[] memory xTokens = new DataTypes.TokenData[](
+            reserves.length
+        );
+        for (uint256 i = 0; i < reserves.length; i++) {
+            DataTypes.ReserveData memory reserveData = pool.getReserveData(
+                reserves[i]
+            );
+            if (
+                reserveData.configuration.getAssetType() ==
+                DataTypes.AssetType.ERC20
+            ) {
+                xTokens[i] = DataTypes.TokenData({
+                    symbol: IERC20Detailed(reserveData.xTokenAddress).symbol(),
+                    tokenAddress: reserveData.xTokenAddress
+                });
+            } else {
+                xTokens[i] = DataTypes.TokenData({
+                    symbol: IERC721Metadata(reserveData.xTokenAddress).symbol(),
+                    tokenAddress: reserveData.xTokenAddress
+                });
+            }
+        }
+        return xTokens;
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getReserveConfigurationData(address asset)
+        external
+        view
+        returns (DataTypes.ReserveConfigData memory reserveData)
+    {
+        DataTypes.ReserveConfigurationMap memory configuration = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getConfiguration(asset);
+
+        (
+            reserveData.ltv,
+            reserveData.liquidationThreshold,
+            reserveData.liquidationBonus,
+            reserveData.decimals,
+            reserveData.reserveFactor
+        ) = configuration.getParams();
+
+        (
+            reserveData.isActive,
+            reserveData.isFrozen,
+            reserveData.borrowingEnabled,
+            reserveData.isPaused,
+
+        ) = configuration.getFlags();
+
+        reserveData.usageAsCollateralEnabled =
+            reserveData.liquidationThreshold != 0;
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getReserveCaps(address asset)
+        external
+        view
+        returns (uint256 borrowCap, uint256 supplyCap)
+    {
+        (borrowCap, supplyCap) = IPool(ADDRESSES_PROVIDER.getPool())
+            .getConfiguration(asset)
+            .getCaps();
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getSiloedBorrowing(address asset) external view returns (bool) {
+        return
+            IPool(ADDRESSES_PROVIDER.getPool())
+                .getConfiguration(asset)
+                .getSiloedBorrowing();
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getLiquidationProtocolFee(address asset)
+        external
+        view
+        returns (uint256)
+    {
+        return
+            IPool(ADDRESSES_PROVIDER.getPool())
+                .getConfiguration(asset)
+                .getLiquidationProtocolFee();
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getReserveData(address asset)
+        external
+        view
+        override
+        returns (
+            uint256 accruedToTreasuryScaled,
+            uint256 totalPToken,
+            uint256 totalVariableDebt,
+            uint256 liquidityRate,
+            uint256 variableBorrowRate,
+            uint256 liquidityIndex,
+            uint256 variableBorrowIndex,
+            uint40 lastUpdateTimestamp
+        )
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+
+        return (
+            reserve.accruedToTreasury,
+            IERC20Detailed(reserve.xTokenAddress).totalSupply(),
+            IERC20Detailed(reserve.variableDebtTokenAddress).totalSupply(),
+            reserve.currentLiquidityRate,
+            reserve.currentVariableBorrowRate,
+            reserve.liquidityIndex,
+            reserve.variableBorrowIndex,
+            reserve.lastUpdateTimestamp
+        );
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getXTokenTotalSupply(address asset)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+        if (reserve.configuration.getAssetType() == DataTypes.AssetType.ERC20) {
+            return IPToken(reserve.xTokenAddress).totalSupply();
+        } else {
+            return INToken(reserve.xTokenAddress).totalSupply();
+        }
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getTotalDebt(address asset)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+        return IERC20Detailed(reserve.variableDebtTokenAddress).totalSupply();
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getUserReserveData(address asset, address user)
+        external
+        view
+        returns (
+            uint256 currentXTokenBalance,
+            uint256 scaledXTokenBalance,
+            uint256 collateralizedBalance,
+            uint256 currentVariableDebt,
+            uint256 scaledVariableDebt,
+            uint256 liquidityRate,
+            bool usageAsCollateralEnabled
+        )
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+
+        DataTypes.UserConfigurationMap memory userConfig = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getUserConfiguration(user);
+
+        liquidityRate = reserve.currentLiquidityRate;
+        usageAsCollateralEnabled = userConfig.isUsingAsCollateral(reserve.id);
+
+        if (reserve.configuration.getAssetType() == DataTypes.AssetType.ERC20) {
+            currentXTokenBalance = IPToken(reserve.xTokenAddress).balanceOf(
+                user
+            );
+            scaledXTokenBalance = IPToken(reserve.xTokenAddress)
+                .scaledBalanceOf(user);
+        } else {
+            currentXTokenBalance = INToken(reserve.xTokenAddress).balanceOf(
+                user
+            );
+            scaledXTokenBalance = INToken(reserve.xTokenAddress).balanceOf(
+                user
+            );
+            collateralizedBalance = ICollateralizableERC721(
+                reserve.xTokenAddress
+            ).collateralizedBalanceOf(user);
+        }
+
+        currentVariableDebt = IERC20Detailed(reserve.variableDebtTokenAddress)
+            .balanceOf(user);
+        scaledVariableDebt = IVariableDebtToken(
+            reserve.variableDebtTokenAddress
+        ).scaledBalanceOf(user);
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getReserveTokensAddresses(address asset)
+        external
+        view
+        returns (address xTokenAddress, address variableDebtTokenAddress)
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+
+        return (reserve.xTokenAddress, reserve.variableDebtTokenAddress);
+    }
+
+    /// @inheritdoc IProtocolDataProvider
+    function getStrategyAddresses(address asset)
+        external
+        view
+        returns (
+            address interestRateStrategyAddress,
+            address auctionStrategyAddress
+        )
+    {
+        DataTypes.ReserveData memory reserve = IPool(
+            ADDRESSES_PROVIDER.getPool()
+        ).getReserveData(asset);
+
+        return (
+            reserve.interestRateStrategyAddress,
+            reserve.auctionStrategyAddress
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/ProtocolDataProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/misc/UniswapV3OracleWrapper.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IUniswapV3OracleWrapper} from "../interfaces/IUniswapV3OracleWrapper.sol";
+import {IPoolAddressesProvider} from "../interfaces/IPoolAddressesProvider.sol";
+import {IPriceOracleGetter} from "../interfaces/IPriceOracleGetter.sol";
+import {IUniswapV3Factory} from "../dependencies/uniswap/IUniswapV3Factory.sol";
+import {IUniswapV3PoolState} from "../dependencies/uniswap/IUniswapV3PoolState.sol";
+import {INonfungiblePositionManager} from "../dependencies/uniswap/INonfungiblePositionManager.sol";
+import {LiquidityAmounts} from "../dependencies/uniswap/LiquidityAmounts.sol";
+import {TickMath} from "../dependencies/uniswap/libraries/TickMath.sol";
+import {SqrtLib} from "../dependencies/math/SqrtLib.sol";
+import {FullMath} from "../dependencies/uniswap/libraries/FullMath.sol";
+import {IERC20Detailed} from "../dependencies/openzeppelin/contracts/IERC20Detailed.sol";
+import {UinswapV3PositionData} from "../interfaces/IUniswapV3PositionInfoProvider.sol";
+
+contract UniswapV3OracleWrapper is IUniswapV3OracleWrapper {
+    IUniswapV3Factory immutable UNISWAP_V3_FACTORY;
+    INonfungiblePositionManager immutable UNISWAP_V3_POSITION_MANAGER;
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
+    uint256 internal constant Q128 = 0x100000000000000000000000000000000;
+
+    constructor(
+        address _factory,
+        address _manager,
+        address _addressProvider
+    ) {
+        UNISWAP_V3_FACTORY = IUniswapV3Factory(_factory);
+        UNISWAP_V3_POSITION_MANAGER = INonfungiblePositionManager(_manager);
+        ADDRESSES_PROVIDER = IPoolAddressesProvider(_addressProvider);
+    }
+
+    struct FeeParams {
+        uint256 feeGrowthOutside0X128Lower;
+        uint256 feeGrowthOutside1X128Lower;
+        uint256 feeGrowthOutside0X128Upper;
+        uint256 feeGrowthOutside1X128Upper;
+    }
+
+    struct PairOracleData {
+        uint256 token0Price;
+        uint256 token1Price;
+        uint8 token0Decimal;
+        uint8 token1Decimal;
+        uint160 sqrtPriceX96;
+    }
+
+    /**
+     * @notice get onchain position data from uniswap for the specified tokenId.
+     */
+    function getOnchainPositionData(uint256 tokenId)
+        public
+        view
+        returns (UinswapV3PositionData memory)
+    {
+        (
+            ,
+            ,
+            address token0,
+            address token1,
+            uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint256 tokensOwed0,
+            uint256 tokensOwed1
+        ) = UNISWAP_V3_POSITION_MANAGER.positions(tokenId);
+
+        IUniswapV3PoolState pool = IUniswapV3PoolState(
+            UNISWAP_V3_FACTORY.getPool(token0, token1, fee)
+        );
+        (uint160 currentPrice, int24 currentTick, , , , , ) = pool.slot0();
+
+        return
+            UinswapV3PositionData({
+                token0: token0,
+                token1: token1,
+                fee: fee,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                currentTick: currentTick,
+                currentPrice: currentPrice,
+                liquidity: liquidity,
+                feeGrowthInside0LastX128: feeGrowthInside0LastX128,
+                feeGrowthInside1LastX128: feeGrowthInside1LastX128,
+                tokensOwed0: tokensOwed0,
+                tokensOwed1: tokensOwed1
+            });
+    }
+
+    /**
+     * @notice get onchain liquidity amount for the specified tokenId.
+     */
+    function getLiquidityAmount(uint256 tokenId)
+        external
+        view
+        returns (uint256 token0Amount, uint256 token1Amount)
+    {
+        UinswapV3PositionData memory positionData = getOnchainPositionData(
+            tokenId
+        );
+        (token0Amount, token1Amount) = getLiquidityAmountFromPositionData(
+            positionData
+        );
+    }
+
+    /**
+     * @notice calculate liquidity amount for the position data.
+     * @param positionData The specified position data
+     */
+    function getLiquidityAmountFromPositionData(
+        UinswapV3PositionData memory positionData
+    ) public pure returns (uint256 token0Amount, uint256 token1Amount) {
+        (token0Amount, token1Amount) = LiquidityAmounts.getAmountsForLiquidity(
+            positionData.currentPrice,
+            TickMath.getSqrtRatioAtTick(positionData.tickLower),
+            TickMath.getSqrtRatioAtTick(positionData.tickUpper),
+            positionData.liquidity
+        );
+    }
+
+    /**
+     * @notice get liquidity provider fee amount for the specified tokenId.
+     */
+    function getLpFeeAmount(uint256 tokenId)
+        external
+        view
+        returns (uint256 token0Amount, uint256 token1Amount)
+    {
+        UinswapV3PositionData memory positionData = getOnchainPositionData(
+            tokenId
+        );
+        (token0Amount, token1Amount) = getLpFeeAmountFromPositionData(
+            positionData
+        );
+    }
+
+    /**
+     * @notice calculate liquidity provider fee amount for the position data.
+     * @param positionData The specified position data
+     */
+    function getLpFeeAmountFromPositionData(
+        UinswapV3PositionData memory positionData
+    ) public view returns (uint256 token0Amount, uint256 token1Amount) {
+        (token0Amount, token1Amount) = _getPendingFeeAmounts(positionData);
+
+        token0Amount += positionData.tokensOwed0;
+        token1Amount += positionData.tokensOwed1;
+    }
+
+    /**
+     * @notice Returns the price for the specified tokenId.
+     */
+    function getTokenPrice(uint256 tokenId) public view returns (uint256) {
+        UinswapV3PositionData memory positionData = getOnchainPositionData(
+            tokenId
+        );
+
+        PairOracleData memory oracleData = _getOracleData(positionData);
+
+        (uint256 liquidityAmount0, uint256 liquidityAmount1) = LiquidityAmounts
+            .getAmountsForLiquidity(
+                oracleData.sqrtPriceX96,
+                TickMath.getSqrtRatioAtTick(positionData.tickLower),
+                TickMath.getSqrtRatioAtTick(positionData.tickUpper),
+                positionData.liquidity
+            );
+
+        (
+            uint256 feeAmount0,
+            uint256 feeAmount1
+        ) = getLpFeeAmountFromPositionData(positionData);
+
+        return
+            (((liquidityAmount0 + feeAmount0) * oracleData.token0Price) /
+                10**oracleData.token0Decimal) +
+            (((liquidityAmount1 + feeAmount1) * oracleData.token1Price) /
+                10**oracleData.token1Decimal);
+    }
+
+    /**
+     * @notice Returns the price for the specified tokenId array.
+     */
+    function getTokensPrices(uint256[] calldata tokenIds)
+        external
+        view
+        returns (uint256[] memory)
+    {
+        uint256[] memory prices = new uint256[](tokenIds.length);
+
+        for (uint256 index = 0; index < tokenIds.length; index++) {
+            prices[index] = getTokenPrice(tokenIds[index]);
+        }
+
+        return prices;
+    }
+
+    /**
+     * @notice Returns the total price for the specified tokenId array.
+     */
+    function getTokensPricesSum(uint256[] calldata tokenIds)
+        external
+        view
+        returns (uint256)
+    {
+        uint256 sum = 0;
+
+        for (uint256 index = 0; index < tokenIds.length; index++) {
+            sum += getTokenPrice(tokenIds[index]);
+        }
+
+        return sum;
+    }
+
+    function latestAnswer() external pure returns (int256) {
+        revert("unimplemented");
+    }
+
+    function _getOracleData(UinswapV3PositionData memory positionData)
+        internal
+        view
+        returns (PairOracleData memory)
+    {
+        PairOracleData memory oracleData;
+        IPriceOracleGetter oracle = IPriceOracleGetter(
+            ADDRESSES_PROVIDER.getPriceOracle()
+        );
+        oracleData.token0Price = oracle.getAssetPrice(positionData.token0);
+        oracleData.token1Price = oracle.getAssetPrice(positionData.token1);
+
+        oracleData.token0Decimal = IERC20Detailed(positionData.token0)
+            .decimals();
+        oracleData.token1Decimal = IERC20Detailed(positionData.token1)
+            .decimals();
+
+        // TODO using bit shifting for the 2^96
+        // positionData.sqrtPriceX96;
+
+        if (oracleData.token1Decimal == oracleData.token0Decimal) {
+            // multiply by 10^18 then divide by 10^9 to preserve price in wei
+            oracleData.sqrtPriceX96 = uint160(
+                (SqrtLib.sqrt(
+                    ((oracleData.token0Price * (10**18)) /
+                        (oracleData.token1Price))
+                ) * 2**96) / 1E9
+            );
+        } else if (oracleData.token1Decimal > oracleData.token0Decimal) {
+            // multiple by 10^(decimalB - decimalA) to preserve price in wei
+            oracleData.sqrtPriceX96 = uint160(
+                (SqrtLib.sqrt(
+                    (oracleData.token0Price *
+                        (10 **
+                            (18 +
+                                oracleData.token1Decimal -
+                                oracleData.token0Decimal))) /
+                        (oracleData.token1Price)
+                ) * 2**96) / 1E9
+            );
+        } else {
+            // multiple by 10^(decimalA - decimalB) to preserve price in wei then divide by the same number
+            oracleData.sqrtPriceX96 = uint160(
+                (SqrtLib.sqrt(
+                    (oracleData.token0Price *
+                        (10 **
+                            (18 +
+                                oracleData.token0Decimal -
+                                oracleData.token1Decimal))) /
+                        (oracleData.token1Price)
+                ) * 2**96) /
+                    10 **
+                        (9 +
+                            oracleData.token0Decimal -
+                            oracleData.token1Decimal)
+            );
+        }
+
+        return oracleData;
+    }
+
+    function _getPendingFeeAmounts(UinswapV3PositionData memory positionData)
+        internal
+        view
+        returns (uint256 token0Amount, uint256 token1Amount)
+    {
+        IUniswapV3PoolState pool = IUniswapV3PoolState(
+            UNISWAP_V3_FACTORY.getPool(
+                positionData.token0,
+                positionData.token1,
+                positionData.fee
+            )
+        );
+        FeeParams memory feeParams;
+
+        (
+            ,
+            ,
+            feeParams.feeGrowthOutside0X128Lower,
+            feeParams.feeGrowthOutside1X128Lower,
+            ,
+            ,
+            ,
+
+        ) = pool.ticks(positionData.tickLower);
+        (
+            ,
+            ,
+            feeParams.feeGrowthOutside0X128Upper,
+            feeParams.feeGrowthOutside1X128Upper,
+            ,
+            ,
+            ,
+
+        ) = pool.ticks(positionData.tickUpper);
+
+        uint256 feeGrowthGlobal0X128 = pool.feeGrowthGlobal0X128();
+        uint256 feeGrowthGlobal1X128 = pool.feeGrowthGlobal1X128();
+
+        unchecked {
+            // calculate fee growth below
+            uint256 feeGrowthBelow0X128;
+            uint256 feeGrowthBelow1X128;
+            if (positionData.currentTick >= positionData.tickLower) {
+                feeGrowthBelow0X128 = feeParams.feeGrowthOutside0X128Lower;
+                feeGrowthBelow1X128 = feeParams.feeGrowthOutside1X128Lower;
+            } else {
+                feeGrowthBelow0X128 =
+                    feeGrowthGlobal0X128 -
+                    feeParams.feeGrowthOutside0X128Lower;
+                feeGrowthBelow1X128 =
+                    feeGrowthGlobal1X128 -
+                    feeParams.feeGrowthOutside1X128Lower;
+            }
+
+            // calculate fee growth above
+            uint256 feeGrowthAbove0X128;
+            uint256 feeGrowthAbove1X128;
+            if (positionData.currentTick < positionData.tickUpper) {
+                feeGrowthAbove0X128 = feeParams.feeGrowthOutside0X128Upper;
+                feeGrowthAbove1X128 = feeParams.feeGrowthOutside1X128Upper;
+            } else {
+                feeGrowthAbove0X128 =
+                    feeGrowthGlobal0X128 -
+                    feeParams.feeGrowthOutside0X128Upper;
+                feeGrowthAbove1X128 =
+                    feeGrowthGlobal1X128 -
+                    feeParams.feeGrowthOutside1X128Upper;
+            }
+            uint256 feeGrowthInside0X128;
+            uint256 feeGrowthInside1X128;
+
+            feeGrowthInside0X128 =
+                feeGrowthGlobal0X128 -
+                feeGrowthBelow0X128 -
+                feeGrowthAbove0X128;
+            feeGrowthInside1X128 =
+                feeGrowthGlobal1X128 -
+                feeGrowthBelow1X128 -
+                feeGrowthAbove1X128;
+
+            token0Amount = uint128(
+                FullMath.mulDiv(
+                    feeGrowthInside0X128 -
+                        positionData.feeGrowthInside0LastX128,
+                    positionData.liquidity,
+                    Q128
+                )
+            );
+
+            token1Amount = uint128(
+                FullMath.mulDiv(
+                    feeGrowthInside1X128 -
+                        positionData.feeGrowthInside1LastX128,
+                    positionData.liquidity,
+                    Q128
+                )
+            );
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/misc/UniswapV3OracleWrapper.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/configuration/ACLManager.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {AccessControl} from "../../dependencies/openzeppelin/contracts/AccessControl.sol";
+import {IPoolAddressesProvider} from "../../interfaces/IPoolAddressesProvider.sol";
+import {IACLManager} from "../../interfaces/IACLManager.sol";
+import {Errors} from "../libraries/helpers/Errors.sol";
+
+/**
+ * @title ACLManager
+ *
+ * @notice Access Control List Manager. Main registry of system roles and permissions.
+ */
+contract ACLManager is AccessControl, IACLManager {
+    bytes32 public constant override POOL_ADMIN_ROLE = keccak256("POOL_ADMIN");
+    bytes32 public constant override EMERGENCY_ADMIN_ROLE =
+        keccak256("EMERGENCY_ADMIN");
+    bytes32 public constant override RISK_ADMIN_ROLE = keccak256("RISK_ADMIN");
+    bytes32 public constant override FLASH_BORROWER_ROLE =
+        keccak256("FLASH_BORROWER");
+    bytes32 public constant override BRIDGE_ROLE = keccak256("BRIDGE");
+    bytes32 public constant override ASSET_LISTING_ADMIN_ROLE =
+        keccak256("ASSET_LISTING_ADMIN");
+
+    IPoolAddressesProvider public immutable ADDRESSES_PROVIDER;
+
+    /**
+     * @dev Constructor
+     * @dev The ACL admin should be initialized at the addressesProvider beforehand
+     * @param provider The address of the PoolAddressesProvider
+     */
+    constructor(IPoolAddressesProvider provider) {
+        ADDRESSES_PROVIDER = provider;
+        address aclAdmin = provider.getACLAdmin();
+        require(aclAdmin != address(0), Errors.ACL_ADMIN_CANNOT_BE_ZERO);
+        _setupRole(DEFAULT_ADMIN_ROLE, aclAdmin);
+    }
+
+    /// @inheritdoc IACLManager
+    function setRoleAdmin(bytes32 role, bytes32 adminRole)
+        external
+        override
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
+        _setRoleAdmin(role, adminRole);
+    }
+
+    /// @inheritdoc IACLManager
+    function addPoolAdmin(address admin) external override {
+        grantRole(POOL_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function removePoolAdmin(address admin) external override {
+        revokeRole(POOL_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function isPoolAdmin(address admin) external view override returns (bool) {
+        return hasRole(POOL_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function addEmergencyAdmin(address admin) external override {
+        grantRole(EMERGENCY_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function removeEmergencyAdmin(address admin) external override {
+        revokeRole(EMERGENCY_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function isEmergencyAdmin(address admin)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return hasRole(EMERGENCY_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function addRiskAdmin(address admin) external override {
+        grantRole(RISK_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function removeRiskAdmin(address admin) external override {
+        revokeRole(RISK_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function isRiskAdmin(address admin) external view override returns (bool) {
+        return hasRole(RISK_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function addFlashBorrower(address borrower) external override {
+        grantRole(FLASH_BORROWER_ROLE, borrower);
+    }
+
+    /// @inheritdoc IACLManager
+    function removeFlashBorrower(address borrower) external override {
+        revokeRole(FLASH_BORROWER_ROLE, borrower);
+    }
+
+    /// @inheritdoc IACLManager
+    function isFlashBorrower(address borrower)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return hasRole(FLASH_BORROWER_ROLE, borrower);
+    }
+
+    /// @inheritdoc IACLManager
+    function addBridge(address bridge) external override {
+        grantRole(BRIDGE_ROLE, bridge);
+    }
+
+    /// @inheritdoc IACLManager
+    function removeBridge(address bridge) external override {
+        revokeRole(BRIDGE_ROLE, bridge);
+    }
+
+    /// @inheritdoc IACLManager
+    function isBridge(address bridge) external view override returns (bool) {
+        return hasRole(BRIDGE_ROLE, bridge);
+    }
+
+    /// @inheritdoc IACLManager
+    function addAssetListingAdmin(address admin) external override {
+        grantRole(ASSET_LISTING_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function removeAssetListingAdmin(address admin) external override {
+        revokeRole(ASSET_LISTING_ADMIN_ROLE, admin);
+    }
+
+    /// @inheritdoc IACLManager
+    function isAssetListingAdmin(address admin)
+        external
+        view
+        override
+        returns (bool)
+    {
+        return hasRole(ASSET_LISTING_ADMIN_ROLE, admin);
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/configuration/ACLManager.sol =====

@@ -1,0 +1,101 @@
+{
+  "repo_id": "2021-12-vader",
+  "ground_truth": [
+    {
+      "title": "[H-06] LPs of VaderPoolV2 can manipulate pool reserves to extract funds from the reserve.",
+      "description": "VaderPoolV2.burn() redeems an LP position against the pool's current reserves and passes the released asset amounts together with the position's original deposits to VaderMath.calculateLoss(). Because the reserves can be manipulated before liquidity removal, an LP can create an artificial impermanent loss value. VaderRouterV2.removeLiquidity() then submits the resulting coveredLoss to the reserve for reimbursement.",
+      "impact": "An LP can receive VADER compensation for artificially engineered impermanent loss. With a sufficiently large LP position, the reserve payout can exceed the manipulation costs and allow profitable extraction of reserve funds.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+          "contract": "BasePoolV2",
+          "function": "_burn(uint256,address)",
+          "start_line": 203,
+          "end_line": 246
+        },
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "burn(uint256,address)",
+          "start_line": 265,
+          "end_line": 296
+        },
+        {
+          "file": "contracts/dex/math/VaderMath.sol",
+          "contract": "VaderMath",
+          "function": "calculateLoss(uint256,uint256,uint256,uint256)",
+          "start_line": 72,
+          "end_line": 92
+        },
+        {
+          "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+          "contract": "VaderRouterV2",
+          "function": "removeLiquidity(address,address,uint256,uint256,uint256,address,uint256)",
+          "start_line": 173,
+          "end_line": 221
+        }
+      ],
+      "mitigation": "Use a manipulation-resistant oracle, such as a TWAP, for the relative prices of the pool's assets when calculating impermanent loss.",
+      "finding_id": "H-06",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[H-04] Vader TWAP weights can be corrupted and price queries can be forced to revert.",
+      "description": "LiquidityBasedTWAP.syncVaderPrice() rebuilds the VADER liquidity weights from zero and skips pairs whose update window has not elapsed. The skipped pair's previous weight is neither copied into pastLiquidityWeights nor added to the recomputed total, and a subsequent synchronization can therefore overwrite totalLiquidityWeight[Paths.VADER] with zero. _calculateVaderPrice() then uses the inconsistent weights and total when computing the VADER price, including division by the zero aggregate.",
+      "impact": "An attacker can cause VADER price calculations to use incomplete pair weights, making the oracle easier to manipulate, or force dependent price queries to revert. This can block protocol operations that call the VADER price, including USDV minting and reserve-funded impermanent-loss reimbursement.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "syncVaderPrice()",
+          "start_line": 113,
+          "end_line": 148
+        }
+      ],
+      "mitigation": "When a pair is not eligible for a TWAP update, preserve its previous liquidity evaluation in pastLiquidityWeights and include that value in _totalLiquidityWeight instead of leaving the pair weight at zero or resetting the aggregate.",
+      "finding_id": "H-04",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[H-07] Synth minting and redemption use manipulable pool reserves to drain native assets.",
+      "description": "VaderPoolV2.mintSynth() reads the current native and foreign reserves and passes them to VaderMath.calculateSwap() to determine the synth amount. VaderPoolV2.burnSynth() reads the reserves again and uses the same reserve-based calculation to determine the native amount returned. Because the associated pool reserves can be moved before these operations, an attacker can mint synths at a manipulated exchange rate, restore or move the pool price, and redeem them at a more favorable rate.",
+      "impact": "An attacker can extract native-asset reserves from the associated VaderPoolV2 by manipulating the reserve-based exchange rate between synth minting and burning.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "mintSynth(IERC20,uint256,address,address)",
+          "start_line": 153,
+          "end_line": 194
+        },
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "burnSynth(IERC20,uint256,address)",
+          "start_line": 206,
+          "end_line": 246
+        }
+      ],
+      "mitigation": "Use a manipulation-resistant oracle for the exchange rates used by both synth minting and synth burning instead of relying on the pool's current reserves.",
+      "finding_id": "H-07",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-06] Manipulated pool reserves can make the oracle rely on a single pair.",
+      "description": "LiquidityBasedTWAP._updateUSDVPrice() calculates each USDV pair's currentLiquidityEvaluation by multiplying the pair's current native and foreign reserves by their configured asset prices. syncUSDVPrice() uses that value as the pair's liquidity weight, and _calculateUSDVPrice() weights the final oracle result with those values. An attacker can skew one underlying pool's reserves so its weight dominates the other pairs, causing the oracle to effectively price USDV/VADER from that pair alone.",
+      "impact": "This reduces oracle resilience to a faulty or deprecated Chainlink feed. If the dominated pair's external feed is malfunctioning or deprecated, the manipulated weighting can cause the final oracle price to rely on that faulty feed and return an incorrect price; the finding does not establish direct fund loss by itself.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "_updateUSDVPrice(IERC20,ExchangePair,uint256)",
+          "start_line": 353,
+          "end_line": 383
+        }
+      ],
+      "mitigation": "Calculate fair reserves using the pool invariant and the fair prices of the two assets.",
+      "finding_id": "M-06",
+      "review_status": "gold_verified"
+    }
+  ]
+}

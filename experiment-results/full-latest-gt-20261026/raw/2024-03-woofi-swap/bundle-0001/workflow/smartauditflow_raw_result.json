@@ -1,0 +1,126 @@
+{
+  "Findings": [
+    {
+      "Issue": "Stale Chainlink fallback prices are accepted for WooPP swaps",
+      "Severity": "High",
+      "Description": "The Wooracle implementations obtain Chainlink data through latestRoundData(), but do not validate updatedAt, answer positivity, round completeness, or maximum feed age. When the manually posted Wooracle price is stale, price() falls back to the Chainlink value whenever cloPreferred is enabled and marks it feasible solely because the computed price is nonzero. WooPPV2 and WooPPV3 consume this result through state() and require only state.woFeasible before calculating swap outputs. Consequently, a stale nonzero Chainlink answer can directly determine the amount of base, quote, or USD tokens transferred by a public swap.",
+      "Impact": "If the configured Chainlink fallback is stale while the market price has moved, a trader can execute swaps at an outdated valuation and receive excess pool assets, subject to pool liquidity and swap limits. The same stale valuation can affect cross-chain conversions that route through WooPP swaps.",
+      "Location": "contracts/wooracle/WooracleV2.sol — WooracleV2.price; contracts/wooracle/WooracleV2.sol — WooracleV2._cloPriceInQuote; contracts/WooPPV2.sol — WooPPV2._sellQuote; contracts/WooPPV3/WooPPV3.sol — WooPPV3._swapUsdToBase",
+      "Mitigation": "Validate every Chainlink round before using it as a fallback: require answer > 0, updatedAt != 0, updatedAt <= block.timestamp, answeredInRound >= roundId, and block.timestamp - updatedAt <= a configured maximum age. For quote-relative prices, validate both the base and quote feeds and mark the oracle state infeasible if either feed fails validation. Ensure WooPP swaps reject an invalid fallback rather than treating any nonzero answer as feasible.",
+      "finding_id": "SAF-001"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Stale Chainlink fallback prices are accepted for WooPP swaps",
+      "description": "The Wooracle implementations obtain Chainlink data through latestRoundData(), but do not validate updatedAt, answer positivity, round completeness, or maximum feed age. When the manually posted Wooracle price is stale, price() falls back to the Chainlink value whenever cloPreferred is enabled and marks it feasible solely because the computed price is nonzero. WooPPV2 and WooPPV3 consume this result through state() and require only state.woFeasible before calculating swap outputs. Consequently, a stale nonzero Chainlink answer can directly determine the amount of base, quote, or USD tokens transferred by a public swap.",
+      "impact": "If the configured Chainlink fallback is stale while the market price has moved, a trader can execute swaps at an outdated valuation and receive excess pool assets, subject to pool liquidity and swap limits. The same stale valuation can affect cross-chain conversions that route through WooPP swaps.",
+      "mitigation": "Validate every Chainlink round before using it as a fallback: require answer > 0, updatedAt != 0, updatedAt <= block.timestamp, answeredInRound >= roundId, and block.timestamp - updatedAt <= a configured maximum age. For quote-relative prices, validate both the base and quote feeds and mark the oracle state infeasible if either feed fails validation. Ensure WooPP swaps reject an invalid fallback rather than treating any nonzero answer as feasible.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/wooracle/WooracleV2.sol",
+          "contract": "WooracleV2",
+          "function": "price",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/wooracle/WooracleV2.sol",
+          "contract": "WooracleV2",
+          "function": "_cloPriceInQuote",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_sellQuote",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooPPV3/WooPPV3.sol",
+          "contract": "WooPPV3",
+          "function": "_swapUsdToBase",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 1,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Stale Chainlink fallback prices are accepted for WooPP swaps\",\n    \"description\": \"The Wooracle implementations obtain Chainlink data through latestRoundData(), but do not validate updatedAt, answer positivity, round completeness, or maximum feed age. When the manually posted Wooracle price is stale, price() falls back to the Chainlink value whenever cloPreferred is enabled and marks it feasible solely because the computed price is nonzero. WooPPV2 and WooPPV3 consume this result through state() and require only state.woFeasible before calculating swap outputs. Consequently, a stale nonzero Chainlink answer can directly determine the amount of base, quote, or USD tokens transferred by a public swap.\",\n    \"impact\": \"If the configured Chainlink fallback is stale while the market price has moved, a trader can execute swaps at an outdated valuation and receive excess pool assets, subject to pool liquidity and swap limits. The same stale valuation can affect cross-chain conversions that route through WooPP swaps.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/wooracle/WooracleV2.sol\",\n        \"contract\": \"WooracleV2\",\n        \"function\": \"price\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/wooracle/WooracleV2.sol\",\n        \"contract\": \"WooracleV2\",\n        \"function\": \"_cloPriceInQuote\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooPPV2.sol\",\n        \"contract\": \"WooPPV2\",\n        \"function\": \"_sellQuote\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooPPV3/WooPPV3.sol\",\n        \"contract\": \"WooPPV3\",\n        \"function\": \"_swapUsdToBase\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Validate every Chainlink round before using it as a fallback: require answer > 0, updatedAt != 0, updatedAt <= block.timestamp, answeredInRound >= roundId, and block.timestamp - updatedAt <= a configured maximum age. For quote-relative prices, validate both the base and quote feeds and mark the oracle state infeasible if either feed fails validation. Ensure WooPP swaps reject an invalid fallback rather than treating any nonzero answer as feasible.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 349.97524785995483,
+    "session_id": "4f222748-0869-4783-9981-384a41cb01e2"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2024-03-woofi-swap",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Stale Chainlink fallback prices are accepted for WooPP swaps",
+        "description": "The Wooracle implementations obtain Chainlink data through latestRoundData(), but do not validate updatedAt, answer positivity, round completeness, or maximum feed age. When the manually posted Wooracle price is stale, price() falls back to the Chainlink value whenever cloPreferred is enabled and marks it feasible solely because the computed price is nonzero. WooPPV2 and WooPPV3 consume this result through state() and require only state.woFeasible before calculating swap outputs. Consequently, a stale nonzero Chainlink answer can directly determine the amount of base, quote, or USD tokens transferred by a public swap.",
+        "impact": "If the configured Chainlink fallback is stale while the market price has moved, a trader can execute swaps at an outdated valuation and receive excess pool assets, subject to pool liquidity and swap limits. The same stale valuation can affect cross-chain conversions that route through WooPP swaps.",
+        "mitigation": "Validate every Chainlink round before using it as a fallback: require answer > 0, updatedAt != 0, updatedAt <= block.timestamp, answeredInRound >= roundId, and block.timestamp - updatedAt <= a configured maximum age. For quote-relative prices, validate both the base and quote feeds and mark the oracle state infeasible if either feed fails validation. Ensure WooPP swaps reject an invalid fallback rather than treating any nonzero answer as feasible.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/wooracle/WooracleV2.sol",
+            "contract": "WooracleV2",
+            "function": "price",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/wooracle/WooracleV2.sol",
+            "contract": "WooracleV2",
+            "function": "_cloPriceInQuote",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooPPV2.sol",
+            "contract": "WooPPV2",
+            "function": "_sellQuote",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooPPV3/WooPPV3.sol",
+            "contract": "WooPPV3",
+            "function": "_swapUsdToBase",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

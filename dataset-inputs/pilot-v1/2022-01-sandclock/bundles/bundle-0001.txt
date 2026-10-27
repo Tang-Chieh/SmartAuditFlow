@@ -1,0 +1,1898 @@
+// ===== BEGIN SOURCE FILE: contracts/integrations/IIntegration.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+/**
+ * @title IIntegration interface
+ *
+ * Integrations act as claimers for IVault contracts, and process funds on
+ * behalf of their final beneficiaries
+ */
+interface IIntegration {
+    /**
+     * Called when a new deposit is created is created for which this contract is the beneficiary
+     *
+     * @notice msg.sender will be the IVault instance
+     *
+     * @param _depositID new deposit ID
+     * @param _shares The amount of shares assigned to this deposit
+     * @param _data Additional data with no specified format
+     * @return `bytes4(keccak256("onDepositMinted(uint256,uint256,bytes)"))` unless throwing
+     */
+    function onDepositMinted(
+        uint256 _depositID,
+        uint256 _shares,
+        bytes memory _data
+    ) external returns (bytes4);
+
+    /**
+     * Called when an existing deposit is withdrawn
+     *
+     * @notice msg.sender will be the IVault instance
+     *
+     * @param _depositID claim ID
+     * @return `bytes4(keccak256("onDepositBurned(uint256)"))` unless throwing
+     */
+    function onDepositBurned(uint256 _depositID) external returns (bytes4);
+}
+// ===== END SOURCE FILE: contracts/integrations/IIntegration.sol =====
+// ===== BEGIN SOURCE FILE: contracts/lib/ERC165Query.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+library ERC165Query {
+    bytes4 constant InvalidID = 0xffffffff;
+    bytes4 constant ERC165ID = 0x01ffc9a7;
+
+    function doesContractImplementInterface(
+        address _contract,
+        bytes4 _interfaceId
+    ) internal view returns (bool) {
+        uint256 success;
+        uint256 result;
+
+        (success, result) = noThrowCall(_contract, ERC165ID);
+        if ((success == 0) || (result == 0)) {
+            return false;
+        }
+
+        (success, result) = noThrowCall(_contract, InvalidID);
+        if ((success == 0) || (result != 0)) {
+            return false;
+        }
+
+        (success, result) = noThrowCall(_contract, _interfaceId);
+        if ((success == 1) && (result == 1)) {
+            return true;
+        }
+        return false;
+    }
+
+    function noThrowCall(address _contract, bytes4 _interfaceId)
+        internal
+        view
+        returns (uint256 success, uint256 result)
+    {
+        bytes4 erc165ID = ERC165ID;
+
+        assembly {
+            let x := mload(0x40) // Find empty storage location using "free memory pointer"
+            mstore(x, erc165ID) // Place signature at beginning of empty storage
+            mstore(add(x, 0x04), _interfaceId) // Place first argument directly next to signature
+
+            success := staticcall(
+                30000, // 30k gas
+                _contract, // To addr
+                x, // Inputs are stored at location x
+                0x24, // Inputs are 36 bytes long
+                x, // Store output over input (saves space)
+                0x20
+            ) // Outputs are 32 bytes long
+
+            result := mload(x) // Load the result
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/lib/ERC165Query.sol =====
+// ===== BEGIN SOURCE FILE: contracts/lib/PercentMath.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+library PercentMath {
+    // Divisor used for representing percentages
+    uint256 public constant PERC_DIVISOR = 10000;
+
+    /**
+     * @dev Returns whether an amount is a valid percentage out of PERC_DIVISOR
+     * @param _amount Amount that is supposed to be a percentage
+     */
+    function validPerc(uint256 _amount) internal pure returns (bool) {
+        return _amount <= PERC_DIVISOR;
+    }
+
+    /**
+     * @dev Compute percentage of a value with the percentage represented by a fraction
+     * @param _amount Amount to take the percentage of
+     * @param _fracNum Numerator of fraction representing the percentage
+     * @param _fracDenom Denominator of fraction representing the percentage
+     */
+    function percOf(
+        uint256 _amount,
+        uint256 _fracNum,
+        uint256 _fracDenom
+    ) internal pure returns (uint256) {
+        return (_amount * percPoints(_fracNum, _fracDenom)) / PERC_DIVISOR;
+    }
+
+    /**
+     * @dev Compute percentage of a value with the percentage represented by a fraction over PERC_DIVISOR
+     * @param _amount Amount to take the percentage of
+     * @param _fracNum Numerator of fraction representing the percentage with PERC_DIVISOR as the denominator
+     */
+    function percOf(uint256 _amount, uint256 _fracNum)
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_amount * _fracNum) / PERC_DIVISOR;
+    }
+
+    /**
+     * @dev Checks if a given number corresponds to 100%
+     * @param _perc Percentage value to check, with PERC_DIVISOR
+     */
+    function is100Perc(uint256 _perc) internal pure returns (bool) {
+        return _perc == PERC_DIVISOR;
+    }
+
+    /**
+     * @dev Compute percentage representation of a fraction
+     * @param _fracNum Numerator of fraction represeting the percentage
+     * @param _fracDenom Denominator of fraction represeting the percentage
+     */
+    function percPoints(uint256 _fracNum, uint256 _fracDenom)
+        internal
+        pure
+        returns (uint256)
+    {
+        return (_fracNum * PERC_DIVISOR) / _fracDenom;
+    }
+}
+// ===== END SOURCE FILE: contracts/lib/PercentMath.sol =====
+// ===== BEGIN SOURCE FILE: contracts/SandclockFactory.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+
+import {Trust} from "@rari-capital/solmate/src/auth/Trust.sol";
+
+contract SandclockFactory is Context, Trust {
+    //
+    // Events
+    //
+
+    event NewVault(address indexed vault, uint256 salt);
+    event NewDCA(address indexed dca, uint256 salt);
+
+    //
+    // Constructor
+    //
+
+    constructor() Trust(_msgSender()) {}
+
+    //
+    // Public API
+    //
+
+    function deployVault(bytes memory code, uint256 salt)
+        external
+        requiresTrust
+    {
+        address addr = deploy(code, salt);
+
+        emit NewVault(addr, salt);
+    }
+
+    function deployDCA(bytes memory code, uint256 salt) external requiresTrust {
+        address addr = deploy(code, salt);
+
+        emit NewDCA(addr, salt);
+    }
+
+    //
+    // Internal
+    //
+
+    function deploy(bytes memory code, uint256 salt)
+        internal
+        returns (address)
+    {
+        address addr;
+        assembly {
+            addr := create2(0, add(code, 0x20), mload(code), salt)
+            if iszero(extcodesize(addr)) {
+                revert(0, 0)
+            }
+        }
+
+        return addr;
+    }
+}
+// ===== END SOURCE FILE: contracts/SandclockFactory.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/anchor/IConversionPool.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+interface IConversionPool {
+    function deposit(uint256 _amount, uint256 _minAmountOut) external;
+
+    function redeem(uint256 _amount, uint256 _minAmountOut) external;
+}
+// ===== END SOURCE FILE: contracts/strategy/anchor/IConversionPool.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/anchor/IEthAnchorRouter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+interface IEthAnchorRouter {
+    function initDepositStable(uint256 _amount) external returns (address);
+
+    function finishDepositStable(address _operation) external;
+
+    function initRedeemStable(uint256 _amount) external returns (address);
+
+    function finishRedeemStable(address _operation) external;
+}
+// ===== END SOURCE FILE: contracts/strategy/anchor/IEthAnchorRouter.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/anchor/IExchangeRateFeeder.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+interface IExchangeRateFeeder {
+    function exchangeRateOf(address _token, bool _simulate)
+        external
+        view
+        returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/strategy/anchor/IExchangeRateFeeder.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/BaseStrategy.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Trust} from "@rari-capital/solmate/src/auth/Trust.sol";
+
+import "../lib/PercentMath.sol";
+import "../vault/IVault.sol";
+import "./IStrategy.sol";
+import "./anchor/IEthAnchorRouter.sol";
+import "./anchor/IExchangeRateFeeder.sol";
+
+// import "./Controllable.sol";
+
+/**
+ * Base strategy that handles UST tokens and invests them via the EthAnchor
+ * protocol (https://docs.anchorprotocol.com/ethanchor/ethanchor)
+ */
+abstract contract BaseStrategy is IStrategy, Trust {
+    using SafeERC20 for IERC20;
+    using PercentMath for uint256;
+
+    event PerfFeeClaimed(uint256 amount);
+    event PerfFeePctUpdated(uint256 pct);
+
+    struct Operation {
+        address operator;
+        uint256 amount;
+    }
+
+    IERC20 public override(IStrategy) underlying;
+    // Vault address
+    address public override(IStrategy) vault;
+
+    // address of the treasury
+    address public treasury;
+
+    // address for the UST token
+    IERC20 public ustToken;
+
+    // address for the aUST token (wrapped Anchor UST, received to accrue interest for an Anchor deposit)
+    IERC20 public aUstToken;
+
+    // performance fee taken by the treasury on profits
+    uint16 public perfFeePct;
+
+    // external contract to interact with EthAnchor
+    IEthAnchorRouter public ethAnchorRouter;
+
+    // external exchange rate provider
+    IExchangeRateFeeder public exchangeRateFeeder;
+
+    // amount currently pending in deposits to EthAnchor
+    uint256 public pendingDeposits;
+
+    // amount currently pending redeemption from EthAnchor
+    uint256 public pendingRedeems;
+
+    // deposit operations history
+    Operation[] public depositOperations;
+
+    // redeem operations history
+    Operation[] public redeemOperations;
+
+    // amount of UST converted (used to calculate yield)
+    uint256 public convertedUst;
+
+    // restructs a function to be called only by the vault or governance
+    modifier restricted() {
+        require(msg.sender == vault || isTrusted[msg.sender], "restricted");
+
+        _;
+    }
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "only vault");
+
+        _;
+    }
+
+    constructor(
+        address _vault,
+        address _treasury,
+        address _ethAnchorRouter,
+        address _exchangeRateFeeder,
+        IERC20 _ustToken,
+        IERC20 _aUstToken,
+        uint16 _perfFeePct,
+        address _owner
+    ) Trust(_owner) {
+        require(_ethAnchorRouter != address(0), "0x addr");
+        require(_exchangeRateFeeder != address(0), "0x addr");
+        require(address(_ustToken) != address(0), "0x addr");
+        require(address(_aUstToken) != address(0), "0x addr");
+        require(PercentMath.validPerc(_perfFeePct), "invalid pct");
+
+        treasury = _treasury;
+        vault = _vault;
+        underlying = IVault(_vault).underlying();
+        ethAnchorRouter = IEthAnchorRouter(_ethAnchorRouter);
+        exchangeRateFeeder = IExchangeRateFeeder(_exchangeRateFeeder);
+        ustToken = _ustToken;
+        aUstToken = _aUstToken;
+        perfFeePct = _perfFeePct;
+
+        // pre-approve EthAnchor router to transact all UST and aUST
+        ustToken.safeApprove(_ethAnchorRouter, type(uint256).max);
+        aUstToken.safeApprove(_ethAnchorRouter, type(uint256).max);
+    }
+
+    /**
+     * Initiates a deposit of all the currently held UST into EthAnchor
+     *
+     * @notice since EthAnchor uses an asynchronous model, this function
+     * only starts the deposit process, but does not finish it.
+     */
+    function doHardWork() external virtual override(IStrategy) restricted {
+        _initDepositStable();
+    }
+
+    function _initDepositStable() internal {
+        uint256 ustBalance = _getUstBalance();
+        require(ustBalance > 0, "balance 0");
+        pendingDeposits += ustBalance;
+        address _operator = ethAnchorRouter.initDepositStable(ustBalance);
+        depositOperations.push(
+            Operation({operator: _operator, amount: ustBalance})
+        );
+    }
+
+    /**
+     * Calls EthAnchor with a pending deposit ID, and attempts to finish it.
+     *
+     * @notice Must be called some time after `doHardWork()`. Will only work if
+     * the EthAnchor bridge has finished processing the deposit.
+     *
+     * @param idx Id of the pending deposit operation
+     */
+    function finishDepositStable(uint256 idx) external {
+        require(depositOperations.length > idx, "not running");
+        Operation storage operation = depositOperations[idx];
+        ethAnchorRouter.finishDepositStable(operation.operator);
+
+        pendingDeposits -= operation.amount;
+        convertedUst += operation.amount;
+
+        operation.operator = depositOperations[depositOperations.length - 1]
+            .operator;
+        operation.amount = depositOperations[depositOperations.length - 1]
+            .amount;
+        depositOperations.pop();
+    }
+
+    /**
+     * Initiates a withdrawal of UST from EthAnchor
+     *
+     * @notice since EthAnchor uses an asynchronous model, this function
+     * only starts the redeem process, but does not finish it.
+     *
+     * @param amount Amount of aUST to redeem
+     */
+    function initRedeemStable(uint256 amount) public restricted {
+        uint256 aUstBalance = _getAUstBalance();
+        require(amount > 0, "amount 0");
+        require(aUstBalance >= amount, "insufficient");
+        pendingRedeems += amount;
+        address _operator = ethAnchorRouter.initRedeemStable(amount);
+        redeemOperations.push(Operation({operator: _operator, amount: amount}));
+    }
+
+    /**
+     * Calls EthAnchor with a pending redeem ID, and attempts to finish it.
+     *
+     * @notice Must be called some time after `initRedeemStable()`. Will only work if
+     * the EthAnchor bridge has finished processing the deposit.
+     *
+     * @param idx Id of the pending redeem operation
+     */
+    function finishRedeemStable(uint256 idx) public virtual {
+        require(redeemOperations.length > idx, "not running");
+        Operation storage operation = redeemOperations[idx];
+        uint256 aUstBalance = _getAUstBalance() + pendingRedeems;
+        uint256 originalUst = (convertedUst * operation.amount) / aUstBalance;
+        uint256 ustBalanceBefore = _getUstBalance();
+
+        ethAnchorRouter.finishRedeemStable(operation.operator);
+
+        uint256 redeemedAmount = _getUstBalance() - ustBalanceBefore;
+        uint256 perfFee = redeemedAmount > originalUst
+            ? (redeemedAmount - originalUst).percOf(perfFeePct)
+            : 0;
+        if (perfFee > 0) {
+            ustToken.safeTransfer(treasury, perfFee);
+            emit PerfFeeClaimed(perfFee);
+        }
+        convertedUst -= originalUst;
+        pendingRedeems -= operation.amount;
+
+        operation.operator = redeemOperations[redeemOperations.length - 1]
+            .operator;
+        operation.amount = redeemOperations[redeemOperations.length - 1].amount;
+        redeemOperations.pop();
+    }
+
+    /**
+     * Withdraws the entire amount back to the vault
+     *
+     * @notice since some of the amount may be deposited into EthAnchor, this
+     * call may not withdraw all the funds right away. It will start a redeem
+     * process on EthAnchor, but this function must be called again a second
+     * time once that is finished.
+     */
+    function withdrawAllToVault() external override(IStrategy) restricted {
+        uint256 aUstBalance = _getAUstBalance();
+        if (aUstBalance > 0) {
+            initRedeemStable(aUstBalance);
+        }
+        uint256 underlyingBalance = _getUnderlyingBalance();
+        if (underlyingBalance > 0) {
+            underlying.safeTransfer(vault, underlyingBalance);
+        }
+    }
+
+    /**
+     * Withdraws a specified amount back to the vault
+     *
+     * @notice Unlike `withdrawToVault`, this function only considers the
+     * amount currently not invested, but only what is currently held by the
+     * strategy
+     *
+     * @param amount Amount to withdraw
+     */
+    function withdrawToVault(uint256 amount)
+        external
+        override(IStrategy)
+        restricted
+    {
+        underlying.safeTransfer(vault, amount);
+    }
+
+    /**
+     * Updates the performance fee
+     *
+     * @notice Can only be called by governance
+     *
+     * @param _perfFeePct The new performance fee %
+     */
+    function setPerfFeePct(uint16 _perfFeePct) external restricted {
+        require(PercentMath.validPerc(_perfFeePct), "invalid pct");
+        perfFeePct = _perfFeePct;
+        emit PerfFeePctUpdated(_perfFeePct);
+    }
+
+    /**
+     * Amount, expressed in the underlying currency, currently in the strategy
+     *
+     * @notice both held and invested amounts are included here, using the
+     * latest known exchange rates to the underlying currency
+     *
+     * @return The total amount of underlying
+     */
+    function investedAssets()
+        external
+        view
+        virtual
+        override(IStrategy)
+        returns (uint256)
+    {
+        uint256 underlyingBalance = _getUnderlyingBalance() + pendingDeposits;
+        uint256 aUstBalance = _getAUstBalance() + pendingRedeems;
+
+        return
+            underlyingBalance +
+            ((exchangeRateFeeder.exchangeRateOf(address(aUstToken), true) *
+                aUstBalance) / 1e18);
+    }
+
+    // Amount of underlying tokens in the strategy
+    function _getUnderlyingBalance() internal view returns (uint256) {
+        return underlying.balanceOf(address(this));
+    }
+
+    // Amount of UST tokens in the strategy
+    function _getUstBalance() internal view returns (uint256) {
+        return ustToken.balanceOf(address(this));
+    }
+
+    // Amount of aUST tokens in the strategy
+    function _getAUstBalance() internal view returns (uint256) {
+        return aUstToken.balanceOf(address(this));
+    }
+
+    // Amount of pending deposit operations
+    function depositOperationLength() external view returns (uint256) {
+        return depositOperations.length;
+    }
+
+    // Amount of pending redeem operations
+    function redeemOperationLength() external view returns (uint256) {
+        return redeemOperations.length;
+    }
+}
+// ===== END SOURCE FILE: contracts/strategy/BaseStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/curve/ICurve.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+interface ICurve {
+    function exchange_underlying(
+        int128 i,
+        int128 j,
+        uint256 dx,
+        uint256 min_dy
+    ) external returns (uint256);
+
+    function get_dy_underlying(
+        int128 i,
+        int128 j,
+        uint256 dx
+    ) external view returns (uint256);
+}
+// ===== END SOURCE FILE: contracts/strategy/curve/ICurve.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/IStrategy.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+// import "./IControllable.sol";
+
+/**
+ * Strategies can be plugged into vaults to invest and manage their underlying funds
+ *
+ * @notice It's up to the strategy to decide what do to with investable assets provided by a vault
+ *
+ * @notice It's up to the vault to decide how much to invest from the total pool
+ */
+interface IStrategy {
+    event ProfitShared(uint256 amount);
+
+    /**
+     * The underlying ERC20 token stored by the vault
+     *
+     * @return The ERC20 token address
+     */
+    function underlying() external view returns (IERC20);
+
+    /**
+     * The vault linked to this stragegy
+     *
+     * @return The vault's address
+     */
+    function vault() external view returns (address);
+
+    /**
+     * Withdraws all underlying back to vault.
+     *
+     * @notice If underlying is currently invested, this also starts the
+     * cross-chain process to redeem it. After that is done, this function
+     * should be called a second time to finish the withdrawal of that portion.
+     */
+    function withdrawAllToVault() external;
+
+    /**
+     * Withdraws a specified amount back to the vault
+     *
+     * @notice Unlike `withdrawToVault`, this function only considers the
+     * amount currently not invested, but only what is currently held by the
+     * strategy
+     *
+     * @param amount Amount to withdraw
+     */
+    function withdrawToVault(uint256 amount) external;
+
+    /**
+     * Amount, expressed in the underlying currency, currently in the strategy
+     *
+     * @notice both held and invested amounts are included here, using the
+     * latest known exchange rates to the underlying currency
+     *
+     * @return The total amount of underlying
+     */
+    function investedAssets() external view returns (uint256);
+
+    /**
+     * Initiates the process of investing the underlying currency
+     */
+    function doHardWork() external;
+}
+// ===== END SOURCE FILE: contracts/strategy/IStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/NonUSTStrategy.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import "./curve/ICurve.sol";
+import "./BaseStrategy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
+/**
+ * Strategy that handles non-UST tokens, by first converting them to UST via
+ * Curve (https://curve.fi/), and only then depositing into EthAnchor
+ */
+contract NonUSTStrategy is BaseStrategy {
+    using SafeERC20 for IERC20;
+
+    // address of the Curve pool to use
+    ICurve public curvePool;
+
+    // index of the underlying token in the pool
+    int128 public underlyingI;
+
+    // index of the UST token in the pool
+    int128 public ustI;
+
+    constructor(
+        address _vault,
+        address _treasury,
+        address _ethAnchorRouter,
+        address _exchangeRateFeeder,
+        IERC20 _ustToken,
+        IERC20 _aUstToken,
+        uint16 _perfFeePct,
+        address _owner,
+        address _curvePool,
+        int128 _underlyingI,
+        int128 _ustI
+    )
+        BaseStrategy(
+            _vault,
+            _treasury,
+            _ethAnchorRouter,
+            _exchangeRateFeeder,
+            _ustToken,
+            _aUstToken,
+            _perfFeePct,
+            _owner
+        )
+    {
+        require(underlying != _ustToken, "invalid underlying");
+        require(_curvePool != address(0), "0x addr");
+        curvePool = ICurve(_curvePool);
+        underlyingI = _underlyingI;
+        ustI = _ustI;
+
+        ustToken.safeApprove(_curvePool, type(uint256).max);
+        underlying.safeApprove(_curvePool, type(uint256).max);
+    }
+
+    /**
+     * Swaps the underlying currency for UST, and initiates a deposit of all
+     * the converted UST into EthAnchor
+     *
+     * @notice since EthAnchor uses an asynchronous model, this function
+     * only starts the deposit process, but does not finish it.
+     */
+    function doHardWork() external override(BaseStrategy) restricted {
+        _swapUnderlyingToUst();
+        _initDepositStable();
+    }
+
+    /**
+     * Calls Curve to convert the existing underlying balance into UST
+     */
+    function _swapUnderlyingToUst() internal {
+        uint256 underlyingBalance = _getUnderlyingBalance();
+        if (underlyingBalance > 0) {
+            // slither-disable-next-line unused-return
+            curvePool.exchange_underlying(
+                underlyingI,
+                ustI,
+                underlyingBalance,
+                0
+            );
+        }
+    }
+
+    /**
+     * Calls Curve to convert the existing UST back into the underlying token
+     */
+    function _swapUstToUnderlying() internal {
+        uint256 ustBalance = _getUstBalance();
+        if (ustBalance > 0) {
+            // slither-disable-next-line unused-return
+            curvePool.exchange_underlying(ustI, underlyingI, ustBalance, 0);
+        }
+    }
+
+    /**
+     * Calls EthAnchor with a pending redeem ID, and attempts to finish it.
+     * Once UST is retrieved, convert it back to underlying via Curve
+     *
+     * @notice Must be called some time after `initRedeemStable()`. Will only work if
+     * the EthAnchor bridge has finished processing the deposit.
+     *
+     * @param idx Id of the pending redeem operation
+     */
+    function finishRedeemStable(uint256 idx) public override(BaseStrategy) {
+        super.finishRedeemStable(idx);
+        _swapUstToUnderlying();
+    }
+
+    /**
+     * Amount, expressed in the underlying currency, currently in the strategy
+     *
+     * @notice both held and invested amounts are included here, using the
+     * latest known exchange rates to the underlying currency
+     *
+     * @return The total amount of underlying
+     */
+    function investedAssets()
+        external
+        view
+        override(BaseStrategy)
+        returns (uint256)
+    {
+        uint256 underlyingBalance = _getUnderlyingBalance();
+        uint256 aUstBalance = _getAUstBalance() + pendingRedeems;
+
+        uint256 ustAssets = ((exchangeRateFeeder.exchangeRateOf(
+            address(aUstToken),
+            true
+        ) * aUstBalance) / 1e18) + pendingDeposits;
+        return
+            underlyingBalance +
+            curvePool.get_dy_underlying(ustI, underlyingI, ustAssets);
+    }
+}
+// ===== END SOURCE FILE: contracts/strategy/NonUSTStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/strategy/USTStrategy.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "./BaseStrategy.sol";
+
+/**
+ * A strategy that uses UST as the underlying currency
+ *
+ * @notice The base implementation for EthAnchorUSTBaseStrategy already handles
+ * everything, since in this case _underlying and _ustToken are the same token
+ */
+contract USTStrategy is BaseStrategy {
+    constructor(
+        address _vault,
+        address _treasury,
+        address _ethAnchorRouter,
+        address _exchangeRateFeeder,
+        IERC20 _ustToken,
+        IERC20 _aUstToken,
+        uint16 _perfFeePct,
+        address _owner
+    )
+        BaseStrategy(
+            _vault,
+            _treasury,
+            _ethAnchorRouter,
+            _exchangeRateFeeder,
+            _ustToken,
+            _aUstToken,
+            _perfFeePct,
+            _owner
+        )
+    {
+        require(underlying == _ustToken, "invalid underlying");
+    }
+}
+// ===== END SOURCE FILE: contracts/strategy/USTStrategy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/Vault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Context} from "@openzeppelin/contracts/utils/Context.sol";
+import {Counters} from "@openzeppelin/contracts/utils/Counters.sol";
+import {Address} from "@openzeppelin/contracts/utils/Address.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {Trust} from "@rari-capital/solmate/src/auth/Trust.sol";
+
+import {IVault} from "./vault/IVault.sol";
+import {IVaultSponsoring} from "./vault/IVaultSponsoring.sol";
+import {PercentMath} from "./lib/PercentMath.sol";
+import {Depositors} from "./vault/Depositors.sol";
+import {Claimers} from "./vault/Claimers.sol";
+import {IIntegration} from "./integrations/IIntegration.sol";
+import {IStrategy} from "./strategy/IStrategy.sol";
+import {ERC165Query} from "./lib/ERC165Query.sol";
+
+import "hardhat/console.sol";
+
+/**
+ * A vault where other accounts can deposit an underlying token
+ * currency and set distribution params for their principal and yield
+ *
+ * @dev Yield generation strategies not yet implemented
+ */
+
+contract Vault is IVault, IVaultSponsoring, Context, ERC165, Trust {
+    using Counters for Counters.Counter;
+    using SafeERC20 for IERC20;
+    using PercentMath for uint256;
+    using Address for address;
+    using ERC165Query for address;
+
+    //
+    // Constants
+    //
+
+    uint256 public constant MIN_SPONSOR_LOCK_DURATION = 1209600; // 2 weeks in seconds
+    uint256 public constant SHARES_MULTIPLIER = 10**18;
+
+    //
+    // State
+    //
+
+    /// Underlying ERC20 token accepted by the vault
+    /// See {IVault}
+    IERC20 public override(IVault) underlying;
+
+    /// See {IVault}
+    IStrategy public strategy;
+
+    /// See {IVault}
+    uint256 public investPerc;
+
+    /// See {IVault}
+    uint256 public immutable override(IVault) minLockPeriod;
+
+    /// See {IVaultSponsoring}
+    uint256 public override(IVaultSponsoring) totalSponsored;
+
+    /// Depositors, represented as an NFT per deposit
+    Depositors public depositors;
+
+    /// Yield allocation
+    Claimers public claimers;
+
+    /// Unique IDs to correlate donations that belong to the same foundation
+    Counters.Counter private _depositGroupIds;
+
+    /**
+     * @param _underlying Underlying ERC20 token to use.
+     */
+    constructor(
+        IERC20 _underlying,
+        uint256 _minLockPeriod,
+        uint256 _investPerc,
+        address _owner
+    ) Trust(_owner) {
+        require(
+            PercentMath.validPerc(_investPerc),
+            "Vault: invalid investPerc"
+        );
+        require(
+            address(_underlying) != address(0x0),
+            "VaultContext: underlying cannot be 0x0"
+        );
+        investPerc = _investPerc;
+        underlying = _underlying;
+        minLockPeriod = _minLockPeriod;
+
+        depositors = new Depositors(address(this), "depositors", "p");
+        claimers = new Claimers(address(this));
+    }
+
+    //
+    // IVault
+    //
+
+    /// See {IVault}
+    function setStrategy(address _strategy)
+        external
+        override(IVault)
+        requiresTrust
+    {
+        require(_strategy != address(0), "Vault: strategy 0x");
+        require(
+            IStrategy(_strategy).vault() == address(this),
+            "Vault: invalid vault"
+        );
+        require(
+            address(strategy) == address(0) || strategy.investedAssets() == 0,
+            "Vault: strategy has invested funds"
+        );
+
+        strategy = IStrategy(_strategy);
+    }
+
+    /// See {IVault}
+    function totalUnderlying() public view override(IVault) returns (uint256) {
+        if (address(strategy) != address(0)) {
+            return
+                underlying.balanceOf(address(this)) + strategy.investedAssets();
+        } else {
+            return underlying.balanceOf(address(this));
+        }
+    }
+
+    /// See {IVault}
+    function totalShares() public view override(IVault) returns (uint256) {
+        return claimers.totalShares();
+    }
+
+    /// See {IVault}
+    function yieldFor(address _to)
+        public
+        view
+        override(IVault)
+        returns (uint256)
+    {
+        uint256 tokenId = claimers.addressToTokenID(_to);
+        uint256 claimerPrincipal = claimers.principalOf(tokenId);
+        uint256 claimerShares = claimers.sharesOf(tokenId);
+        uint256 currentClaimerPrincipal = _computeAmount(
+            claimerShares,
+            totalShares(),
+            totalUnderlyingMinusSponsored()
+        );
+
+        if (currentClaimerPrincipal <= claimerPrincipal) {
+            return 0;
+        }
+
+        return currentClaimerPrincipal - claimerPrincipal;
+    }
+
+    /// See {IVault}
+    function deposit(DepositParams calldata _params) external {
+        _createDeposit(_params.amount, _params.lockedUntil, _params.claims);
+        _transferAndCheckUnderlying(_msgSender(), _params.amount);
+    }
+
+    /// See {IVault}
+    function claimYield(address _to) external override(IVault) {
+        uint256 yield = yieldFor(_msgSender());
+
+        if (yield == 0) return;
+
+        uint256 shares = _computeShares(
+            yield,
+            totalShares(),
+            totalUnderlyingMinusSponsored()
+        );
+        uint256 sharesAmount = _computeAmount(
+            shares,
+            totalShares(),
+            totalUnderlyingMinusSponsored()
+        );
+
+        claimers.claimYield(_msgSender(), _to, sharesAmount, shares);
+
+        underlying.safeTransfer(_to, sharesAmount);
+    }
+
+    /// See {IVault}
+    function withdraw(address _to, uint256[] memory _ids)
+        external
+        override(IVault)
+    {
+        _withdraw(_to, _ids, false);
+    }
+
+    /// See {IVault}
+    function forceWithdraw(address _to, uint256[] memory _ids) external {
+        _withdraw(_to, _ids, true);
+    }
+
+    /// See {IVault}
+    function setInvestPerc(uint16 _investPerc) external requiresTrust {
+        require(
+            PercentMath.validPerc(_investPerc),
+            "Vault: invalid investPerc"
+        );
+
+        emit InvestPercentageUpdated(_investPerc);
+
+        investPerc = _investPerc;
+    }
+
+    /// See {IVault}
+    function investableAmount() public view returns (uint256) {
+        uint256 maxInvestableAssets = totalUnderlying().percOf(investPerc);
+
+        uint256 alreadyInvested = strategy.investedAssets();
+
+        if (alreadyInvested >= maxInvestableAssets) {
+            return 0;
+        } else {
+            return maxInvestableAssets - alreadyInvested;
+        }
+    }
+
+    /// See {IVault}
+    function updateInvested() external requiresTrust {
+        require(address(strategy) != address(0), "Vault: strategy is not set");
+
+        uint256 _investable = investableAmount();
+
+        if (_investable > 0) {
+            underlying.safeTransfer(address(strategy), _investable);
+
+            emit Invested(_investable);
+        }
+
+        strategy.doHardWork();
+    }
+
+    //
+    // IVaultSponsoring
+
+    /// See {IVaultSponsoring}
+    function sponsor(uint256 _amount, uint256 _lockedUntil)
+        external
+        override(IVaultSponsoring)
+    {
+        if (_lockedUntil == 0)
+            _lockedUntil = block.timestamp + MIN_SPONSOR_LOCK_DURATION;
+        else
+            require(
+                _lockedUntil >= block.timestamp + MIN_SPONSOR_LOCK_DURATION,
+                "Vault: lock time is too small"
+            );
+
+        uint256 tokenId = depositors.mint(
+            _msgSender(),
+            _amount,
+            0,
+            _lockedUntil
+        );
+
+        emit Sponsored(tokenId, _amount, _msgSender(), _lockedUntil);
+
+        totalSponsored += _amount;
+        _transferAndCheckUnderlying(_msgSender(), _amount);
+    }
+
+    /// See {IVaultSponsoring}
+    function unsponsor(address _to, uint256[] memory _ids) external {
+        _unsponsor(_to, _ids, false);
+    }
+
+    /// See {IVaultSponsoring}
+    function forceUnsponsor(address _to, uint256[] memory _ids) external {
+        _unsponsor(_to, _ids, true);
+    }
+
+    //
+    // Public API
+    //
+
+    /**
+     * Computes the total amount of principal + yield currently controlled by the
+     * vault and the strategy. The principal + yield is the total amount
+     * of underlying that can be claimed or withdrawn, excluding the sponsored amount.
+     *
+     * @return Total amount of principal and yield help by the vault (not including sponsored amount).
+     */
+    function totalUnderlyingMinusSponsored() public view returns (uint256) {
+        // TODO no invested amount yet
+        return totalUnderlying() - totalSponsored;
+    }
+
+    //
+    // ERC165
+    //
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(ERC165)
+        returns (bool)
+    {
+        return
+            interfaceId == type(IVault).interfaceId ||
+            interfaceId == type(IVaultSponsoring).interfaceId ||
+            super.supportsInterface(interfaceId);
+    }
+
+    //
+    // Internal API
+    //
+
+    /**
+     * Withdraws the principal from the deposits with the ids provided in @param _ids and sends it to @param _to.
+     *
+     * @notice the NFTs of the deposits will be burned.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     * @param _force Boolean to specify if the action should be perfomed when there's loss.
+     */
+    function _withdraw(
+        address _to,
+        uint256[] memory _ids,
+        bool _force
+    ) internal {
+        uint256 localTotalShares = totalShares();
+        uint256 localTotalPrincipal = totalUnderlyingMinusSponsored();
+        uint256 amount;
+
+        for (uint8 i = 0; i < _ids.length; i++) {
+            amount += _withdrawDeposit(
+                _ids[i],
+                localTotalShares,
+                localTotalPrincipal,
+                _to,
+                _force
+            );
+        }
+
+        underlying.safeTransfer(_to, amount);
+    }
+
+    /**
+     * Withdraws the sponsored amount for the deposits with the ids provided
+     * in @param _ids and sends it to @param _to.
+     *
+     * @notice the NFTs of the deposits will be burned.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     * @param _force Boolean to specify if the action should be perfomed when there's loss.
+     */
+    function _unsponsor(
+        address _to,
+        uint256[] memory _ids,
+        bool _force
+    ) internal {
+        uint256 sponsorAmount;
+
+        for (uint8 i = 0; i < _ids.length; i++) {
+            uint256 tokenId = _ids[i];
+
+            require(
+                depositors.ownerOf(tokenId) == _msgSender(),
+                "Vault: you are not the owner of a sponsor"
+            );
+
+            (
+                uint256 depositAmount,
+                uint256 claimerId,
+                uint256 lockedUntil
+            ) = depositors.deposits(tokenId);
+            require(lockedUntil <= block.timestamp, "Vault: amount is locked");
+
+            require(claimerId == 0, "Vault: token id is not a sponsor");
+
+            depositors.burn(tokenId);
+
+            emit Unsponsored(tokenId);
+
+            sponsorAmount += depositAmount;
+        }
+
+        uint256 sponsorToTransfer = sponsorAmount;
+
+        if (_force && sponsorAmount > totalUnderlying()) {
+            sponsorToTransfer = totalUnderlying();
+        } else if (!_force) {
+            require(
+                sponsorToTransfer <= totalUnderlying(),
+                "Vault: not enough funds to unsponsor"
+            );
+        }
+
+        totalSponsored -= sponsorAmount;
+
+        underlying.safeTransfer(_to, sponsorToTransfer);
+    }
+
+    /**
+     * Creates a deposit with the given amount of underlying and claim
+     * structure. The deposit is locked until the timestamp specified in @param _lockedUntil.
+     * @notice This function assumes underlying will be transfered elsewhere in
+     * the transaction.
+     *
+     * @notice Underlying must be transfered *after* this function, in order to
+     * correctly calculate shares.
+     *
+     * @notice claims must add up to 100%.
+     *
+     * @param _amount Amount of underlying to consider @param claims claim
+     * @param _lockedUntil When the depositor can unsponsor the amount.
+     * @param claims Claim params
+     * params.
+     */
+    function _createDeposit(
+        uint256 _amount,
+        uint256 _lockedUntil,
+        ClaimParams[] calldata claims
+    ) internal {
+        if (_lockedUntil == 0) _lockedUntil = block.timestamp + minLockPeriod;
+        else
+            require(
+                _lockedUntil >= block.timestamp + minLockPeriod,
+                "Vault: lock time is too small"
+            );
+
+        uint256 localTotalShares = totalShares();
+        uint256 localTotalUnderlying = totalUnderlyingMinusSponsored();
+        uint256 pct = 0;
+
+        for (uint256 i = 0; i < claims.length; ++i) {
+            ClaimParams memory data = claims[i];
+            _createClaim(
+                _depositGroupIds.current(),
+                _amount,
+                _lockedUntil,
+                data,
+                localTotalShares,
+                localTotalUnderlying
+            );
+            pct += data.pct;
+        }
+
+        _depositGroupIds.increment();
+
+        require(pct.is100Perc(), "Vault: claims don't add up to 100%");
+    }
+
+    function _createClaim(
+        uint256 _depositGroupId,
+        uint256 _amount,
+        uint256 _lockedUntil,
+        ClaimParams memory _claim,
+        uint256 _localTotalShares,
+        uint256 _localTotalPrincipal
+    ) internal {
+        uint256 amount = _amount.percOf(_claim.pct);
+
+        uint256 newShares = _computeShares(
+            amount,
+            _localTotalShares,
+            _localTotalPrincipal
+        );
+
+        uint256 claimerId = claimers.mint(
+            _claim.beneficiary,
+            amount,
+            newShares
+        );
+
+        uint256 tokenId = depositors.mint(
+            _msgSender(),
+            amount,
+            claimerId,
+            _lockedUntil
+        );
+
+        if (_isIntegration(_claim.beneficiary)) {
+            bytes4 ret = IIntegration(_claim.beneficiary).onDepositMinted(
+                tokenId,
+                newShares,
+                _claim.data
+            );
+
+            require(
+                ret == IIntegration(_claim.beneficiary).onDepositMinted.selector
+            );
+        }
+
+        emit DepositMinted(
+            tokenId,
+            _depositGroupId,
+            amount,
+            newShares,
+            _msgSender(),
+            _claim.beneficiary,
+            claimerId,
+            _lockedUntil
+        );
+    }
+
+    /**
+     * Burns a deposit NFT and reduces the principal and shares of the claimer.
+     * If there were any yield to be claimed, the claimer will also keep shares to withdraw later on.
+     *
+     * @notice This function doesn't transfer any funds, it only updates the state.
+     *
+     * @notice Only the owner of the deposit may call this function.
+     *
+     * @param _tokenId The deposit ID to withdraw from.
+     * @param _totalShares The total shares to consider for the withdraw.
+     * @param _totalUnderlyingMinusSponsored The total underlying to consider for the withdraw.
+     *
+     * @return the amount to withdraw.
+     */
+    function _withdrawDeposit(
+        uint256 _tokenId,
+        uint256 _totalShares,
+        uint256 _totalUnderlyingMinusSponsored,
+        address _to,
+        bool _force
+    ) internal returns (uint256) {
+        require(
+            depositors.ownerOf(_tokenId) == _msgSender(),
+            "Vault: you are not the owner of a deposit"
+        );
+
+        (
+            uint256 depositAmount,
+            uint256 claimerId,
+            uint256 lockedUntil
+        ) = depositors.deposits(_tokenId);
+        require(lockedUntil <= block.timestamp, "Vault: deposit is locked");
+
+        require(claimerId != 0, "Vault: token id is not a withdraw");
+
+        uint256 claimerShares = claimers.sharesOf(claimerId);
+
+        uint256 depositShares = _computeShares(
+            depositAmount,
+            _totalShares,
+            _totalUnderlyingMinusSponsored
+        );
+
+        if (_force && depositShares > claimerShares) {
+            depositShares = claimerShares;
+        } else if (!_force) {
+            require(
+                claimerShares >= depositShares,
+                "Vault: cannot withdraw more than the available amount"
+            );
+        }
+
+        claimers.onWithdraw(claimerId, depositAmount, depositShares);
+        depositors.burn(_tokenId);
+
+        address claimer = claimers.ownerOf(claimerId);
+
+        if (_isIntegration(claimer)) {
+            bytes4 ret = IIntegration(claimer).onDepositBurned(_tokenId);
+
+            require(ret == IIntegration(claimer).onDepositBurned.selector);
+        }
+
+        emit DepositBurned(_tokenId, depositShares, _to);
+
+        return
+            _computeAmount(
+                depositShares,
+                _totalShares,
+                _totalUnderlyingMinusSponsored
+            );
+    }
+
+    function _transferAndCheckUnderlying(address _from, uint256 _amount)
+        internal
+    {
+        uint256 balanceBefore = totalUnderlying();
+        underlying.safeTransferFrom(_from, address(this), _amount);
+        uint256 balanceAfter = totalUnderlying();
+
+        require(
+            balanceAfter == balanceBefore + _amount,
+            "Vault: amount received does not match params"
+        );
+    }
+
+    function _blockTimestamp() public view returns (uint64) {
+        return uint64(block.timestamp);
+    }
+
+    /**
+     * Computes amount of shares that will be received for a given deposit amount
+     *
+     * @param _amount Amount of deposit to consider.
+     * @param _totalShares Amount of existing shares to consider.
+     * @param _totalUnderlyingMinusSponsored Amounf of existing underlying to consider.
+     * @return Amount of shares the deposit will receive.
+     */
+    function _computeShares(
+        uint256 _amount,
+        uint256 _totalShares,
+        uint256 _totalUnderlyingMinusSponsored
+    ) internal pure returns (uint256) {
+        if (_amount == 0) return 0;
+        if (_totalShares == 0) return _amount * SHARES_MULTIPLIER;
+
+        require(
+            _totalUnderlyingMinusSponsored > 0,
+            "Vault: cannot compute shares when there's no principal"
+        );
+
+        return (_amount * _totalShares) / _totalUnderlyingMinusSponsored;
+    }
+
+    /**
+     * Computes the amount of underlying from a given number of shares
+     *
+     * @param _shares Number of shares.
+     * @param _totalShares Amount of existing shares to consider.
+     * @param _totalUnderlyingMinusSponsored Amounf of existing underlying to consider.
+     * @return Amount that corresponds to the number of shares.
+     */
+    function _computeAmount(
+        uint256 _shares,
+        uint256 _totalShares,
+        uint256 _totalUnderlyingMinusSponsored
+    ) internal pure returns (uint256) {
+        if (_totalShares == 0 || _totalUnderlyingMinusSponsored == 0) {
+            return 0;
+        } else {
+            // TODO exclude sponsored assets
+            return ((_totalUnderlyingMinusSponsored * _shares) / _totalShares);
+        }
+    }
+
+    /**
+     * Checks if the given address is a contract implementing IIntegration
+     *
+     * @param addr Address to check
+     * @return true if contract is an IIntegraiont
+     */
+    function _isIntegration(address addr) internal view returns (bool) {
+        return
+            addr.doesContractImplementInterface(type(IIntegration).interfaceId);
+    }
+}
+// ===== END SOURCE FILE: contracts/Vault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/Claimers.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {Counters} from "@openzeppelin/contracts/utils/Counters.sol";
+import "hardhat/console.sol";
+
+import {IClaimers} from "./IClaimers.sol";
+
+contract Claimers is ERC721, IClaimers {
+    using Counters for Counters.Counter;
+
+    Counters.Counter private _tokenIds;
+    address public vault = address(0);
+    // The total of shares
+    uint256 public totalShares;
+
+    struct Claimer {
+        uint256 totalPrincipal;
+        uint256 totalShares;
+        uint256 totalClaimed;
+    }
+
+    mapping(uint256 => Claimer) public claimers;
+    mapping(address => uint256) public addressToTokenID;
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "Claimers: not authorized");
+        _;
+    }
+
+    // TODO Make names dynamic
+    constructor(address _vault) ERC721("Claimers", "SNDCLM") {
+        vault = _vault;
+    }
+
+    function claimYield(
+        address _owner,
+        address _to,
+        uint256 _amount,
+        uint256 _shares
+    ) external onlyVault {
+        uint256 localTokenId = addressToTokenID[_owner];
+
+        claimers[localTokenId].totalShares -= _shares;
+        claimers[localTokenId].totalClaimed += _amount;
+        totalShares -= _shares;
+
+        emit YieldClaimed(localTokenId, _to, _amount, _shares);
+    }
+
+    function mint(
+        address _to,
+        uint256 _principal,
+        uint256 _shares
+    ) external onlyVault returns (uint256) {
+        uint256 localTokenId = addressToTokenID[_to];
+
+        if (localTokenId == 0) {
+            _tokenIds.increment();
+            localTokenId = _tokenIds.current();
+
+            _mint(_to, localTokenId);
+        }
+
+        claimers[localTokenId].totalShares += _shares;
+        claimers[localTokenId].totalPrincipal += _principal;
+
+        totalShares += _shares;
+
+        return localTokenId;
+    }
+
+    function onWithdraw(
+        uint256 _tokenId,
+        uint256 _principal,
+        uint256 _shares
+    ) external onlyVault {
+        claimers[_tokenId].totalShares -= _shares;
+        claimers[_tokenId].totalPrincipal -= _principal;
+        totalShares -= _shares;
+    }
+
+    function principalOf(uint256 _tokenId) external view returns (uint256) {
+        return claimers[_tokenId].totalPrincipal;
+    }
+
+    function sharesOf(uint256 _tokenId) external view returns (uint256) {
+        return claimers[_tokenId].totalShares;
+    }
+
+    /**
+     * Ensures the addressToTokenID mapping is up to date.
+     *
+     * @notice This function prevents transfers to addresses that already own an NFT.
+     *
+     * @param _from origin address.
+     * @param _to destination address.
+     * @param _tokenId id of the token.
+     */
+    function _beforeTokenTransfer(
+        address _from,
+        address _to,
+        uint256 _tokenId
+    ) internal virtual override {
+        require(_to != address(0), "Claimers: cannot burn this NFT");
+
+        if (_from == address(0)) {
+            // MINT
+            addressToTokenID[_to] = _tokenId;
+        } else {
+            // TRANSFER
+            require(
+                addressToTokenID[_to] == 0,
+                "Claimers: destination already has an NFT"
+            );
+
+            addressToTokenID[_from] = 0;
+            addressToTokenID[_to] = _tokenId;
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/vault/Claimers.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/Depositors.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity =0.8.10;
+
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {Counters} from "@openzeppelin/contracts/utils/Counters.sol";
+
+import "hardhat/console.sol";
+
+contract Depositors is ERC721 {
+    using Counters for Counters.Counter;
+
+    Counters.Counter private _tokenIds;
+    address public vault;
+
+    struct Deposit {
+        /// amount of the deposit
+        uint256 amount;
+        /// wallet of the claimer
+        uint256 claimerId;
+        /// when can the deposit be withdrawn
+        uint256 lockedUntil;
+    }
+
+    mapping(uint256 => Deposit) public deposits;
+
+    /// ID of the next NFT to mint
+    uint256 nextId;
+
+    modifier onlyVault() {
+        require(msg.sender == vault, "Claimers: not authorized");
+        _;
+    }
+
+    constructor(
+        address _vault,
+        string memory _name,
+        string memory _symbol
+    ) ERC721(_name, _symbol) {
+        vault = _vault;
+    }
+
+    // should only be callable by the vault
+    // TODO: emit the groupId
+    function mint(
+        address _owner,
+        uint256 _amount,
+        uint256 _claimerId,
+        uint256 _lockedUntil
+    ) external onlyVault returns (uint256) {
+        uint256 localTokenId = _tokenIds.current();
+        _tokenIds.increment();
+
+        _safeMint(_owner, localTokenId);
+
+        deposits[localTokenId] = Deposit(_amount, _claimerId, _lockedUntil);
+
+        return localTokenId;
+    }
+
+    // called when a deposit's principal is withdrawn
+    function burn(uint256 _id) external onlyVault {
+        _burn(_id);
+    }
+
+    function exists(uint256 _tokenId) external view returns (bool) {
+        return _exists(_tokenId);
+    }
+}
+// ===== END SOURCE FILE: contracts/vault/Depositors.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/IClaimers.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+
+interface IClaimers is IERC721 {
+    //
+    // Events
+    //
+
+    event YieldClaimed(
+        uint256 claimerId,
+        address indexed to,
+        uint256 amount,
+        uint256 burnedShares
+    );
+}
+// ===== END SOURCE FILE: contracts/vault/IClaimers.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/IVault.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IVault {
+    //
+    // Structs
+    //
+    struct ClaimParams {
+        uint16 pct;
+        address beneficiary;
+        bytes data;
+    }
+
+    struct DepositParams {
+        uint256 amount;
+        ClaimParams[] claims;
+        uint256 lockedUntil;
+    }
+
+    //
+    // Events
+    //
+
+    event DepositMinted(
+        uint256 indexed id,
+        uint256 groupId,
+        uint256 amount,
+        uint256 shares,
+        address indexed depositor,
+        address indexed claimer,
+        uint256 claimerId,
+        uint256 lockedUntil
+    );
+
+    event DepositBurned(uint256 indexed id, uint256 shares, address indexed to);
+
+    event InvestPercentageUpdated(uint256 percentage);
+
+    event Invested(uint256 amount);
+
+    //
+    // Public API
+    //
+
+    /**
+     * Update the invested amount;
+     */
+    function updateInvested() external;
+
+    /**
+     * Calculates underlying investable amount.
+     *
+     * @return the investable amount
+     */
+    function investableAmount() external view returns (uint256);
+
+    /**
+     * Update invest percentage
+     *
+     * Emits {InvestPercentageUpdated} event
+     *
+     * @param _investPct the new invest percentage
+     */
+    function setInvestPerc(uint16 _investPct) external;
+
+    /**
+     * Percentage of the total underlying to invest in the strategy
+     */
+    function investPerc() external view returns (uint256);
+
+    /**
+     * Minimum lock period for each deposit
+     */
+    function underlying() external view returns (IERC20);
+
+    /**
+     * Minimum lock period for each deposit
+     */
+    function minLockPeriod() external view returns (uint256);
+
+    /**
+     * Total amount of underlying currently controlled by the
+     * vault and the its strategy.
+     */
+    function totalUnderlying() external view returns (uint256);
+
+    /**
+     * Total amount of shares
+     */
+    function totalShares() external view returns (uint256);
+
+    /**
+     * Computes the amount of yield available for an an address.
+     *
+     * @param _to address to consider.
+     *
+     * @return amount of yield for @param _to.
+     */
+    function yieldFor(address _to) external view returns (uint256);
+
+    /**
+     * Transfers all the yield generated for the caller to
+     *
+     * @param _to Address that will receive the yield.
+     */
+    function claimYield(address _to) external;
+
+    /**
+     * Creates a new deposit
+     *
+     * @param _params Deposit params
+     */
+    function deposit(DepositParams calldata _params) external;
+
+    /**
+     * Withdraws the principal from the deposits with the ids provided in @param _ids and sends it to @param _to.
+     *
+     * It fails if the vault is underperforming and there are not enough funds
+     * to withdraw the expected amount.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     */
+    function withdraw(address _to, uint256[] memory _ids) external;
+
+    /**
+     * Withdraws the principal from the deposits with the ids provided in @param _ids and sends it to @param _to.
+     *
+     * When the vault is underperforming it withdraws the funds with a loss.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     */
+    function forceWithdraw(address _to, uint256[] memory _ids) external;
+
+    /**
+     * Changes the strategy used by the vault.
+     *
+     * @param _strategy the new strategy's address.
+     */
+    function setStrategy(address _strategy) external;
+}
+// ===== END SOURCE FILE: contracts/vault/IVault.sol =====
+// ===== BEGIN SOURCE FILE: contracts/vault/IVaultSponsoring.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.10;
+
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+interface IVaultSponsoring {
+    /// Emitted when a new sponsor deposit is created
+    event Sponsored(
+        uint256 indexed id,
+        uint256 amount,
+        address indexed depositor,
+        uint256 lockedUntil
+    );
+
+    /// Emitted when an existing sponsor withdraws
+    event Unsponsored(uint256 indexed id);
+
+    /**
+     * Total amount currently sponsored
+     */
+    function totalSponsored() external view returns (uint256);
+
+    /**
+     * Creates a sponsored deposit with the amount provided in @param _amount.
+     * Sponsored amounts will be invested like deposits, but unlike deposits
+     * there are no claimers and the yield generated is donated to the vault.
+     * The amount is locked until the timestamp specified in @param _lockedUntil.
+     *
+     * @param _amount Amount to sponsor.
+     * @param _lockedUntil When the depositor can unsponsor the amount.
+     */
+    function sponsor(uint256 _amount, uint256 _lockedUntil) external;
+
+    /**
+     * Withdraws the sponsored amount for the deposits with the ids provided
+     * in @param _ids and sends it to @param _to.
+     *
+     * It fails if the vault is underperforming and there are not enough funds
+     * to withdraw the sponsored amount.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     */
+    function unsponsor(address _to, uint256[] memory _ids) external;
+
+    /**
+     * Withdraws the sponsored amount for the deposits with the ids provided
+     * in @param _ids and sends it to @param _to.
+     *
+     * When the vault is underperforming it withdraws the funds with a loss.
+     *
+     * @param _to Address that will receive the funds.
+     * @param _ids Array with the ids of the deposits.
+     */
+    function forceUnsponsor(address _to, uint256[] memory _ids) external;
+}
+// ===== END SOURCE FILE: contracts/vault/IVaultSponsoring.sol =====

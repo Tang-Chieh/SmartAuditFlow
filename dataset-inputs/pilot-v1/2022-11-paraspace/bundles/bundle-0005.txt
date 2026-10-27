@@ -1,0 +1,4514 @@
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/OrderFulfiller.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { ItemType } from "./ConsiderationEnums.sol";
+
+import {
+    OfferItem,
+    ConsiderationItem,
+    SpentItem,
+    ReceivedItem,
+    OrderParameters,
+    Order,
+    AdvancedOrder,
+    CriteriaResolver
+} from "./ConsiderationStructs.sol";
+
+import { BasicOrderFulfiller } from "./BasicOrderFulfiller.sol";
+
+import { CriteriaResolution } from "./CriteriaResolution.sol";
+
+import { AmountDeriver } from "./AmountDeriver.sol";
+
+import "./ConsiderationConstants.sol";
+
+/**
+ * @title OrderFulfiller
+ * @author 0age
+ * @notice OrderFulfiller contains logic related to order fulfillment where a
+ *         single order is being fulfilled and where basic order fulfillment is
+ *         not available as an option.
+ */
+contract OrderFulfiller is
+    BasicOrderFulfiller,
+    CriteriaResolution,
+    AmountDeriver
+{
+    /**
+     * @dev Derive and set hashes, reference chainId, and associated domain
+     *      separator during deployment.
+     *
+     * @param conduitController A contract that deploys conduits, or proxies
+     *                          that may optionally be used to transfer approved
+     *                          ERC20/721/1155 tokens.
+     */
+    constructor(address conduitController)
+        BasicOrderFulfiller(conduitController)
+    {}
+
+    /**
+     * @dev Internal function to validate an order and update its status, adjust
+     *      prices based on current time, apply criteria resolvers, determine
+     *      what portion to fill, and transfer relevant tokens.
+     *
+     * @param advancedOrder       The order to fulfill as well as the fraction
+     *                            to fill. Note that all offer and consideration
+     *                            components must divide with no remainder for
+     *                            the partial fill to be valid.
+     * @param criteriaResolvers   An array where each element contains a
+     *                            reference to a specific offer or
+     *                            consideration, a token identifier, and a proof
+     *                            that the supplied token identifier is
+     *                            contained in the order's merkle root. Note
+     *                            that a criteria of zero indicates that any
+     *                            (transferable) token identifier is valid and
+     *                            that no proof needs to be supplied.
+     * @param fulfillerConduitKey A bytes32 value indicating what conduit, if
+     *                            any, to source the fulfiller's token approvals
+     *                            from. The zero hash signifies that no conduit
+     *                            should be used, with direct approvals set on
+     *                            Consideration.
+     * @param recipient           The intended recipient for all received items.
+     *
+     * @return A boolean indicating whether the order has been fulfilled.
+     */
+    function _validateAndFulfillAdvancedOrder(
+        AdvancedOrder memory advancedOrder,
+        CriteriaResolver[] memory criteriaResolvers,
+        bytes32 fulfillerConduitKey,
+        address recipient
+    ) internal returns (bool) {
+        // Ensure this function cannot be triggered during a reentrant call.
+        _setReentrancyGuard();
+
+        // Declare empty bytes32 array (unused, will remain empty).
+        bytes32[] memory priorOrderHashes;
+
+        // Validate order, update status, and determine fraction to fill.
+        (
+            bytes32 orderHash,
+            uint256 fillNumerator,
+            uint256 fillDenominator
+        ) = _validateOrderAndUpdateStatus(
+                advancedOrder,
+                criteriaResolvers,
+                true,
+                priorOrderHashes
+            );
+
+        // Create an array with length 1 containing the order.
+        AdvancedOrder[] memory advancedOrders = new AdvancedOrder[](1);
+
+        // Populate the order as the first and only element of the new array.
+        advancedOrders[0] = advancedOrder;
+
+        // Apply criteria resolvers using generated orders and details arrays.
+        _applyCriteriaResolvers(advancedOrders, criteriaResolvers);
+
+        // Retrieve the order parameters after applying criteria resolvers.
+        OrderParameters memory orderParameters = advancedOrders[0].parameters;
+
+        // Perform each item transfer with the appropriate fractional amount.
+        _applyFractionsAndTransferEach(
+            orderParameters,
+            fillNumerator,
+            fillDenominator,
+            fulfillerConduitKey,
+            recipient
+        );
+
+        // Emit an event signifying that the order has been fulfilled.
+        _emitOrderFulfilledEvent(
+            orderHash,
+            orderParameters.offerer,
+            orderParameters.zone,
+            recipient,
+            orderParameters.offer,
+            orderParameters.consideration
+        );
+
+        // Clear the reentrancy guard.
+        _clearReentrancyGuard();
+
+        return true;
+    }
+
+    /**
+     * @dev Internal function to transfer each item contained in a given single
+     *      order fulfillment after applying a respective fraction to the amount
+     *      being transferred.
+     *
+     * @param orderParameters     The parameters for the fulfilled order.
+     * @param numerator           A value indicating the portion of the order
+     *                            that should be filled.
+     * @param denominator         A value indicating the total order size.
+     * @param fulfillerConduitKey A bytes32 value indicating what conduit, if
+     *                            any, to source the fulfiller's token approvals
+     *                            from. The zero hash signifies that no conduit
+     *                            should be used, with direct approvals set on
+     *                            Consideration.
+     * @param recipient           The intended recipient for all received items.
+     */
+    function _applyFractionsAndTransferEach(
+        OrderParameters memory orderParameters,
+        uint256 numerator,
+        uint256 denominator,
+        bytes32 fulfillerConduitKey,
+        address recipient
+    ) internal {
+        // Read start time & end time from order parameters and place on stack.
+        uint256 startTime = orderParameters.startTime;
+        uint256 endTime = orderParameters.endTime;
+
+        // Initialize an accumulator array. From this point forward, no new
+        // memory regions can be safely allocated until the accumulator is no
+        // longer being utilized, as the accumulator operates in an open-ended
+        // fashion from this memory pointer; existing memory may still be
+        // accessed and modified, however.
+        bytes memory accumulator = new bytes(AccumulatorDisarmed);
+
+        // As of solidity 0.6.0, inline assembly cannot directly access function
+        // definitions, but can still access locally scoped function variables.
+        // This means that in order to recast the type of a function, we need to
+        // create a local variable to reference the internal function definition
+        // (using the same type) and a local variable with the desired type,
+        // and then cast the original function pointer to the desired type.
+
+        /**
+         * Repurpose existing OfferItem memory regions on the offer array for
+         * the order by overriding the _transfer function pointer to accept a
+         * modified OfferItem argument in place of the usual ReceivedItem:
+         *
+         *   ========= OfferItem ==========   ====== ReceivedItem ======
+         *   ItemType itemType; ------------> ItemType itemType;
+         *   address token; ----------------> address token;
+         *   uint256 identifierOrCriteria; -> uint256 identifier;
+         *   uint256 startAmount; ----------> uint256 amount;
+         *   uint256 endAmount; ------------> address recipient;
+         */
+
+        // Declare a nested scope to minimize stack depth.
+        unchecked {
+            // Declare a virtual function pointer taking an OfferItem argument.
+            function(OfferItem memory, address, bytes32, bytes memory)
+                internal _transferOfferItem;
+
+            {
+                // Assign _transfer function to a new function pointer (it takes
+                // a ReceivedItem as its initial argument)
+                function(ReceivedItem memory, address, bytes32, bytes memory)
+                    internal _transferReceivedItem = _transfer;
+
+                // Utilize assembly to override the virtual function pointer.
+                assembly {
+                    // Cast initial ReceivedItem type to an OfferItem type.
+                    _transferOfferItem := _transferReceivedItem
+                }
+            }
+
+            // Read offer array length from memory and place on stack.
+            uint256 totalOfferItems = orderParameters.offer.length;
+
+            // Iterate over each offer on the order.
+            // Skip overflow check as for loop is indexed starting at zero.
+            for (uint256 i = 0; i < totalOfferItems; ++i) {
+                // Retrieve the offer item.
+                OfferItem memory offerItem = orderParameters.offer[i];
+
+                // Offer items for the native token can not be received
+                // outside of a match order function.
+                if (offerItem.itemType == ItemType.NATIVE) {
+                    revert InvalidNativeOfferItem();
+                }
+
+                // Declare an additional nested scope to minimize stack depth.
+                {
+                    // Apply fill fraction to get offer item amount to transfer.
+                    uint256 amount = _applyFraction(
+                        offerItem.startAmount,
+                        offerItem.endAmount,
+                        numerator,
+                        denominator,
+                        startTime,
+                        endTime,
+                        false
+                    );
+
+                    // Utilize assembly to set overloaded offerItem arguments.
+                    assembly {
+                        // Write new fractional amount to startAmount as amount.
+                        mstore(
+                            add(offerItem, ReceivedItem_amount_offset),
+                            amount
+                        )
+
+                        // Write recipient to endAmount.
+                        mstore(
+                            add(offerItem, ReceivedItem_recipient_offset),
+                            recipient
+                        )
+                    }
+                }
+
+                // Transfer the item from the offerer to the recipient.
+                _transferOfferItem(
+                    offerItem,
+                    orderParameters.offerer,
+                    orderParameters.conduitKey,
+                    accumulator
+                );
+            }
+        }
+
+        // Put ether value supplied by the caller on the stack.
+        uint256 etherRemaining = msg.value;
+
+        /**
+         * Repurpose existing ConsiderationItem memory regions on the
+         * consideration array for the order by overriding the _transfer
+         * function pointer to accept a modified ConsiderationItem argument in
+         * place of the usual ReceivedItem:
+         *
+         *   ====== ConsiderationItem =====   ====== ReceivedItem ======
+         *   ItemType itemType; ------------> ItemType itemType;
+         *   address token; ----------------> address token;
+         *   uint256 identifierOrCriteria;--> uint256 identifier;
+         *   uint256 startAmount; ----------> uint256 amount;
+         *   uint256 endAmount;        /----> address recipient;
+         *   address recipient; ------/
+         */
+
+        // Declare a nested scope to minimize stack depth.
+        unchecked {
+            // Declare virtual function pointer with ConsiderationItem argument.
+            function(ConsiderationItem memory, address, bytes32, bytes memory)
+                internal _transferConsiderationItem;
+            {
+                // Reassign _transfer function to a new function pointer (it
+                // takes a ReceivedItem as its initial argument).
+                function(ReceivedItem memory, address, bytes32, bytes memory)
+                    internal _transferReceivedItem = _transfer;
+
+                // Utilize assembly to override the virtual function pointer.
+                assembly {
+                    // Cast ReceivedItem type to ConsiderationItem type.
+                    _transferConsiderationItem := _transferReceivedItem
+                }
+            }
+
+            // Read consideration array length from memory and place on stack.
+            uint256 totalConsiderationItems = orderParameters
+                .consideration
+                .length;
+
+            // Iterate over each consideration item on the order.
+            // Skip overflow check as for loop is indexed starting at zero.
+            for (uint256 i = 0; i < totalConsiderationItems; ++i) {
+                // Retrieve the consideration item.
+                ConsiderationItem memory considerationItem = (
+                    orderParameters.consideration[i]
+                );
+
+                // Apply fraction & derive considerationItem amount to transfer.
+                uint256 amount = _applyFraction(
+                    considerationItem.startAmount,
+                    considerationItem.endAmount,
+                    numerator,
+                    denominator,
+                    startTime,
+                    endTime,
+                    true
+                );
+
+                // Use assembly to set overloaded considerationItem arguments.
+                assembly {
+                    // Write derived fractional amount to startAmount as amount.
+                    mstore(
+                        add(considerationItem, ReceivedItem_amount_offset),
+                        amount
+                    )
+
+                    // Write original recipient to endAmount as recipient.
+                    mstore(
+                        add(considerationItem, ReceivedItem_recipient_offset),
+                        mload(
+                            add(
+                                considerationItem,
+                                ConsiderationItem_recipient_offset
+                            )
+                        )
+                    )
+                }
+
+                // Reduce available value if offer spent ETH or a native token.
+                if (considerationItem.itemType == ItemType.NATIVE) {
+                    // Ensure that sufficient native tokens are still available.
+                    if (amount > etherRemaining) {
+                        revert InsufficientEtherSupplied();
+                    }
+
+                    // Skip underflow check as a comparison has just been made.
+                    etherRemaining -= amount;
+                }
+
+                // Transfer item from caller to recipient specified by the item.
+                _transferConsiderationItem(
+                    considerationItem,
+                    msg.sender,
+                    fulfillerConduitKey,
+                    accumulator
+                );
+            }
+        }
+
+        // Trigger any remaining accumulated transfers via call to the conduit.
+        _triggerIfArmed(accumulator);
+
+        // If any ether remains after fulfillments...
+        if (etherRemaining != 0) {
+            // return it to the caller.
+            _transferEth(payable(msg.sender), etherRemaining);
+        }
+    }
+
+    /**
+     * @dev Internal function to emit an OrderFulfilled event. OfferItems are
+     *      translated into SpentItems and ConsiderationItems are translated
+     *      into ReceivedItems.
+     *
+     * @param orderHash     The order hash.
+     * @param offerer       The offerer for the order.
+     * @param zone          The zone for the order.
+     * @param fulfiller     The fulfiller of the order, or the null address if
+     *                      the order was fulfilled via order matching.
+     * @param offer         The offer items for the order.
+     * @param consideration The consideration items for the order.
+     */
+    function _emitOrderFulfilledEvent(
+        bytes32 orderHash,
+        address offerer,
+        address zone,
+        address fulfiller,
+        OfferItem[] memory offer,
+        ConsiderationItem[] memory consideration
+    ) internal {
+        // Cast already-modified offer memory region as spent items.
+        SpentItem[] memory spentItems;
+        assembly {
+            spentItems := offer
+        }
+
+        // Cast already-modified consideration memory region as received items.
+        ReceivedItem[] memory receivedItems;
+        assembly {
+            receivedItems := consideration
+        }
+
+        // Emit an event signifying that the order has been fulfilled.
+        emit OrderFulfilled(
+            orderHash,
+            offerer,
+            zone,
+            fulfiller,
+            spentItems,
+            receivedItems
+        );
+    }
+
+    /**
+     * @dev Internal pure function to convert an order to an advanced order with
+     *      numerator and denominator of 1 and empty extraData.
+     *
+     * @param order The order to convert.
+     *
+     * @return advancedOrder The new advanced order.
+     */
+    function _convertOrderToAdvanced(Order calldata order)
+        internal
+        pure
+        returns (AdvancedOrder memory advancedOrder)
+    {
+        // Convert to partial order (1/1 or full fill) and return new value.
+        advancedOrder = AdvancedOrder(
+            order.parameters,
+            1,
+            1,
+            order.signature,
+            ""
+        );
+    }
+
+    /**
+     * @dev Internal pure function to convert an array of orders to an array of
+     *      advanced orders with numerator and denominator of 1.
+     *
+     * @param orders The orders to convert.
+     *
+     * @return advancedOrders The new array of partial orders.
+     */
+    function _convertOrdersToAdvanced(Order[] calldata orders)
+        internal
+        pure
+        returns (AdvancedOrder[] memory advancedOrders)
+    {
+        // Read the number of orders from calldata and place on the stack.
+        uint256 totalOrders = orders.length;
+
+        // Allocate new empty array for each partial order in memory.
+        advancedOrders = new AdvancedOrder[](totalOrders);
+
+        // Skip overflow check as the index for the loop starts at zero.
+        unchecked {
+            // Iterate over the given orders.
+            for (uint256 i = 0; i < totalOrders; ++i) {
+                // Convert to partial order (1/1 or full fill) and update array.
+                advancedOrders[i] = _convertOrderToAdvanced(orders[i]);
+            }
+        }
+
+        // Return the array of advanced orders.
+        return advancedOrders;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/OrderFulfiller.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/OrderValidator.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { OrderType } from "./ConsiderationEnums.sol";
+
+import {
+    OrderParameters,
+    Order,
+    AdvancedOrder,
+    OrderComponents,
+    OrderStatus,
+    CriteriaResolver
+} from "./ConsiderationStructs.sol";
+
+import "./ConsiderationConstants.sol";
+
+import { Executor } from "./Executor.sol";
+
+import { ZoneInteraction } from "./ZoneInteraction.sol";
+
+/**
+ * @title OrderValidator
+ * @author 0age
+ * @notice OrderValidator contains functionality related to validating orders
+ *         and updating their status.
+ */
+contract OrderValidator is Executor, ZoneInteraction {
+    // Track status of each order (validated, cancelled, and fraction filled).
+    mapping(bytes32 => OrderStatus) private _orderStatus;
+
+    /**
+     * @dev Derive and set hashes, reference chainId, and associated domain
+     *      separator during deployment.
+     *
+     * @param conduitController A contract that deploys conduits, or proxies
+     *                          that may optionally be used to transfer approved
+     *                          ERC20/721/1155 tokens.
+     */
+    constructor(address conduitController) Executor(conduitController) {}
+
+    /**
+     * @dev Internal function to verify and update the status of a basic order.
+     *
+     * @param orderHash The hash of the order.
+     * @param offerer   The offerer of the order.
+     * @param signature A signature from the offerer indicating that the order
+     *                  has been approved.
+     */
+    function _validateBasicOrderAndUpdateStatus(
+        bytes32 orderHash,
+        address offerer,
+        bytes memory signature
+    ) internal {
+        // Retrieve the order status for the given order hash.
+        OrderStatus storage orderStatus = _orderStatus[orderHash];
+
+        // Ensure order is fillable and is not cancelled.
+        _verifyOrderStatus(
+            orderHash,
+            orderStatus,
+            true, // Only allow unused orders when fulfilling basic orders.
+            true // Signifies to revert if the order is invalid.
+        );
+
+        // If the order is not already validated, verify the supplied signature.
+        if (!orderStatus.isValidated) {
+            _verifySignature(offerer, orderHash, signature);
+        }
+
+        // Update order status as fully filled, packing struct values.
+        orderStatus.isValidated = true;
+        orderStatus.isCancelled = false;
+        orderStatus.numerator = 1;
+        orderStatus.denominator = 1;
+    }
+
+    /**
+     * @dev Internal function to validate an order, determine what portion to
+     *      fill, and update its status. The desired fill amount is supplied as
+     *      a fraction, as is the returned amount to fill.
+     *
+     * @param advancedOrder     The order to fulfill as well as the fraction to
+     *                          fill. Note that all offer and consideration
+     *                          amounts must divide with no remainder in order
+     *                          for a partial fill to be valid.
+     * @param criteriaResolvers An array where each element contains a reference
+     *                          to a specific offer or consideration, a token
+     *                          identifier, and a proof that the supplied token
+     *                          identifier is contained in the order's merkle
+     *                          root. Note that a criteria of zero indicates
+     *                          that any (transferable) token identifier is
+     *                          valid and that no proof needs to be supplied.
+     * @param revertOnInvalid   A boolean indicating whether to revert if the
+     *                          order is invalid due to the time or status.
+     * @param priorOrderHashes  The order hashes of each order supplied prior to
+     *                          the current order as part of a "match" variety
+     *                          of order fulfillment (e.g. this array will be
+     *                          empty for single or "fulfill available").
+     *
+     * @return orderHash      The order hash.
+     * @return newNumerator   A value indicating the portion of the order that
+     *                        will be filled.
+     * @return newDenominator A value indicating the total size of the order.
+     */
+    function _validateOrderAndUpdateStatus(
+        AdvancedOrder memory advancedOrder,
+        CriteriaResolver[] memory criteriaResolvers,
+        bool revertOnInvalid,
+        bytes32[] memory priorOrderHashes
+    )
+        internal
+        returns (
+            bytes32 orderHash,
+            uint256 newNumerator,
+            uint256 newDenominator
+        )
+    {
+        // Retrieve the parameters for the order.
+        OrderParameters memory orderParameters = advancedOrder.parameters;
+
+        // Ensure current timestamp falls between order start time and end time.
+        if (
+            !_verifyTime(
+                orderParameters.startTime,
+                orderParameters.endTime,
+                revertOnInvalid
+            )
+        ) {
+            // Assuming an invalid time and no revert, return zeroed out values.
+            return (bytes32(0), 0, 0);
+        }
+
+        // Read numerator and denominator from memory and place on the stack.
+        uint256 numerator = uint256(advancedOrder.numerator);
+        uint256 denominator = uint256(advancedOrder.denominator);
+
+        // Ensure that the supplied numerator and denominator are valid.
+        if (numerator > denominator || numerator == 0) {
+            revert BadFraction();
+        }
+
+        // If attempting partial fill (n < d) check order type & ensure support.
+        if (
+            numerator < denominator &&
+            _doesNotSupportPartialFills(orderParameters.orderType)
+        ) {
+            // Revert if partial fill was attempted on an unsupported order.
+            revert PartialFillsNotEnabledForOrder();
+        }
+
+        // Retrieve current counter & use it w/ parameters to derive order hash.
+        orderHash = _assertConsiderationLengthAndGetOrderHash(orderParameters);
+
+        // Ensure restricted orders have a valid submitter or pass a zone check.
+        _assertRestrictedAdvancedOrderValidity(
+            advancedOrder,
+            criteriaResolvers,
+            priorOrderHashes,
+            orderHash,
+            orderParameters.zoneHash,
+            orderParameters.orderType,
+            orderParameters.offerer,
+            orderParameters.zone
+        );
+
+        // Retrieve the order status using the derived order hash.
+        OrderStatus storage orderStatus = _orderStatus[orderHash];
+
+        // Ensure order is fillable and is not cancelled.
+        if (
+            !_verifyOrderStatus(
+                orderHash,
+                orderStatus,
+                false, // Allow partially used orders to be filled.
+                revertOnInvalid
+            )
+        ) {
+            // Assuming an invalid order status and no revert, return zero fill.
+            return (orderHash, 0, 0);
+        }
+
+        // If the order is not already validated, verify the supplied signature.
+        if (!orderStatus.isValidated) {
+            _verifySignature(
+                orderParameters.offerer,
+                orderHash,
+                advancedOrder.signature
+            );
+        }
+
+        // Read filled amount as numerator and denominator and put on the stack.
+        uint256 filledNumerator = orderStatus.numerator;
+        uint256 filledDenominator = orderStatus.denominator;
+
+        // If order (orderStatus) currently has a non-zero denominator it is
+        // partially filled.
+        if (filledDenominator != 0) {
+            // If denominator of 1 supplied, fill all remaining amount on order.
+            if (denominator == 1) {
+                // Scale numerator & denominator to match current denominator.
+                numerator = filledDenominator;
+                denominator = filledDenominator;
+            }
+            // Otherwise, if supplied denominator differs from current one...
+            else if (filledDenominator != denominator) {
+                // scale current numerator by the supplied denominator, then...
+                filledNumerator *= denominator;
+
+                // the supplied numerator & denominator by current denominator.
+                numerator *= filledDenominator;
+                denominator *= filledDenominator;
+            }
+
+            // Once adjusted, if current+supplied numerator exceeds denominator:
+            if (filledNumerator + numerator > denominator) {
+                // Skip underflow check: denominator >= orderStatus.numerator
+                unchecked {
+                    // Reduce current numerator so it + supplied = denominator.
+                    numerator = denominator - filledNumerator;
+                }
+            }
+
+            // Increment the filled numerator by the new numerator.
+            filledNumerator += numerator;
+
+            // Use assembly to ensure fractional amounts are below max uint120.
+            assembly {
+                // Check filledNumerator and denominator for uint120 overflow.
+                if or(
+                    gt(filledNumerator, MaxUint120),
+                    gt(denominator, MaxUint120)
+                ) {
+                    // Derive greatest common divisor using euclidean algorithm.
+                    function gcd(_a, _b) -> out {
+                        for {
+
+                        } _b {
+
+                        } {
+                            let _c := _b
+                            _b := mod(_a, _c)
+                            _a := _c
+                        }
+                        out := _a
+                    }
+                    let scaleDown := gcd(
+                        numerator,
+                        gcd(filledNumerator, denominator)
+                    )
+
+                    // Ensure that the divisor is at least one.
+                    let safeScaleDown := add(scaleDown, iszero(scaleDown))
+
+                    // Scale all fractional values down by gcd.
+                    numerator := div(numerator, safeScaleDown)
+                    filledNumerator := div(filledNumerator, safeScaleDown)
+                    denominator := div(denominator, safeScaleDown)
+
+                    // Perform the overflow check a second time.
+                    if or(
+                        gt(filledNumerator, MaxUint120),
+                        gt(denominator, MaxUint120)
+                    ) {
+                        // Store the Panic error signature.
+                        mstore(0, Panic_error_signature)
+
+                        // Set arithmetic (0x11) panic code as initial argument.
+                        mstore(Panic_error_offset, Panic_arithmetic)
+
+                        // Return, supplying Panic signature & arithmetic code.
+                        revert(0, Panic_error_length)
+                    }
+                }
+            }
+            // Skip overflow check: checked above unless numerator is reduced.
+            unchecked {
+                // Update order status and fill amount, packing struct values.
+                orderStatus.isValidated = true;
+                orderStatus.isCancelled = false;
+                orderStatus.numerator = uint120(filledNumerator);
+                orderStatus.denominator = uint120(denominator);
+            }
+        } else {
+            // Update order status and fill amount, packing struct values.
+            orderStatus.isValidated = true;
+            orderStatus.isCancelled = false;
+            orderStatus.numerator = uint120(numerator);
+            orderStatus.denominator = uint120(denominator);
+        }
+
+        // Return order hash, a modified numerator, and a modified denominator.
+        return (orderHash, numerator, denominator);
+    }
+
+    /**
+     * @dev Internal function to cancel an arbitrary number of orders. Note that
+     *      only the offerer or the zone of a given order may cancel it. Callers
+     *      should ensure that the intended order was cancelled by calling
+     *      `getOrderStatus` and confirming that `isCancelled` returns `true`.
+     *
+     * @param orders The orders to cancel.
+     *
+     * @return cancelled A boolean indicating whether the supplied orders were
+     *                   successfully cancelled.
+     */
+    function _cancel(OrderComponents[] calldata orders)
+        internal
+        returns (bool cancelled)
+    {
+        // Ensure that the reentrancy guard is not currently set.
+        _assertNonReentrant();
+
+        // Declare variables outside of the loop.
+        OrderStatus storage orderStatus;
+        address offerer;
+        address zone;
+
+        // Skip overflow check as for loop is indexed starting at zero.
+        unchecked {
+            // Read length of the orders array from memory and place on stack.
+            uint256 totalOrders = orders.length;
+
+            // Iterate over each order.
+            for (uint256 i = 0; i < totalOrders; ) {
+                // Retrieve the order.
+                OrderComponents calldata order = orders[i];
+
+                offerer = order.offerer;
+                zone = order.zone;
+
+                // Ensure caller is either offerer or zone of the order.
+                if (msg.sender != offerer && msg.sender != zone) {
+                    revert InvalidCanceller();
+                }
+
+                // Derive order hash using the order parameters and the counter.
+                bytes32 orderHash = _deriveOrderHash(
+                    OrderParameters(
+                        offerer,
+                        zone,
+                        order.offer,
+                        order.consideration,
+                        order.orderType,
+                        order.startTime,
+                        order.endTime,
+                        order.zoneHash,
+                        order.salt,
+                        order.conduitKey,
+                        order.consideration.length
+                    ),
+                    order.counter
+                );
+
+                // Retrieve the order status using the derived order hash.
+                orderStatus = _orderStatus[orderHash];
+
+                // Update the order status as not valid and cancelled.
+                orderStatus.isValidated = false;
+                orderStatus.isCancelled = true;
+
+                // Emit an event signifying that the order has been cancelled.
+                emit OrderCancelled(orderHash, offerer, zone);
+
+                // Increment counter inside body of loop for gas efficiency.
+                ++i;
+            }
+        }
+
+        // Return a boolean indicating that orders were successfully cancelled.
+        cancelled = true;
+    }
+
+    /**
+     * @dev Internal function to validate an arbitrary number of orders, thereby
+     *      registering their signatures as valid and allowing the fulfiller to
+     *      skip signature verification on fulfillment. Note that validated
+     *      orders may still be unfulfillable due to invalid item amounts or
+     *      other factors; callers should determine whether validated orders are
+     *      fulfillable by simulating the fulfillment call prior to execution.
+     *      Also note that anyone can validate a signed order, but only the
+     *      offerer can validate an order without supplying a signature.
+     *
+     * @param orders The orders to validate.
+     *
+     * @return validated A boolean indicating whether the supplied orders were
+     *                   successfully validated.
+     */
+    function _validate(Order[] calldata orders)
+        internal
+        returns (bool validated)
+    {
+        // Ensure that the reentrancy guard is not currently set.
+        _assertNonReentrant();
+
+        // Declare variables outside of the loop.
+        OrderStatus storage orderStatus;
+        bytes32 orderHash;
+        address offerer;
+
+        // Skip overflow check as for loop is indexed starting at zero.
+        unchecked {
+            // Read length of the orders array from memory and place on stack.
+            uint256 totalOrders = orders.length;
+
+            // Iterate over each order.
+            for (uint256 i = 0; i < totalOrders; ) {
+                // Retrieve the order.
+                Order calldata order = orders[i];
+
+                // Retrieve the order parameters.
+                OrderParameters calldata orderParameters = order.parameters;
+
+                // Move offerer from memory to the stack.
+                offerer = orderParameters.offerer;
+
+                // Get current counter & use it w/ params to derive order hash.
+                orderHash = _assertConsiderationLengthAndGetOrderHash(
+                    orderParameters
+                );
+
+                // Retrieve the order status using the derived order hash.
+                orderStatus = _orderStatus[orderHash];
+
+                // Ensure order is fillable and retrieve the filled amount.
+                _verifyOrderStatus(
+                    orderHash,
+                    orderStatus,
+                    false, // Signifies that partially filled orders are valid.
+                    true // Signifies to revert if the order is invalid.
+                );
+
+                // If the order has not already been validated...
+                if (!orderStatus.isValidated) {
+                    // Verify the supplied signature.
+                    _verifySignature(offerer, orderHash, order.signature);
+
+                    // Update order status to mark the order as valid.
+                    orderStatus.isValidated = true;
+
+                    // Emit an event signifying the order has been validated.
+                    emit OrderValidated(
+                        orderHash,
+                        offerer,
+                        orderParameters.zone
+                    );
+                }
+
+                // Increment counter inside body of the loop for gas efficiency.
+                ++i;
+            }
+        }
+
+        // Return a boolean indicating that orders were successfully validated.
+        validated = true;
+    }
+
+    /**
+     * @dev Internal view function to retrieve the status of a given order by
+     *      hash, including whether the order has been cancelled or validated
+     *      and the fraction of the order that has been filled.
+     *
+     * @param orderHash The order hash in question.
+     *
+     * @return isValidated A boolean indicating whether the order in question
+     *                     has been validated (i.e. previously approved or
+     *                     partially filled).
+     * @return isCancelled A boolean indicating whether the order in question
+     *                     has been cancelled.
+     * @return totalFilled The total portion of the order that has been filled
+     *                     (i.e. the "numerator").
+     * @return totalSize   The total size of the order that is either filled or
+     *                     unfilled (i.e. the "denominator").
+     */
+    function _getOrderStatus(bytes32 orderHash)
+        internal
+        view
+        returns (
+            bool isValidated,
+            bool isCancelled,
+            uint256 totalFilled,
+            uint256 totalSize
+        )
+    {
+        // Retrieve the order status using the order hash.
+        OrderStatus storage orderStatus = _orderStatus[orderHash];
+
+        // Return the fields on the order status.
+        return (
+            orderStatus.isValidated,
+            orderStatus.isCancelled,
+            orderStatus.numerator,
+            orderStatus.denominator
+        );
+    }
+
+    /**
+     * @dev Internal pure function to check whether a given order type indicates
+     *      that partial fills are not supported (e.g. only "full fills" are
+     *      allowed for the order in question).
+     *
+     * @param orderType The order type in question.
+     *
+     * @return isFullOrder A boolean indicating whether the order type only
+     *                     supports full fills.
+     */
+    function _doesNotSupportPartialFills(OrderType orderType)
+        internal
+        pure
+        returns (bool isFullOrder)
+    {
+        // The "full" order types are even, while "partial" order types are odd.
+        // Bitwise and by 1 is equivalent to modulo by 2, but 2 gas cheaper.
+        assembly {
+            // Equivalent to `uint256(orderType) & 1 == 0`.
+            isFullOrder := iszero(and(orderType, 1))
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/OrderValidator.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/ReentrancyGuard.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { ReentrancyErrors } from "../interfaces/ReentrancyErrors.sol";
+
+import "./ConsiderationConstants.sol";
+
+/**
+ * @title ReentrancyGuard
+ * @author 0age
+ * @notice ReentrancyGuard contains a storage variable and related functionality
+ *         for protecting against reentrancy.
+ */
+contract ReentrancyGuard is ReentrancyErrors {
+    // Prevent reentrant calls on protected functions.
+    uint256 private _reentrancyGuard;
+
+    /**
+     * @dev Initialize the reentrancy guard during deployment.
+     */
+    constructor() {
+        // Initialize the reentrancy guard in a cleared state.
+        _reentrancyGuard = _NOT_ENTERED;
+    }
+
+    /**
+     * @dev Internal function to ensure that the sentinel value for the
+     *      reentrancy guard is not currently set and, if not, to set the
+     *      sentinel value for the reentrancy guard.
+     */
+    function _setReentrancyGuard() internal {
+        // Ensure that the reentrancy guard is not already set.
+        _assertNonReentrant();
+
+        // Set the reentrancy guard.
+        _reentrancyGuard = _ENTERED;
+    }
+
+    /**
+     * @dev Internal function to unset the reentrancy guard sentinel value.
+     */
+    function _clearReentrancyGuard() internal {
+        // Clear the reentrancy guard.
+        _reentrancyGuard = _NOT_ENTERED;
+    }
+
+    /**
+     * @dev Internal view function to ensure that the sentinel value for the
+            reentrancy guard is not currently set.
+     */
+    function _assertNonReentrant() internal view {
+        // Ensure that the reentrancy guard is not currently set.
+        if (_reentrancyGuard != _NOT_ENTERED) {
+            revert NoReentrantCalls();
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/ReentrancyGuard.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/SignatureVerification.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { EIP1271Interface } from "../interfaces/EIP1271Interface.sol";
+
+import {
+    SignatureVerificationErrors
+} from "../interfaces/SignatureVerificationErrors.sol";
+
+import { LowLevelHelpers } from "./LowLevelHelpers.sol";
+
+import "./ConsiderationConstants.sol";
+
+/**
+ * @title SignatureVerification
+ * @author 0age
+ * @notice SignatureVerification contains logic for verifying signatures.
+ */
+contract SignatureVerification is SignatureVerificationErrors, LowLevelHelpers {
+    /**
+     * @dev Internal view function to verify the signature of an order. An
+     *      ERC-1271 fallback will be attempted if either the signature length
+     *      is not 64 or 65 bytes or if the recovered signer does not match the
+     *      supplied signer.
+     *
+     * @param signer    The signer for the order.
+     * @param digest    The digest to verify the signature against.
+     * @param signature A signature from the signer indicating that the order
+     *                  has been approved.
+     */
+    function _assertValidSignature(
+        address signer,
+        bytes32 digest,
+        bytes memory signature
+    ) internal view {
+        // Declare value for ecrecover equality or 1271 call success status.
+        bool success;
+
+        // Utilize assembly to perform optimized signature verification check.
+        assembly {
+            // Ensure that first word of scratch space is empty.
+            mstore(0, 0)
+
+            // Declare value for v signature parameter.
+            let v
+
+            // Get the length of the signature.
+            let signatureLength := mload(signature)
+
+            // Get the pointer to the value preceding the signature length.
+            // This will be used for temporary memory overrides - either the
+            // signature head for isValidSignature or the digest for ecrecover.
+            let wordBeforeSignaturePtr := sub(signature, OneWord)
+
+            // Cache the current value behind the signature to restore it later.
+            let cachedWordBeforeSignature := mload(wordBeforeSignaturePtr)
+
+            // Declare lenDiff + recoveredSigner scope to manage stack pressure.
+            {
+                // Take the difference between the max ECDSA signature length
+                // and the actual signature length. Overflow desired for any
+                // values > 65. If the diff is not 0 or 1, it is not a valid
+                // ECDSA signature - move on to EIP1271 check.
+                let lenDiff := sub(ECDSA_MaxLength, signatureLength)
+
+                // Declare variable for recovered signer.
+                let recoveredSigner
+
+                // If diff is 0 or 1, it may be an ECDSA signature.
+                // Try to recover signer.
+                if iszero(gt(lenDiff, 1)) {
+                    // Read the signature `s` value.
+                    let originalSignatureS := mload(
+                        add(signature, ECDSA_signature_s_offset)
+                    )
+
+                    // Read the first byte of the word after `s`. If the
+                    // signature is 65 bytes, this will be the real `v` value.
+                    // If not, it will need to be modified - doing it this way
+                    // saves an extra condition.
+                    v := byte(
+                        0,
+                        mload(add(signature, ECDSA_signature_v_offset))
+                    )
+
+                    // If lenDiff is 1, parse 64-byte signature as ECDSA.
+                    if lenDiff {
+                        // Extract yParity from highest bit of vs and add 27 to
+                        // get v.
+                        v := add(
+                            shr(MaxUint8, originalSignatureS),
+                            Signature_lower_v
+                        )
+
+                        // Extract canonical s from vs, all but the highest bit.
+                        // Temporarily overwrite the original `s` value in the
+                        // signature.
+                        mstore(
+                            add(signature, ECDSA_signature_s_offset),
+                            and(
+                                originalSignatureS,
+                                EIP2098_allButHighestBitMask
+                            )
+                        )
+                    }
+                    // Temporarily overwrite the signature length with `v` to
+                    // conform to the expected input for ecrecover.
+                    mstore(signature, v)
+
+                    // Temporarily overwrite the word before the length with
+                    // `digest` to conform to the expected input for ecrecover.
+                    mstore(wordBeforeSignaturePtr, digest)
+
+                    // Attempt to recover the signer for the given signature. Do
+                    // not check the call status as ecrecover will return a null
+                    // address if the signature is invalid.
+                    pop(
+                        staticcall(
+                            gas(),
+                            Ecrecover_precompile, // Call ecrecover precompile.
+                            wordBeforeSignaturePtr, // Use data memory location.
+                            Ecrecover_args_size, // Size of digest, v, r, and s.
+                            0, // Write result to scratch space.
+                            OneWord // Provide size of returned result.
+                        )
+                    )
+
+                    // Restore cached word before signature.
+                    mstore(wordBeforeSignaturePtr, cachedWordBeforeSignature)
+
+                    // Restore cached signature length.
+                    mstore(signature, signatureLength)
+
+                    // Restore cached signature `s` value.
+                    mstore(
+                        add(signature, ECDSA_signature_s_offset),
+                        originalSignatureS
+                    )
+
+                    // Read the recovered signer from the buffer given as return
+                    // space for ecrecover.
+                    recoveredSigner := mload(0)
+                }
+
+                // Set success to true if the signature provided was a valid
+                // ECDSA signature and the signer is not the null address. Use
+                // gt instead of direct as success is used outside of assembly.
+                success := and(eq(signer, recoveredSigner), gt(signer, 0))
+            }
+
+            // If the signature was not verified with ecrecover, try EIP1271.
+            if iszero(success) {
+                // Temporarily overwrite the word before the signature length
+                // and use it as the head of the signature input to
+                // `isValidSignature`, which has a value of 64.
+                mstore(
+                    wordBeforeSignaturePtr,
+                    EIP1271_isValidSignature_signature_head_offset
+                )
+
+                // Get pointer to use for the selector of `isValidSignature`.
+                let selectorPtr := sub(
+                    signature,
+                    EIP1271_isValidSignature_selector_negativeOffset
+                )
+
+                // Cache the value currently stored at the selector pointer.
+                let cachedWordOverwrittenBySelector := mload(selectorPtr)
+
+                // Get pointer to use for `digest` input to `isValidSignature`.
+                let digestPtr := sub(
+                    signature,
+                    EIP1271_isValidSignature_digest_negativeOffset
+                )
+
+                // Cache the value currently stored at the digest pointer.
+                let cachedWordOverwrittenByDigest := mload(digestPtr)
+
+                // Write the selector first, since it overlaps the digest.
+                mstore(selectorPtr, EIP1271_isValidSignature_selector)
+
+                // Next, write the digest.
+                mstore(digestPtr, digest)
+
+                // Call signer with `isValidSignature` to validate signature.
+                success := staticcall(
+                    gas(),
+                    signer,
+                    selectorPtr,
+                    add(
+                        signatureLength,
+                        EIP1271_isValidSignature_calldata_baseLength
+                    ),
+                    0,
+                    OneWord
+                )
+
+                // Determine if the signature is valid on successful calls.
+                if success {
+                    // If first word of scratch space does not contain EIP-1271
+                    // signature selector, revert.
+                    if iszero(eq(mload(0), EIP1271_isValidSignature_selector)) {
+                        // Revert with bad 1271 signature if signer has code.
+                        if extcodesize(signer) {
+                            // Bad contract signature.
+                            mstore(0, BadContractSignature_error_signature)
+                            revert(0, BadContractSignature_error_length)
+                        }
+
+                        // Check if signature length was invalid.
+                        if gt(sub(ECDSA_MaxLength, signatureLength), 1) {
+                            // Revert with generic invalid signature error.
+                            mstore(0, InvalidSignature_error_signature)
+                            revert(0, InvalidSignature_error_length)
+                        }
+
+                        // Check if v was invalid.
+                        if iszero(
+                            byte(v, ECDSA_twentySeventhAndTwentyEighthBytesSet)
+                        ) {
+                            // Revert with invalid v value.
+                            mstore(0, BadSignatureV_error_signature)
+                            mstore(BadSignatureV_error_offset, v)
+                            revert(0, BadSignatureV_error_length)
+                        }
+
+                        // Revert with generic invalid signer error message.
+                        mstore(0, InvalidSigner_error_signature)
+                        revert(0, InvalidSigner_error_length)
+                    }
+                }
+
+                // Restore the cached values overwritten by selector, digest and
+                // signature head.
+                mstore(wordBeforeSignaturePtr, cachedWordBeforeSignature)
+                mstore(selectorPtr, cachedWordOverwrittenBySelector)
+                mstore(digestPtr, cachedWordOverwrittenByDigest)
+            }
+        }
+
+        // If the call failed...
+        if (!success) {
+            // Revert and pass reason along if one was returned.
+            _revertWithReasonIfOneIsReturned();
+
+            // Otherwise, revert with error indicating bad contract signature.
+            assembly {
+                mstore(0, BadContractSignature_error_signature)
+                revert(0, BadContractSignature_error_length)
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/SignatureVerification.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/TokenTransferrer.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import "./TokenTransferrerConstants.sol";
+
+import {
+    TokenTransferrerErrors
+} from "../interfaces/TokenTransferrerErrors.sol";
+
+import { ConduitBatch1155Transfer } from "../conduit/lib/ConduitStructs.sol";
+
+/**
+ * @title TokenTransferrer
+ * @author 0age
+ * @custom:coauthor d1ll0n
+ * @custom:coauthor transmissions11
+ * @notice TokenTransferrer is a library for performing optimized ERC20, ERC721,
+ *         ERC1155, and batch ERC1155 transfers, used by both Seaport as well as
+ *         by conduits deployed by the ConduitController. Use great caution when
+ *         considering these functions for use in other codebases, as there are
+ *         significant side effects and edge cases that need to be thoroughly
+ *         understood and carefully addressed.
+ */
+contract TokenTransferrer is TokenTransferrerErrors {
+    /**
+     * @dev Internal function to transfer ERC20 tokens from a given originator
+     *      to a given recipient. Sufficient approvals must be set on the
+     *      contract performing the transfer.
+     *
+     * @param token      The ERC20 token to transfer.
+     * @param from       The originator of the transfer.
+     * @param to         The recipient of the transfer.
+     * @param amount     The amount to transfer.
+     */
+    function _performERC20Transfer(
+        address token,
+        address from,
+        address to,
+        uint256 amount
+    ) internal {
+        // Utilize assembly to perform an optimized ERC20 token transfer.
+        assembly {
+            // The free memory pointer memory slot will be used when populating
+            // call data for the transfer; read the value and restore it later.
+            let memPointer := mload(FreeMemoryPointerSlot)
+
+            // Write call data into memory, starting with function selector.
+            mstore(ERC20_transferFrom_sig_ptr, ERC20_transferFrom_signature)
+            mstore(ERC20_transferFrom_from_ptr, from)
+            mstore(ERC20_transferFrom_to_ptr, to)
+            mstore(ERC20_transferFrom_amount_ptr, amount)
+
+            // Make call & copy up to 32 bytes of return data to scratch space.
+            // Scratch space does not need to be cleared ahead of time, as the
+            // subsequent check will ensure that either at least a full word of
+            // return data is received (in which case it will be overwritten) or
+            // that no data is received (in which case scratch space will be
+            // ignored) on a successful call to the given token.
+            let callStatus := call(
+                gas(),
+                token,
+                0,
+                ERC20_transferFrom_sig_ptr,
+                ERC20_transferFrom_length,
+                0,
+                OneWord
+            )
+
+            // Determine whether transfer was successful using status & result.
+            let success := and(
+                // Set success to whether the call reverted, if not check it
+                // either returned exactly 1 (can't just be non-zero data), or
+                // had no return data.
+                or(
+                    and(eq(mload(0), 1), gt(returndatasize(), 31)),
+                    iszero(returndatasize())
+                ),
+                callStatus
+            )
+
+            // Handle cases where either the transfer failed or no data was
+            // returned. Group these, as most transfers will succeed with data.
+            // Equivalent to `or(iszero(success), iszero(returndatasize()))`
+            // but after it's inverted for JUMPI this expression is cheaper.
+            if iszero(and(success, iszero(iszero(returndatasize())))) {
+                // If the token has no code or the transfer failed: Equivalent
+                // to `or(iszero(success), iszero(extcodesize(token)))` but
+                // after it's inverted for JUMPI this expression is cheaper.
+                if iszero(and(iszero(iszero(extcodesize(token))), success)) {
+                    // If the transfer failed:
+                    if iszero(success) {
+                        // If it was due to a revert:
+                        if iszero(callStatus) {
+                            // If it returned a message, bubble it up as long as
+                            // sufficient gas remains to do so:
+                            if returndatasize() {
+                                // Ensure that sufficient gas is available to
+                                // copy returndata while expanding memory where
+                                // necessary. Start by computing the word size
+                                // of returndata and allocated memory. Round up
+                                // to the nearest full word.
+                                let returnDataWords := div(
+                                    add(returndatasize(), AlmostOneWord),
+                                    OneWord
+                                )
+
+                                // Note: use the free memory pointer in place of
+                                // msize() to work around a Yul warning that
+                                // prevents accessing msize directly when the IR
+                                // pipeline is activated.
+                                let msizeWords := div(memPointer, OneWord)
+
+                                // Next, compute the cost of the returndatacopy.
+                                let cost := mul(CostPerWord, returnDataWords)
+
+                                // Then, compute cost of new memory allocation.
+                                if gt(returnDataWords, msizeWords) {
+                                    cost := add(
+                                        cost,
+                                        add(
+                                            mul(
+                                                sub(
+                                                    returnDataWords,
+                                                    msizeWords
+                                                ),
+                                                CostPerWord
+                                            ),
+                                            div(
+                                                sub(
+                                                    mul(
+                                                        returnDataWords,
+                                                        returnDataWords
+                                                    ),
+                                                    mul(msizeWords, msizeWords)
+                                                ),
+                                                MemoryExpansionCoefficient
+                                            )
+                                        )
+                                    )
+                                }
+
+                                // Finally, add a small constant and compare to
+                                // gas remaining; bubble up the revert data if
+                                // enough gas is still available.
+                                if lt(add(cost, ExtraGasBuffer), gas()) {
+                                    // Copy returndata to memory; overwrite
+                                    // existing memory.
+                                    returndatacopy(0, 0, returndatasize())
+
+                                    // Revert, specifying memory region with
+                                    // copied returndata.
+                                    revert(0, returndatasize())
+                                }
+                            }
+
+                            // Otherwise revert with a generic error message.
+                            mstore(
+                                TokenTransferGenericFailure_error_sig_ptr,
+                                TokenTransferGenericFailure_error_signature
+                            )
+                            mstore(
+                                TokenTransferGenericFailure_error_token_ptr,
+                                token
+                            )
+                            mstore(
+                                TokenTransferGenericFailure_error_from_ptr,
+                                from
+                            )
+                            mstore(TokenTransferGenericFailure_error_to_ptr, to)
+                            mstore(TokenTransferGenericFailure_error_id_ptr, 0)
+                            mstore(
+                                TokenTransferGenericFailure_error_amount_ptr,
+                                amount
+                            )
+                            revert(
+                                TokenTransferGenericFailure_error_sig_ptr,
+                                TokenTransferGenericFailure_error_length
+                            )
+                        }
+
+                        // Otherwise revert with a message about the token
+                        // returning false or non-compliant return values.
+                        mstore(
+                            BadReturnValueFromERC20OnTransfer_error_sig_ptr,
+                            BadReturnValueFromERC20OnTransfer_error_signature
+                        )
+                        mstore(
+                            BadReturnValueFromERC20OnTransfer_error_token_ptr,
+                            token
+                        )
+                        mstore(
+                            BadReturnValueFromERC20OnTransfer_error_from_ptr,
+                            from
+                        )
+                        mstore(
+                            BadReturnValueFromERC20OnTransfer_error_to_ptr,
+                            to
+                        )
+                        mstore(
+                            BadReturnValueFromERC20OnTransfer_error_amount_ptr,
+                            amount
+                        )
+                        revert(
+                            BadReturnValueFromERC20OnTransfer_error_sig_ptr,
+                            BadReturnValueFromERC20OnTransfer_error_length
+                        )
+                    }
+
+                    // Otherwise, revert with error about token not having code:
+                    mstore(NoContract_error_sig_ptr, NoContract_error_signature)
+                    mstore(NoContract_error_token_ptr, token)
+                    revert(NoContract_error_sig_ptr, NoContract_error_length)
+                }
+
+                // Otherwise, the token just returned no data despite the call
+                // having succeeded; no need to optimize for this as it's not
+                // technically ERC20 compliant.
+            }
+
+            // Restore the original free memory pointer.
+            mstore(FreeMemoryPointerSlot, memPointer)
+
+            // Restore the zero slot to zero.
+            mstore(ZeroSlot, 0)
+        }
+    }
+
+    /**
+     * @dev Internal function to transfer an ERC721 token from a given
+     *      originator to a given recipient. Sufficient approvals must be set on
+     *      the contract performing the transfer. Note that this function does
+     *      not check whether the receiver can accept the ERC721 token (i.e. it
+     *      does not use `safeTransferFrom`).
+     *
+     * @param token      The ERC721 token to transfer.
+     * @param from       The originator of the transfer.
+     * @param to         The recipient of the transfer.
+     * @param identifier The tokenId to transfer.
+     */
+    function _performERC721Transfer(
+        address token,
+        address from,
+        address to,
+        uint256 identifier
+    ) internal {
+        // Utilize assembly to perform an optimized ERC721 token transfer.
+        assembly {
+            // If the token has no code, revert.
+            if iszero(extcodesize(token)) {
+                mstore(NoContract_error_sig_ptr, NoContract_error_signature)
+                mstore(NoContract_error_token_ptr, token)
+                revert(NoContract_error_sig_ptr, NoContract_error_length)
+            }
+
+            // The free memory pointer memory slot will be used when populating
+            // call data for the transfer; read the value and restore it later.
+            let memPointer := mload(FreeMemoryPointerSlot)
+
+            // Write call data to memory starting with function selector.
+            mstore(ERC721_transferFrom_sig_ptr, ERC721_transferFrom_signature)
+            mstore(ERC721_transferFrom_from_ptr, from)
+            mstore(ERC721_transferFrom_to_ptr, to)
+            mstore(ERC721_transferFrom_id_ptr, identifier)
+
+            // Perform the call, ignoring return data.
+            let success := call(
+                gas(),
+                token,
+                0,
+                ERC721_transferFrom_sig_ptr,
+                ERC721_transferFrom_length,
+                0,
+                0
+            )
+
+            // If the transfer reverted:
+            if iszero(success) {
+                // If it returned a message, bubble it up as long as sufficient
+                // gas remains to do so:
+                if returndatasize() {
+                    // Ensure that sufficient gas is available to copy
+                    // returndata while expanding memory where necessary. Start
+                    // by computing word size of returndata & allocated memory.
+                    // Round up to the nearest full word.
+                    let returnDataWords := div(
+                        add(returndatasize(), AlmostOneWord),
+                        OneWord
+                    )
+
+                    // Note: use the free memory pointer in place of msize() to
+                    // work around a Yul warning that prevents accessing msize
+                    // directly when the IR pipeline is activated.
+                    let msizeWords := div(memPointer, OneWord)
+
+                    // Next, compute the cost of the returndatacopy.
+                    let cost := mul(CostPerWord, returnDataWords)
+
+                    // Then, compute cost of new memory allocation.
+                    if gt(returnDataWords, msizeWords) {
+                        cost := add(
+                            cost,
+                            add(
+                                mul(
+                                    sub(returnDataWords, msizeWords),
+                                    CostPerWord
+                                ),
+                                div(
+                                    sub(
+                                        mul(returnDataWords, returnDataWords),
+                                        mul(msizeWords, msizeWords)
+                                    ),
+                                    MemoryExpansionCoefficient
+                                )
+                            )
+                        )
+                    }
+
+                    // Finally, add a small constant and compare to gas
+                    // remaining; bubble up the revert data if enough gas is
+                    // still available.
+                    if lt(add(cost, ExtraGasBuffer), gas()) {
+                        // Copy returndata to memory; overwrite existing memory.
+                        returndatacopy(0, 0, returndatasize())
+
+                        // Revert, giving memory region with copied returndata.
+                        revert(0, returndatasize())
+                    }
+                }
+
+                // Otherwise revert with a generic error message.
+                mstore(
+                    TokenTransferGenericFailure_error_sig_ptr,
+                    TokenTransferGenericFailure_error_signature
+                )
+                mstore(TokenTransferGenericFailure_error_token_ptr, token)
+                mstore(TokenTransferGenericFailure_error_from_ptr, from)
+                mstore(TokenTransferGenericFailure_error_to_ptr, to)
+                mstore(TokenTransferGenericFailure_error_id_ptr, identifier)
+                mstore(TokenTransferGenericFailure_error_amount_ptr, 1)
+                revert(
+                    TokenTransferGenericFailure_error_sig_ptr,
+                    TokenTransferGenericFailure_error_length
+                )
+            }
+
+            // Restore the original free memory pointer.
+            mstore(FreeMemoryPointerSlot, memPointer)
+
+            // Restore the zero slot to zero.
+            mstore(ZeroSlot, 0)
+        }
+    }
+
+    /**
+     * @dev Internal function to transfer ERC1155 tokens from a given
+     *      originator to a given recipient. Sufficient approvals must be set on
+     *      the contract performing the transfer and contract recipients must
+     *      implement the ERC1155TokenReceiver interface to indicate that they
+     *      are willing to accept the transfer.
+     *
+     * @param token      The ERC1155 token to transfer.
+     * @param from       The originator of the transfer.
+     * @param to         The recipient of the transfer.
+     * @param identifier The id to transfer.
+     * @param amount     The amount to transfer.
+     */
+    function _performERC1155Transfer(
+        address token,
+        address from,
+        address to,
+        uint256 identifier,
+        uint256 amount
+    ) internal {
+        // Utilize assembly to perform an optimized ERC1155 token transfer.
+        assembly {
+            // If the token has no code, revert.
+            if iszero(extcodesize(token)) {
+                mstore(NoContract_error_sig_ptr, NoContract_error_signature)
+                mstore(NoContract_error_token_ptr, token)
+                revert(NoContract_error_sig_ptr, NoContract_error_length)
+            }
+
+            // The following memory slots will be used when populating call data
+            // for the transfer; read the values and restore them later.
+            let memPointer := mload(FreeMemoryPointerSlot)
+            let slot0x80 := mload(Slot0x80)
+            let slot0xA0 := mload(Slot0xA0)
+            let slot0xC0 := mload(Slot0xC0)
+
+            // Write call data into memory, beginning with function selector.
+            mstore(
+                ERC1155_safeTransferFrom_sig_ptr,
+                ERC1155_safeTransferFrom_signature
+            )
+            mstore(ERC1155_safeTransferFrom_from_ptr, from)
+            mstore(ERC1155_safeTransferFrom_to_ptr, to)
+            mstore(ERC1155_safeTransferFrom_id_ptr, identifier)
+            mstore(ERC1155_safeTransferFrom_amount_ptr, amount)
+            mstore(
+                ERC1155_safeTransferFrom_data_offset_ptr,
+                ERC1155_safeTransferFrom_data_length_offset
+            )
+            mstore(ERC1155_safeTransferFrom_data_length_ptr, 0)
+
+            // Perform the call, ignoring return data.
+            let success := call(
+                gas(),
+                token,
+                0,
+                ERC1155_safeTransferFrom_sig_ptr,
+                ERC1155_safeTransferFrom_length,
+                0,
+                0
+            )
+
+            // If the transfer reverted:
+            if iszero(success) {
+                // If it returned a message, bubble it up as long as sufficient
+                // gas remains to do so:
+                if returndatasize() {
+                    // Ensure that sufficient gas is available to copy
+                    // returndata while expanding memory where necessary. Start
+                    // by computing word size of returndata & allocated memory.
+                    // Round up to the nearest full word.
+                    let returnDataWords := div(
+                        add(returndatasize(), AlmostOneWord),
+                        OneWord
+                    )
+
+                    // Note: use the free memory pointer in place of msize() to
+                    // work around a Yul warning that prevents accessing msize
+                    // directly when the IR pipeline is activated.
+                    let msizeWords := div(memPointer, OneWord)
+
+                    // Next, compute the cost of the returndatacopy.
+                    let cost := mul(CostPerWord, returnDataWords)
+
+                    // Then, compute cost of new memory allocation.
+                    if gt(returnDataWords, msizeWords) {
+                        cost := add(
+                            cost,
+                            add(
+                                mul(
+                                    sub(returnDataWords, msizeWords),
+                                    CostPerWord
+                                ),
+                                div(
+                                    sub(
+                                        mul(returnDataWords, returnDataWords),
+                                        mul(msizeWords, msizeWords)
+                                    ),
+                                    MemoryExpansionCoefficient
+                                )
+                            )
+                        )
+                    }
+
+                    // Finally, add a small constant and compare to gas
+                    // remaining; bubble up the revert data if enough gas is
+                    // still available.
+                    if lt(add(cost, ExtraGasBuffer), gas()) {
+                        // Copy returndata to memory; overwrite existing memory.
+                        returndatacopy(0, 0, returndatasize())
+
+                        // Revert, giving memory region with copied returndata.
+                        revert(0, returndatasize())
+                    }
+                }
+
+                // Otherwise revert with a generic error message.
+                mstore(
+                    TokenTransferGenericFailure_error_sig_ptr,
+                    TokenTransferGenericFailure_error_signature
+                )
+                mstore(TokenTransferGenericFailure_error_token_ptr, token)
+                mstore(TokenTransferGenericFailure_error_from_ptr, from)
+                mstore(TokenTransferGenericFailure_error_to_ptr, to)
+                mstore(TokenTransferGenericFailure_error_id_ptr, identifier)
+                mstore(TokenTransferGenericFailure_error_amount_ptr, amount)
+                revert(
+                    TokenTransferGenericFailure_error_sig_ptr,
+                    TokenTransferGenericFailure_error_length
+                )
+            }
+
+            mstore(Slot0x80, slot0x80) // Restore slot 0x80.
+            mstore(Slot0xA0, slot0xA0) // Restore slot 0xA0.
+            mstore(Slot0xC0, slot0xC0) // Restore slot 0xC0.
+
+            // Restore the original free memory pointer.
+            mstore(FreeMemoryPointerSlot, memPointer)
+
+            // Restore the zero slot to zero.
+            mstore(ZeroSlot, 0)
+        }
+    }
+
+    /**
+     * @dev Internal function to transfer ERC1155 tokens from a given
+     *      originator to a given recipient. Sufficient approvals must be set on
+     *      the contract performing the transfer and contract recipients must
+     *      implement the ERC1155TokenReceiver interface to indicate that they
+     *      are willing to accept the transfer. NOTE: this function is not
+     *      memory-safe; it will overwrite existing memory, restore the free
+     *      memory pointer to the default value, and overwrite the zero slot.
+     *      This function should only be called once memory is no longer
+     *      required and when uninitialized arrays are not utilized, and memory
+     *      should be considered fully corrupted (aside from the existence of a
+     *      default-value free memory pointer) after calling this function.
+     *
+     * @param batchTransfers The group of 1155 batch transfers to perform.
+     */
+    function _performERC1155BatchTransfers(
+        ConduitBatch1155Transfer[] calldata batchTransfers
+    ) internal {
+        // Utilize assembly to perform optimized batch 1155 transfers.
+        assembly {
+            let len := batchTransfers.length
+            // Pointer to first head in the array, which is offset to the struct
+            // at each index. This gets incremented after each loop to avoid
+            // multiplying by 32 to get the offset for each element.
+            let nextElementHeadPtr := batchTransfers.offset
+
+            // Pointer to beginning of the head of the array. This is the
+            // reference position each offset references. It's held static to
+            // let each loop calculate the data position for an element.
+            let arrayHeadPtr := nextElementHeadPtr
+
+            // Write the function selector, which will be reused for each call:
+            // safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)
+            mstore(
+                ConduitBatch1155Transfer_from_offset,
+                ERC1155_safeBatchTransferFrom_signature
+            )
+
+            // Iterate over each batch transfer.
+            for {
+                let i := 0
+            } lt(i, len) {
+                i := add(i, 1)
+            } {
+                // Read the offset to the beginning of the element and add
+                // it to pointer to the beginning of the array head to get
+                // the absolute position of the element in calldata.
+                let elementPtr := add(
+                    arrayHeadPtr,
+                    calldataload(nextElementHeadPtr)
+                )
+
+                // Retrieve the token from calldata.
+                let token := calldataload(elementPtr)
+
+                // If the token has no code, revert.
+                if iszero(extcodesize(token)) {
+                    mstore(NoContract_error_sig_ptr, NoContract_error_signature)
+                    mstore(NoContract_error_token_ptr, token)
+                    revert(NoContract_error_sig_ptr, NoContract_error_length)
+                }
+
+                // Get the total number of supplied ids.
+                let idsLength := calldataload(
+                    add(elementPtr, ConduitBatch1155Transfer_ids_length_offset)
+                )
+
+                // Determine the expected offset for the amounts array.
+                let expectedAmountsOffset := add(
+                    ConduitBatch1155Transfer_amounts_length_baseOffset,
+                    mul(idsLength, OneWord)
+                )
+
+                // Validate struct encoding.
+                let invalidEncoding := iszero(
+                    and(
+                        // ids.length == amounts.length
+                        eq(
+                            idsLength,
+                            calldataload(add(elementPtr, expectedAmountsOffset))
+                        ),
+                        and(
+                            // ids_offset == 0xa0
+                            eq(
+                                calldataload(
+                                    add(
+                                        elementPtr,
+                                        ConduitBatch1155Transfer_ids_head_offset
+                                    )
+                                ),
+                                ConduitBatch1155Transfer_ids_length_offset
+                            ),
+                            // amounts_offset == 0xc0 + ids.length*32
+                            eq(
+                                calldataload(
+                                    add(
+                                        elementPtr,
+                                        ConduitBatchTransfer_amounts_head_offset
+                                    )
+                                ),
+                                expectedAmountsOffset
+                            )
+                        )
+                    )
+                )
+
+                // Revert with an error if the encoding is not valid.
+                if invalidEncoding {
+                    mstore(
+                        Invalid1155BatchTransferEncoding_ptr,
+                        Invalid1155BatchTransferEncoding_selector
+                    )
+                    revert(
+                        Invalid1155BatchTransferEncoding_ptr,
+                        Invalid1155BatchTransferEncoding_length
+                    )
+                }
+
+                // Update the offset position for the next loop
+                nextElementHeadPtr := add(nextElementHeadPtr, OneWord)
+
+                // Copy the first section of calldata (before dynamic values).
+                calldatacopy(
+                    BatchTransfer1155Params_ptr,
+                    add(elementPtr, ConduitBatch1155Transfer_from_offset),
+                    ConduitBatch1155Transfer_usable_head_size
+                )
+
+                // Determine size of calldata required for ids and amounts. Note
+                // that the size includes both lengths as well as the data.
+                let idsAndAmountsSize := add(TwoWords, mul(idsLength, TwoWords))
+
+                // Update the offset for the data array in memory.
+                mstore(
+                    BatchTransfer1155Params_data_head_ptr,
+                    add(
+                        BatchTransfer1155Params_ids_length_offset,
+                        idsAndAmountsSize
+                    )
+                )
+
+                // Set the length of the data array in memory to zero.
+                mstore(
+                    add(
+                        BatchTransfer1155Params_data_length_basePtr,
+                        idsAndAmountsSize
+                    ),
+                    0
+                )
+
+                // Determine the total calldata size for the call to transfer.
+                let transferDataSize := add(
+                    BatchTransfer1155Params_calldata_baseSize,
+                    idsAndAmountsSize
+                )
+
+                // Copy second section of calldata (including dynamic values).
+                calldatacopy(
+                    BatchTransfer1155Params_ids_length_ptr,
+                    add(elementPtr, ConduitBatch1155Transfer_ids_length_offset),
+                    idsAndAmountsSize
+                )
+
+                // Perform the call to transfer 1155 tokens.
+                let success := call(
+                    gas(),
+                    token,
+                    0,
+                    ConduitBatch1155Transfer_from_offset, // Data portion start.
+                    transferDataSize, // Location of the length of callData.
+                    0,
+                    0
+                )
+
+                // If the transfer reverted:
+                if iszero(success) {
+                    // If it returned a message, bubble it up as long as
+                    // sufficient gas remains to do so:
+                    if returndatasize() {
+                        // Ensure that sufficient gas is available to copy
+                        // returndata while expanding memory where necessary.
+                        // Start by computing word size of returndata and
+                        // allocated memory. Round up to the nearest full word.
+                        let returnDataWords := div(
+                            add(returndatasize(), AlmostOneWord),
+                            OneWord
+                        )
+
+                        // Note: use transferDataSize in place of msize() to
+                        // work around a Yul warning that prevents accessing
+                        // msize directly when the IR pipeline is activated.
+                        // The free memory pointer is not used here because
+                        // this function does almost all memory management
+                        // manually and does not update it, and transferDataSize
+                        // should be the largest memory value used (unless a
+                        // previous batch was larger).
+                        let msizeWords := div(transferDataSize, OneWord)
+
+                        // Next, compute the cost of the returndatacopy.
+                        let cost := mul(CostPerWord, returnDataWords)
+
+                        // Then, compute cost of new memory allocation.
+                        if gt(returnDataWords, msizeWords) {
+                            cost := add(
+                                cost,
+                                add(
+                                    mul(
+                                        sub(returnDataWords, msizeWords),
+                                        CostPerWord
+                                    ),
+                                    div(
+                                        sub(
+                                            mul(
+                                                returnDataWords,
+                                                returnDataWords
+                                            ),
+                                            mul(msizeWords, msizeWords)
+                                        ),
+                                        MemoryExpansionCoefficient
+                                    )
+                                )
+                            )
+                        }
+
+                        // Finally, add a small constant and compare to gas
+                        // remaining; bubble up the revert data if enough gas is
+                        // still available.
+                        if lt(add(cost, ExtraGasBuffer), gas()) {
+                            // Copy returndata to memory; overwrite existing.
+                            returndatacopy(0, 0, returndatasize())
+
+                            // Revert with memory region containing returndata.
+                            revert(0, returndatasize())
+                        }
+                    }
+
+                    // Set the error signature.
+                    mstore(
+                        0,
+                        ERC1155BatchTransferGenericFailure_error_signature
+                    )
+
+                    // Write the token.
+                    mstore(ERC1155BatchTransferGenericFailure_token_ptr, token)
+
+                    // Increase the offset to ids by 32.
+                    mstore(
+                        BatchTransfer1155Params_ids_head_ptr,
+                        ERC1155BatchTransferGenericFailure_ids_offset
+                    )
+
+                    // Increase the offset to amounts by 32.
+                    mstore(
+                        BatchTransfer1155Params_amounts_head_ptr,
+                        add(
+                            OneWord,
+                            mload(BatchTransfer1155Params_amounts_head_ptr)
+                        )
+                    )
+
+                    // Return modified region. The total size stays the same as
+                    // `token` uses the same number of bytes as `data.length`.
+                    revert(0, transferDataSize)
+                }
+            }
+
+            // Reset the free memory pointer to the default value; memory must
+            // be assumed to be dirtied and not reused from this point forward.
+            // Also note that the zero slot is not reset to zero, meaning empty
+            // arrays cannot be safely created or utilized until it is restored.
+            mstore(FreeMemoryPointerSlot, DefaultFreeMemoryPointer)
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/TokenTransferrer.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/TokenTransferrerConstants.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+/*
+ * -------------------------- Disambiguation & Other Notes ---------------------
+ *    - The term "head" is used as it is in the documentation for ABI encoding,
+ *      but only in reference to dynamic types, i.e. it always refers to the
+ *      offset or pointer to the body of a dynamic type. In calldata, the head
+ *      is always an offset (relative to the parent object), while in memory,
+ *      the head is always the pointer to the body. More information found here:
+ *      https://docs.soliditylang.org/en/v0.8.14/abi-spec.html#argument-encoding
+ *        - Note that the length of an array is separate from and precedes the
+ *          head of the array.
+ *
+ *    - The term "body" is used in place of the term "head" used in the ABI
+ *      documentation. It refers to the start of the data for a dynamic type,
+ *      e.g. the first word of a struct or the first word of the first element
+ *      in an array.
+ *
+ *    - The term "pointer" is used to describe the absolute position of a value
+ *      and never an offset relative to another value.
+ *        - The suffix "_ptr" refers to a memory pointer.
+ *        - The suffix "_cdPtr" refers to a calldata pointer.
+ *
+ *    - The term "offset" is used to describe the position of a value relative
+ *      to some parent value. For example, OrderParameters_conduit_offset is the
+ *      offset to the "conduit" value in the OrderParameters struct relative to
+ *      the start of the body.
+ *        - Note: Offsets are used to derive pointers.
+ *
+ *    - Some structs have pointers defined for all of their fields in this file.
+ *      Lines which are commented out are fields that are not used in the
+ *      codebase but have been left in for readability.
+ */
+
+uint256 constant AlmostOneWord = 0x1f;
+uint256 constant OneWord = 0x20;
+uint256 constant TwoWords = 0x40;
+uint256 constant ThreeWords = 0x60;
+
+uint256 constant FreeMemoryPointerSlot = 0x40;
+uint256 constant ZeroSlot = 0x60;
+uint256 constant DefaultFreeMemoryPointer = 0x80;
+
+uint256 constant Slot0x80 = 0x80;
+uint256 constant Slot0xA0 = 0xa0;
+uint256 constant Slot0xC0 = 0xc0;
+
+// abi.encodeWithSignature("transferFrom(address,address,uint256)")
+uint256 constant ERC20_transferFrom_signature = (
+    0x23b872dd00000000000000000000000000000000000000000000000000000000
+);
+uint256 constant ERC20_transferFrom_sig_ptr = 0x0;
+uint256 constant ERC20_transferFrom_from_ptr = 0x04;
+uint256 constant ERC20_transferFrom_to_ptr = 0x24;
+uint256 constant ERC20_transferFrom_amount_ptr = 0x44;
+uint256 constant ERC20_transferFrom_length = 0x64; // 4 + 32 * 3 == 100
+
+// abi.encodeWithSignature(
+//     "safeTransferFrom(address,address,uint256,uint256,bytes)"
+// )
+uint256 constant ERC1155_safeTransferFrom_signature = (
+    0xf242432a00000000000000000000000000000000000000000000000000000000
+);
+uint256 constant ERC1155_safeTransferFrom_sig_ptr = 0x0;
+uint256 constant ERC1155_safeTransferFrom_from_ptr = 0x04;
+uint256 constant ERC1155_safeTransferFrom_to_ptr = 0x24;
+uint256 constant ERC1155_safeTransferFrom_id_ptr = 0x44;
+uint256 constant ERC1155_safeTransferFrom_amount_ptr = 0x64;
+uint256 constant ERC1155_safeTransferFrom_data_offset_ptr = 0x84;
+uint256 constant ERC1155_safeTransferFrom_data_length_ptr = 0xa4;
+uint256 constant ERC1155_safeTransferFrom_length = 0xc4; // 4 + 32 * 6 == 196
+uint256 constant ERC1155_safeTransferFrom_data_length_offset = 0xa0;
+
+// abi.encodeWithSignature(
+//     "safeBatchTransferFrom(address,address,uint256[],uint256[],bytes)"
+// )
+uint256 constant ERC1155_safeBatchTransferFrom_signature = (
+    0x2eb2c2d600000000000000000000000000000000000000000000000000000000
+);
+
+bytes4 constant ERC1155_safeBatchTransferFrom_selector = bytes4(
+    bytes32(ERC1155_safeBatchTransferFrom_signature)
+);
+
+uint256 constant ERC721_transferFrom_signature = ERC20_transferFrom_signature;
+uint256 constant ERC721_transferFrom_sig_ptr = 0x0;
+uint256 constant ERC721_transferFrom_from_ptr = 0x04;
+uint256 constant ERC721_transferFrom_to_ptr = 0x24;
+uint256 constant ERC721_transferFrom_id_ptr = 0x44;
+uint256 constant ERC721_transferFrom_length = 0x64; // 4 + 32 * 3 == 100
+
+// abi.encodeWithSignature("NoContract(address)")
+uint256 constant NoContract_error_signature = (
+    0x5f15d67200000000000000000000000000000000000000000000000000000000
+);
+uint256 constant NoContract_error_sig_ptr = 0x0;
+uint256 constant NoContract_error_token_ptr = 0x4;
+uint256 constant NoContract_error_length = 0x24; // 4 + 32 == 36
+
+// abi.encodeWithSignature(
+//     "TokenTransferGenericFailure(address,address,address,uint256,uint256)"
+// )
+uint256 constant TokenTransferGenericFailure_error_signature = (
+    0xf486bc8700000000000000000000000000000000000000000000000000000000
+);
+uint256 constant TokenTransferGenericFailure_error_sig_ptr = 0x0;
+uint256 constant TokenTransferGenericFailure_error_token_ptr = 0x4;
+uint256 constant TokenTransferGenericFailure_error_from_ptr = 0x24;
+uint256 constant TokenTransferGenericFailure_error_to_ptr = 0x44;
+uint256 constant TokenTransferGenericFailure_error_id_ptr = 0x64;
+uint256 constant TokenTransferGenericFailure_error_amount_ptr = 0x84;
+
+// 4 + 32 * 5 == 164
+uint256 constant TokenTransferGenericFailure_error_length = 0xa4;
+
+// abi.encodeWithSignature(
+//     "BadReturnValueFromERC20OnTransfer(address,address,address,uint256)"
+// )
+uint256 constant BadReturnValueFromERC20OnTransfer_error_signature = (
+    0x9889192300000000000000000000000000000000000000000000000000000000
+);
+uint256 constant BadReturnValueFromERC20OnTransfer_error_sig_ptr = 0x0;
+uint256 constant BadReturnValueFromERC20OnTransfer_error_token_ptr = 0x4;
+uint256 constant BadReturnValueFromERC20OnTransfer_error_from_ptr = 0x24;
+uint256 constant BadReturnValueFromERC20OnTransfer_error_to_ptr = 0x44;
+uint256 constant BadReturnValueFromERC20OnTransfer_error_amount_ptr = 0x64;
+
+// 4 + 32 * 4 == 132
+uint256 constant BadReturnValueFromERC20OnTransfer_error_length = 0x84;
+
+uint256 constant ExtraGasBuffer = 0x20;
+uint256 constant CostPerWord = 3;
+uint256 constant MemoryExpansionCoefficient = 0x200;
+
+// Values are offset by 32 bytes in order to write the token to the beginning
+// in the event of a revert
+uint256 constant BatchTransfer1155Params_ptr = 0x24;
+uint256 constant BatchTransfer1155Params_ids_head_ptr = 0x64;
+uint256 constant BatchTransfer1155Params_amounts_head_ptr = 0x84;
+uint256 constant BatchTransfer1155Params_data_head_ptr = 0xa4;
+uint256 constant BatchTransfer1155Params_data_length_basePtr = 0xc4;
+uint256 constant BatchTransfer1155Params_calldata_baseSize = 0xc4;
+
+uint256 constant BatchTransfer1155Params_ids_length_ptr = 0xc4;
+
+uint256 constant BatchTransfer1155Params_ids_length_offset = 0xa0;
+uint256 constant BatchTransfer1155Params_amounts_length_baseOffset = 0xc0;
+uint256 constant BatchTransfer1155Params_data_length_baseOffset = 0xe0;
+
+uint256 constant ConduitBatch1155Transfer_usable_head_size = 0x80;
+
+uint256 constant ConduitBatch1155Transfer_from_offset = 0x20;
+uint256 constant ConduitBatch1155Transfer_ids_head_offset = 0x60;
+uint256 constant ConduitBatch1155Transfer_amounts_head_offset = 0x80;
+uint256 constant ConduitBatch1155Transfer_ids_length_offset = 0xa0;
+uint256 constant ConduitBatch1155Transfer_amounts_length_baseOffset = 0xc0;
+uint256 constant ConduitBatch1155Transfer_calldata_baseSize = 0xc0;
+
+// Note: abbreviated version of above constant to adhere to line length limit.
+uint256 constant ConduitBatchTransfer_amounts_head_offset = 0x80;
+
+uint256 constant Invalid1155BatchTransferEncoding_ptr = 0x00;
+uint256 constant Invalid1155BatchTransferEncoding_length = 0x04;
+uint256 constant Invalid1155BatchTransferEncoding_selector = (
+    0xeba2084c00000000000000000000000000000000000000000000000000000000
+);
+
+uint256 constant ERC1155BatchTransferGenericFailure_error_signature = (
+    0xafc445e200000000000000000000000000000000000000000000000000000000
+);
+uint256 constant ERC1155BatchTransferGenericFailure_token_ptr = 0x04;
+uint256 constant ERC1155BatchTransferGenericFailure_ids_offset = 0xc0;
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/TokenTransferrerConstants.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/Verifiers.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { OrderStatus } from "./ConsiderationStructs.sol";
+
+import { Assertions } from "./Assertions.sol";
+
+import { SignatureVerification } from "./SignatureVerification.sol";
+
+/**
+ * @title Verifiers
+ * @author 0age
+ * @notice Verifiers contains functions for performing verifications.
+ */
+contract Verifiers is Assertions, SignatureVerification {
+    /**
+     * @dev Derive and set hashes, reference chainId, and associated domain
+     *      separator during deployment.
+     *
+     * @param conduitController A contract that deploys conduits, or proxies
+     *                          that may optionally be used to transfer approved
+     *                          ERC20/721/1155 tokens.
+     */
+    constructor(address conduitController) Assertions(conduitController) {}
+
+    /**
+     * @dev Internal view function to ensure that the current time falls within
+     *      an order's valid timespan.
+     *
+     * @param startTime       The time at which the order becomes active.
+     * @param endTime         The time at which the order becomes inactive.
+     * @param revertOnInvalid A boolean indicating whether to revert if the
+     *                        order is not active.
+     *
+     * @return valid A boolean indicating whether the order is active.
+     */
+    function _verifyTime(
+        uint256 startTime,
+        uint256 endTime,
+        bool revertOnInvalid
+    ) internal view returns (bool valid) {
+        // Revert if order's timespan hasn't started yet or has already ended.
+        if (startTime > block.timestamp || endTime <= block.timestamp) {
+            // Only revert if revertOnInvalid has been supplied as true.
+            if (revertOnInvalid) {
+                revert InvalidTime();
+            }
+
+            // Return false as the order is invalid.
+            return false;
+        }
+
+        // Return true as the order time is valid.
+        valid = true;
+    }
+
+    /**
+     * @dev Internal view function to verify the signature of an order. An
+     *      ERC-1271 fallback will be attempted if either the signature length
+     *      is not 64 or 65 bytes or if the recovered signer does not match the
+     *      supplied offerer. Note that in cases where a 64 or 65 byte signature
+     *      is supplied, only standard ECDSA signatures that recover to a
+     *      non-zero address are supported.
+     *
+     * @param offerer   The offerer for the order.
+     * @param orderHash The order hash.
+     * @param signature A signature from the offerer indicating that the order
+     *                  has been approved.
+     */
+    function _verifySignature(
+        address offerer,
+        bytes32 orderHash,
+        bytes memory signature
+    ) internal view {
+        // Skip signature verification if the offerer is the caller.
+        if (offerer == msg.sender) {
+            return;
+        }
+
+        // Derive EIP-712 digest using the domain separator and the order hash.
+        bytes32 digest = _deriveEIP712Digest(_domainSeparator(), orderHash);
+
+        // Ensure that the signature for the digest is valid for the offerer.
+        _assertValidSignature(offerer, digest, signature);
+    }
+
+    /**
+     * @dev Internal view function to validate that a given order is fillable
+     *      and not cancelled based on the order status.
+     *
+     * @param orderHash       The order hash.
+     * @param orderStatus     The status of the order, including whether it has
+     *                        been cancelled and the fraction filled.
+     * @param onlyAllowUnused A boolean flag indicating whether partial fills
+     *                        are supported by the calling function.
+     * @param revertOnInvalid A boolean indicating whether to revert if the
+     *                        order has been cancelled or filled beyond the
+     *                        allowable amount.
+     *
+     * @return valid A boolean indicating whether the order is valid.
+     */
+    function _verifyOrderStatus(
+        bytes32 orderHash,
+        OrderStatus storage orderStatus,
+        bool onlyAllowUnused,
+        bool revertOnInvalid
+    ) internal view returns (bool valid) {
+        // Ensure that the order has not been cancelled.
+        if (orderStatus.isCancelled) {
+            // Only revert if revertOnInvalid has been supplied as true.
+            if (revertOnInvalid) {
+                revert OrderIsCancelled(orderHash);
+            }
+
+            // Return false as the order status is invalid.
+            return false;
+        }
+
+        // Read order status numerator from storage and place on stack.
+        uint256 orderStatusNumerator = orderStatus.numerator;
+
+        // If the order is not entirely unused...
+        if (orderStatusNumerator != 0) {
+            // ensure the order has not been partially filled when not allowed.
+            if (onlyAllowUnused) {
+                // Always revert on partial fills when onlyAllowUnused is true.
+                revert OrderPartiallyFilled(orderHash);
+            }
+            // Otherwise, ensure that order has not been entirely filled.
+            else if (orderStatusNumerator >= orderStatus.denominator) {
+                // Only revert if revertOnInvalid has been supplied as true.
+                if (revertOnInvalid) {
+                    revert OrderAlreadyFilled(orderHash);
+                }
+
+                // Return false as the order status is invalid.
+                return false;
+            }
+        }
+
+        // Return true as the order status is valid.
+        valid = true;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/Verifiers.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/lib/ZoneInteraction.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { ZoneInterface } from "../interfaces/ZoneInterface.sol";
+
+import { OrderType } from "./ConsiderationEnums.sol";
+
+import { AdvancedOrder, CriteriaResolver } from "./ConsiderationStructs.sol";
+
+import "./ConsiderationConstants.sol";
+
+import { ZoneInteractionErrors } from "../interfaces/ZoneInteractionErrors.sol";
+
+import { LowLevelHelpers } from "./LowLevelHelpers.sol";
+
+/**
+ * @title ZoneInteraction
+ * @author 0age
+ * @notice ZoneInteraction contains logic related to interacting with zones.
+ */
+contract ZoneInteraction is ZoneInteractionErrors, LowLevelHelpers {
+    /**
+     * @dev Internal view function to determine if an order has a restricted
+     *      order type and, if so, to ensure that either the offerer or the zone
+     *      are the fulfiller or that a staticcall to `isValidOrder` on the zone
+     *      returns a magic value indicating that the order is currently valid.
+     *
+     * @param orderHash The hash of the order.
+     * @param zoneHash  The hash to provide upon calling the zone.
+     * @param orderType The type of the order.
+     * @param offerer   The offerer in question.
+     * @param zone      The zone in question.
+     */
+    function _assertRestrictedBasicOrderValidity(
+        bytes32 orderHash,
+        bytes32 zoneHash,
+        OrderType orderType,
+        address offerer,
+        address zone
+    ) internal view {
+        // Order type 2-3 require zone or offerer be caller or zone to approve.
+        if (
+            uint256(orderType) > 1 &&
+            msg.sender != zone &&
+            msg.sender != offerer
+        ) {
+            // Perform minimal staticcall to the zone.
+            _callIsValidOrder(zone, orderHash, offerer, zoneHash);
+        }
+    }
+
+    function _callIsValidOrder(
+        address zone,
+        bytes32 orderHash,
+        address offerer,
+        bytes32 zoneHash
+    ) internal view {
+        // Perform minimal staticcall to the zone.
+        bool success = _staticcall(
+            zone,
+            abi.encodeWithSelector(
+                ZoneInterface.isValidOrder.selector,
+                orderHash,
+                msg.sender,
+                offerer,
+                zoneHash
+            )
+        );
+
+        // Ensure call was successful and returned the correct magic value.
+        _assertIsValidOrderStaticcallSuccess(success, orderHash);
+    }
+
+    /**
+     * @dev Internal view function to determine whether an order is a restricted
+     *      order and, if so, to ensure that it was either submitted by the
+     *      offerer or the zone for the order, or that the zone returns the
+     *      expected magic value upon performing a staticcall to `isValidOrder`
+     *      or `isValidOrderIncludingExtraData` depending on whether the order
+     *      fulfillment specifies extra data or criteria resolvers.
+     *
+     * @param advancedOrder     The advanced order in question.
+     * @param criteriaResolvers An array where each element contains a reference
+     *                          to a specific offer or consideration, a token
+     *                          identifier, and a proof that the supplied token
+     *                          identifier is contained in the order's merkle
+     *                          root. Note that a criteria of zero indicates
+     *                          that any (transferable) token identifier is
+     *                          valid and that no proof needs to be supplied.
+     * @param priorOrderHashes  The order hashes of each order supplied prior to
+     *                          the current order as part of a "match" variety
+     *                          of order fulfillment (e.g. this array will be
+     *                          empty for single or "fulfill available").
+     * @param orderHash         The hash of the order.
+     * @param zoneHash          The hash to provide upon calling the zone.
+     * @param orderType         The type of the order.
+     * @param offerer           The offerer in question.
+     * @param zone              The zone in question.
+     */
+    function _assertRestrictedAdvancedOrderValidity(
+        AdvancedOrder memory advancedOrder,
+        CriteriaResolver[] memory criteriaResolvers,
+        bytes32[] memory priorOrderHashes,
+        bytes32 orderHash,
+        bytes32 zoneHash,
+        OrderType orderType,
+        address offerer,
+        address zone
+    ) internal view {
+        // Order type 2-3 require zone or offerer be caller or zone to approve.
+        if (
+            uint256(orderType) > 1 &&
+            msg.sender != zone &&
+            msg.sender != offerer
+        ) {
+            // If no extraData or criteria resolvers are supplied...
+            if (
+                advancedOrder.extraData.length == 0 &&
+                criteriaResolvers.length == 0
+            ) {
+                // Perform minimal staticcall to the zone.
+                _callIsValidOrder(zone, orderHash, offerer, zoneHash);
+            } else {
+                // Otherwise, extra data or criteria resolvers were supplied; in
+                // that event, perform a more verbose staticcall to the zone.
+                bool success = _staticcall(
+                    zone,
+                    abi.encodeWithSelector(
+                        ZoneInterface.isValidOrderIncludingExtraData.selector,
+                        orderHash,
+                        msg.sender,
+                        advancedOrder,
+                        priorOrderHashes,
+                        criteriaResolvers
+                    )
+                );
+
+                // Ensure call was successful and returned correct magic value.
+                _assertIsValidOrderStaticcallSuccess(success, orderHash);
+            }
+        }
+    }
+
+    /**
+     * @dev Internal view function to ensure that a staticcall to `isValidOrder`
+     *      or `isValidOrderIncludingExtraData` as part of validating a
+     *      restricted order that was not submitted by the named offerer or zone
+     *      was successful and returned the required magic value.
+     *
+     * @param success   A boolean indicating the status of the staticcall.
+     * @param orderHash The order hash of the order in question.
+     */
+    function _assertIsValidOrderStaticcallSuccess(
+        bool success,
+        bytes32 orderHash
+    ) internal view {
+        // If the call failed...
+        if (!success) {
+            // Revert and pass reason along if one was returned.
+            _revertWithReasonIfOneIsReturned();
+
+            // Otherwise, revert with a generic error message.
+            revert InvalidRestrictedOrder(orderHash);
+        }
+
+        // Ensure result was extracted and matches isValidOrder magic value.
+        if (_doesNotMatchMagic(ZoneInterface.isValidOrder.selector)) {
+            revert InvalidRestrictedOrder(orderHash);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/lib/ZoneInteraction.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/Seaport.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.10;
+
+import { Consideration } from "./lib/Consideration.sol";
+
+/**
+ * @title Seaport
+ * @custom:version 1.1
+ * @author 0age (0age.eth)
+ * @custom:coauthor d1ll0n (d1ll0n.eth)
+ * @custom:coauthor transmissions11 (t11s.eth)
+ * @custom:contributor Kartik (slokh.eth)
+ * @custom:contributor LeFevre (lefevre.eth)
+ * @custom:contributor Joseph Schiarizzi (CupOJoseph.eth)
+ * @custom:contributor Aspyn Palatnick (stuckinaboot.eth)
+ * @custom:contributor James Wenzel (emo.eth)
+ * @custom:contributor Stephan Min (stephanm.eth)
+ * @custom:contributor Ryan Ghods (ralxz.eth)
+ * @custom:contributor hack3r-0m (hack3r-0m.eth)
+ * @custom:contributor Diego Estevez (antidiego.eth)
+ * @custom:contributor Chomtana (chomtana.eth)
+ * @custom:contributor Saw-mon and Natalie (sawmonandnatalie.eth)
+ * @custom:contributor 0xBeans (0xBeans.eth)
+ * @custom:contributor 0x4non (punkdev.eth)
+ * @custom:contributor Laurence E. Day (norsefire.eth)
+ * @custom:contributor vectorized.eth (vectorized.eth)
+ * @custom:contributor karmacoma (karmacoma.eth)
+ * @custom:contributor horsefacts (horsefacts.eth)
+ * @custom:contributor UncarvedBlock (uncarvedblock.eth)
+ * @custom:contributor Zoraiz Mahmood (zorz.eth)
+ * @custom:contributor William Poulin (wpoulin.eth)
+ * @custom:contributor Rajiv Patel-O'Connor (rajivpoc.eth)
+ * @custom:contributor tserg (tserg.eth)
+ * @custom:contributor cygaar (cygaar.eth)
+ * @custom:contributor Meta0xNull (meta0xnull.eth)
+ * @custom:contributor gpersoon (gpersoon.eth)
+ * @custom:contributor Matt Solomon (msolomon.eth)
+ * @custom:contributor Weikang Song (weikangs.eth)
+ * @custom:contributor zer0dot (zer0dot.eth)
+ * @custom:contributor Mudit Gupta (mudit.eth)
+ * @custom:contributor leonardoalt (leoalt.eth)
+ * @custom:contributor cmichel (cmichel.eth)
+ * @custom:contributor PraneshASP (pranesh.eth)
+ * @custom:contributor JasperAlexander (jasperalexander.eth)
+ * @custom:contributor Ellahi (ellahi.eth)
+ * @custom:contributor zaz (1zaz1.eth)
+ * @custom:contributor berndartmueller (berndartmueller.eth)
+ * @custom:contributor dmfxyz (dmfxyz.eth)
+ * @custom:contributor daltoncoder (dontkillrobots.eth)
+ * @custom:contributor 0xf4ce (0xf4ce.eth)
+ * @custom:contributor phaze (phaze.eth)
+ * @custom:contributor hrkrshnn (hrkrshnn.eth)
+ * @custom:contributor axic (axic.eth)
+ * @custom:contributor leastwood (leastwood.eth)
+ * @custom:contributor 0xsanson (sanson.eth)
+ * @custom:contributor blockdev (blockd3v.eth)
+ * @custom:contributor fiveoutofnine (fiveoutofnine.eth)
+ * @custom:contributor shuklaayush (shuklaayush.eth)
+ * @custom:contributor 0xPatissier
+ * @custom:contributor pcaversaccio
+ * @custom:contributor David Eiber
+ * @custom:contributor csanuragjain
+ * @custom:contributor sach1r0
+ * @custom:contributor twojoy0
+ * @custom:contributor ori_dabush
+ * @custom:contributor Daniel Gelfand
+ * @custom:contributor okkothejawa
+ * @custom:contributor FlameHorizon
+ * @custom:contributor vdrg
+ * @custom:contributor dmitriia
+ * @custom:contributor bokeh-eth
+ * @custom:contributor asutorufos
+ * @custom:contributor rfart(rfa)
+ * @custom:contributor Riley Holterhus
+ * @custom:contributor big-tech-sux
+ * @notice Seaport is a generalized ETH/ERC20/ERC721/ERC1155 marketplace. It
+ *         minimizes external calls to the greatest extent possible and provides
+ *         lightweight methods for common routes as well as more flexible
+ *         methods for composing advanced orders or groups of orders. Each order
+ *         contains an arbitrary number of items that may be spent (the "offer")
+ *         along with an arbitrary number of items that must be received back by
+ *         the indicated recipients (the "consideration").
+ */
+contract Seaport is Consideration {
+    /**
+     * @notice Derive and set hashes, reference chainId, and associated domain
+     *         separator during deployment.
+     *
+     * @param conduitController A contract that deploys conduits, or proxies
+     *                          that may optionally be used to transfer approved
+     *                          ERC20/721/1155 tokens.
+     */
+    constructor(address conduitController) Consideration(conduitController) {}
+
+    /**
+     * @dev Internal pure function to retrieve and return the name of this
+     *      contract.
+     *
+     * @return The name of this contract.
+     */
+    function _name() internal pure override returns (string memory) {
+        // Return the name of the contract.
+        assembly {
+            mstore(0x20, 0x20)
+            mstore(0x49, 0x09506172615370616365)
+            return(0x20, 0x60)
+        }
+    }
+
+    /**
+     * @dev Internal pure function to retrieve the name of this contract as a
+     *      string that will be used to derive the name hash in the constructor.
+     *
+     * @return The name of this contract as a string.
+     */
+    function _nameString() internal pure override returns (string memory) {
+        // Return the name of the contract.
+        return "ParaSpace";
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/Seaport.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneControllerInterface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import { PausableZone } from "../PausableZone.sol";
+
+import { PausableZoneEventsAndErrors } from "./PausableZoneEventsAndErrors.sol";
+
+import {
+    Order,
+    Fulfillment,
+    OrderComponents,
+    AdvancedOrder,
+    CriteriaResolver,
+    Execution
+} from "../../lib/ConsiderationStructs.sol";
+
+import { SeaportInterface } from "../../interfaces/SeaportInterface.sol";
+
+/**
+ * @title  PausableZoneController
+ * @author cupOJoseph, BCLeFevre, stuckinaboot
+ * @notice PausableZoneController enables deploying, pausing and executing
+ *         orders on PausableZones. This deployer is designed to be owned
+ *         by a gnosis safe, DAO, or trusted party.
+ */
+interface PausableZoneControllerInterface {
+    /**
+     * @notice Deploy a PausableZone to a precomputed address.
+     *
+     * @param salt The salt to be used to derive the zone address
+     *
+     * @return derivedAddress The derived address for the zone.
+     */
+    function createZone(bytes32 salt) external returns (address derivedAddress);
+
+    /**
+     * @notice Pause orders on a given zone.
+     *
+     * @param zone The address of the zone to be paused.
+     *
+     * @return success A boolean indicating the zone has been paused.
+     */
+    function pause(address zone) external returns (bool success);
+
+    /**
+     * @notice Cancel Seaport offers on a given zone.
+     *
+     * @param pausableZoneAddress The zone that manages the orders to be
+     *                            cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to cancel.
+     */
+    function cancelOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        OrderComponents[] calldata orders
+    ) external;
+
+    /**
+     * @notice Execute an arbitrary number of matched orders on a given zone.
+     *
+     * @param pausableZoneAddress The zone that manages the orders to be
+     *                            cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to match.
+     * @param fulfillments        An array of elements allocating offer
+     *                            components to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        Order[] calldata orders,
+        Fulfillment[] calldata fulfillments
+    ) external payable returns (Execution[] memory executions);
+
+    /**
+     * @notice Execute an arbitrary number of matched advanced orders on a
+     *         given zone.
+     *
+     * @param pausableZoneAddress The zone that manages the orders to be
+     *                            cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to match.
+     * @param criteriaResolvers   An array where each element contains a
+     *                            reference to a specific order as well as
+     *                            that order's offer or consideration,
+     *                            a token identifier, and a proof that
+     *                            the supplied token identifier is
+     *                            contained in the order's merkle root.
+     * @param fulfillments        An array of elements allocating offer
+     *                            components to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchAdvancedOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        AdvancedOrder[] calldata orders,
+        CriteriaResolver[] calldata criteriaResolvers,
+        Fulfillment[] calldata fulfillments
+    ) external payable returns (Execution[] memory executions);
+
+    /**
+     * @notice Initiate Zone ownership transfer by assigning a new potential
+     *         owner this contract. Once set, the new potential owner
+     *         may call `acceptOwnership` to claim ownership.
+     *         Only the owner in question may call this function.
+     *
+     * @param newPotentialOwner The address for which to initiate ownership
+     *                          transfer to.
+     */
+    function transferOwnership(address newPotentialOwner) external;
+
+    /**
+     * @notice Clear the currently set potential owner, if any.
+     *         Only the owner of this contract may call this function.
+     */
+    function cancelOwnershipTransfer() external;
+
+    /**
+     * @notice Accept ownership of this contract. Only the account that the
+     *         current owner has set as the new potential owner may call this
+     *         function.
+     */
+    function acceptOwnership() external;
+
+    /**
+     * @notice Assign the given address with the ability to pause the zone.
+     *
+     * @param pauserToAssign The address to assign the pauser role.
+     */
+    function assignPauser(address pauserToAssign) external;
+
+    /**
+     * @notice Assign the given address with the ability to operate the
+     *         given zone.
+     *
+     * @param pausableZoneAddress The zone address to assign operator role.
+     * @param operatorToAssign    The address to assign as operator.
+     */
+    function assignOperator(
+        address pausableZoneAddress,
+        address operatorToAssign
+    ) external;
+
+    /**
+     * @notice An external view function that returns the owner.
+     *
+     * @return The address of the owner.
+     */
+    function owner() external view returns (address);
+
+    /**
+     * @notice An external view function that return the potential owner.
+     *
+     * @return The address of the potential owner.
+     */
+    function potentialOwner() external view returns (address);
+
+    /**
+     * @notice An external view function that returns the pauser.
+     *
+     * @return The address of the pauser.
+     */
+    function pauser() external view returns (address);
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneControllerInterface.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneEventsAndErrors.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+/**
+ * @notice PausableZoneEventsAndErrors contains errors and events
+ *         related to zone interaction.
+ */
+interface PausableZoneEventsAndErrors {
+    /**
+     * @dev Emit an event whenever a zone is successfully paused.
+     */
+    event Paused();
+
+    /**
+     * @dev Emit an event whenever a zone is successfully unpaused (created).
+     */
+    event Unpaused();
+
+    /**
+     * @dev Emit an event whenever a zone owner registers a new potential
+     *      owner for that zone.
+     *
+     * @param newPotentialOwner The new potential owner of the zone.
+     */
+    event PotentialOwnerUpdated(address newPotentialOwner);
+
+    /**
+     * @dev Emit an event whenever zone ownership is transferred.
+     *
+     * @param previousOwner The previous owner of the zone.
+     * @param newOwner      The new owner of the zone.
+     */
+    event OwnershipTransferred(address previousOwner, address newOwner);
+
+    /**
+     * @dev Emit an event whenever a new zone is created.
+     *
+     * @param zone The address of the zone.
+     * @param salt The salt used to deploy the zone.
+     */
+    event ZoneCreated(address zone, bytes32 salt);
+
+    /**
+     * @dev Emit an event whenever a zone owner assigns a new pauser
+     *
+     * @param newPauser The new pausear of the zone.
+     */
+    event PauserUpdated(address newPauser);
+
+    /**
+     * @dev Emit an event whenever a zone owner assigns a new operator
+     *
+     * @param newOperator The new operator of the zone.
+     */
+    event OperatorUpdated(address newOperator);
+
+    /**
+     * @dev Revert with an error when attempting to pause the zone
+     *      while the caller is not the owner or pauser of the zone.
+     */
+    error InvalidPauser();
+
+    /**
+     * @dev Revert with an error when attempting to call an operation
+     *      while the caller is not the controller or operator of the zone.
+     */
+    error InvalidOperator();
+
+    /**
+     * @dev Revert with an error when attempting to pause the zone or update the
+     *      operator while the caller is not the controller of the zone.
+     */
+    error InvalidController();
+    /**
+     * @dev Revert with an error when attempting to deploy a zone that is
+     *      currently deployed.
+     */
+    error ZoneAlreadyExists(address zone);
+
+    /**
+     * @dev Revert with an error when the caller does not have the _owner role
+     *
+     */
+    error CallerIsNotOwner();
+
+    /**
+     * @dev Revert with an error when the caller does not have the operator role
+     *
+     */
+    error CallerIsNotOperator();
+
+    /**
+     * @dev Revert with an error when attempting to set the new potential owner
+     *      as the 0 address.
+     *
+     */
+    error OwnerCanNotBeSetAsZero();
+
+    /**
+     * @dev Revert with an error when attempting to set the new potential pauser
+     *      as the 0 address.
+     *
+     */
+    error PauserCanNotBeSetAsZero();
+
+    /**
+     * @dev Revert with an error when the caller does not have
+     *      the potentialOwner role.
+     */
+    error CallerIsNotPotentialOwner();
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneEventsAndErrors.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneInterface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import { SeaportInterface } from "../../interfaces/SeaportInterface.sol";
+
+import {
+    AdvancedOrder,
+    CriteriaResolver,
+    Order,
+    OrderComponents,
+    Fulfillment,
+    Execution
+} from "../../lib/ConsiderationStructs.sol";
+
+/**
+ * @title  PausableZone
+ * @author cupOJoseph, BCLeFevre, ryanio
+ * @notice PausableZone is a simple zone implementation that approves every
+ *         order. It can be self-destructed by its controller to pause
+ *         restricted orders that have it set as their zone.
+ */
+interface PausableZoneInterface {
+    /**
+     * @notice Cancel an arbitrary number of orders that have agreed to use the
+     *         contract as their zone.
+     *
+     * @param seaport  The Seaport address.
+     * @param orders   The orders to cancel.
+     *
+     * @return cancelled A boolean indicating whether the supplied orders have
+     *                   been successfully cancelled.
+     */
+    function cancelOrders(
+        SeaportInterface seaport,
+        OrderComponents[] calldata orders
+    ) external returns (bool cancelled);
+
+    /**
+     * @notice Execute an arbitrary number of matched orders, each with
+     *         an arbitrary number of items for offer and consideration
+     *         along with a set of fulfillments allocating offer components
+     *         to consideration components.
+     *
+     * @param seaport      The Seaport address.
+     * @param orders       The orders to match.
+     * @param fulfillments An array of elements allocating offer components
+     *                     to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchOrders(
+        SeaportInterface seaport,
+        Order[] calldata orders,
+        Fulfillment[] calldata fulfillments
+    ) external payable returns (Execution[] memory executions);
+
+    /**
+     * @notice Execute an arbitrary number of matched advanced orders,
+     *         each with an arbitrary number of items for offer and
+     *         consideration along with a set of fulfillments allocating
+     *         offer components to consideration components.
+     *
+     * @param seaport           The Seaport address.
+     * @param orders            The orders to match.
+     * @param criteriaResolvers An array where each element contains a reference
+     *                          to a specific order as well as that order's
+     *                          offer or consideration, a token identifier, and
+     *                          a proof that the supplied token identifier is
+     *                          contained in the order's merkle root.
+     * @param fulfillments      An array of elements allocating offer components
+     *                          to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchAdvancedOrders(
+        SeaportInterface seaport,
+        AdvancedOrder[] calldata orders,
+        CriteriaResolver[] calldata criteriaResolvers,
+        Fulfillment[] calldata fulfillments
+    ) external payable returns (Execution[] memory executions);
+
+    /**
+     * @notice Pause this contract, safely stopping orders from using
+     *         the contract as a zone. Restricted orders with this address as a
+     *         zone will not be fulfillable unless the zone is redeployed to the
+     *         same address.
+     */
+    function pause(address payee) external;
+
+    /**
+     * @notice Assign the given address with the ability to operate the zone.
+     *
+     * @param operatorToAssign The address to assign as the operator.
+     */
+    function assignOperator(address operatorToAssign) external;
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/zones/interfaces/PausableZoneInterface.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/zones/PausableZone.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import { ZoneInterface } from "../interfaces/ZoneInterface.sol";
+import { ZoneInteractionErrors } from "../interfaces/ZoneInteractionErrors.sol";
+
+import {
+    PausableZoneEventsAndErrors
+} from "./interfaces/PausableZoneEventsAndErrors.sol";
+
+import { SeaportInterface } from "../interfaces/SeaportInterface.sol";
+
+import {
+    AdvancedOrder,
+    CriteriaResolver,
+    Order,
+    OrderComponents,
+    Fulfillment,
+    Execution
+} from "../lib/ConsiderationStructs.sol";
+
+import { PausableZoneInterface } from "./interfaces/PausableZoneInterface.sol";
+
+/**
+ * @title  PausableZone
+ * @author cupOJoseph, BCLeFevre, ryanio
+ * @notice PausableZone is a simple zone implementation that approves every
+ *         order. It can be self-destructed by its controller to pause
+ *         restricted orders that have it set as their zone.
+ */
+contract PausableZone is
+    PausableZoneEventsAndErrors,
+    ZoneInterface,
+    PausableZoneInterface
+{
+    // Set an immutable controller that can pause the zone & update an operator.
+    address internal immutable _controller;
+
+    // Set an operator that can instruct the zone to cancel or execute orders.
+    address public operator;
+
+    /**
+     * @dev Ensure that the caller is either the operator or controller.
+     */
+    modifier isOperator() {
+        // Ensure that the caller is either the operator or the controller.
+        if (msg.sender != operator && msg.sender != _controller) {
+            revert InvalidOperator();
+        }
+
+        // Continue with function execution.
+        _;
+    }
+
+    /**
+     * @dev Ensure that the caller is the controller.
+     */
+    modifier isController() {
+        // Ensure that the caller is the controller.
+        if (msg.sender != _controller) {
+            revert InvalidController();
+        }
+
+        // Continue with function execution.
+        _;
+    }
+
+    /**
+     * @notice Set the deployer as the controller of the zone.
+     */
+    constructor() {
+        // Set the controller to the deployer.
+        _controller = msg.sender;
+
+        // Emit an event signifying that the zone is unpaused.
+        emit Unpaused();
+    }
+
+    /**
+     * @notice Cancel an arbitrary number of orders that have agreed to use the
+     *         contract as their zone.
+     *
+     * @param seaport  The Seaport address.
+     * @param orders   The orders to cancel.
+     *
+     * @return cancelled A boolean indicating whether the supplied orders have
+     *                   been successfully cancelled.
+     */
+    function cancelOrders(
+        SeaportInterface seaport,
+        OrderComponents[] calldata orders
+    ) external override isOperator returns (bool cancelled) {
+        // Call cancel on Seaport and return its boolean value.
+        cancelled = seaport.cancel(orders);
+    }
+
+    /**
+     * @notice Pause this contract, safely stopping orders from using
+     *         the contract as a zone. Restricted orders with this address as a
+     *         zone will not be fulfillable unless the zone is redeployed to the
+     *         same address.
+     */
+    function pause(address payee) external override isController {
+        // Emit an event signifying that the zone is paused.
+        emit Paused();
+
+        // Destroy the zone, sending any ether to the transaction submitter.
+        selfdestruct(payable(payee));
+    }
+
+    /**
+     * @notice Assign the given address with the ability to operate the zone.
+     *
+     * @param operatorToAssign The address to assign as the operator.
+     */
+    function assignOperator(address operatorToAssign)
+        external
+        override
+        isController
+    {
+        // Ensure the operator being assigned is not the null address.
+        if (operatorToAssign == address(0)) {
+            revert PauserCanNotBeSetAsZero();
+        }
+
+        // Set the given address as the new operator.
+        operator = operatorToAssign;
+
+        // Emit an event indicating the operator has been updated.
+        emit OperatorUpdated(operator);
+    }
+
+    /**
+     * @notice Execute an arbitrary number of matched orders, each with
+     *         an arbitrary number of items for offer and consideration
+     *         along with a set of fulfillments allocating offer components
+     *         to consideration components.
+     *
+     * @param seaport      The Seaport address.
+     * @param orders       The orders to match.
+     * @param fulfillments An array of elements allocating offer components
+     *                     to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchOrders(
+        SeaportInterface seaport,
+        Order[] calldata orders,
+        Fulfillment[] calldata fulfillments
+    )
+        external
+        payable
+        override
+        isOperator
+        returns (Execution[] memory executions)
+    {
+        // Call matchOrders on Seaport and return the sequence of transfers
+        // performed as part of matching the given orders.
+        executions = seaport.matchOrders{ value: msg.value }(
+            orders,
+            fulfillments
+        );
+    }
+
+    /**
+     * @notice Execute an arbitrary number of matched advanced orders,
+     *         each with an arbitrary number of items for offer and
+     *         consideration along with a set of fulfillments allocating
+     *         offer components to consideration components.
+     *
+     * @param seaport           The Seaport address.
+     * @param orders            The orders to match.
+     * @param criteriaResolvers An array where each element contains a reference
+     *                          to a specific order as well as that order's
+     *                          offer or consideration, a token identifier, and
+     *                          a proof that the supplied token identifier is
+     *                          contained in the order's merkle root.
+     * @param fulfillments      An array of elements allocating offer components
+     *                          to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchAdvancedOrders(
+        SeaportInterface seaport,
+        AdvancedOrder[] calldata orders,
+        CriteriaResolver[] calldata criteriaResolvers,
+        Fulfillment[] calldata fulfillments
+    )
+        external
+        payable
+        override
+        isOperator
+        returns (Execution[] memory executions)
+    {
+        // Call matchAdvancedOrders on Seaport and return the sequence of
+        // transfers performed as part of matching the given orders.
+        executions = seaport.matchAdvancedOrders{ value: msg.value }(
+            orders,
+            criteriaResolvers,
+            fulfillments
+        );
+    }
+
+    /**
+     * @notice Check if a given order is currently valid.
+     *
+     * @dev This function is called by Seaport whenever extraData is not
+     *      provided by the caller.
+     *
+     * @param orderHash The hash of the order.
+     * @param caller    The caller in question.
+     * @param offerer   The offerer in question.
+     * @param zoneHash  The hash to provide upon calling the zone.
+     *
+     * @return validOrderMagicValue A magic value indicating if the order is
+     *                              currently valid.
+     */
+    function isValidOrder(
+        bytes32 orderHash,
+        address caller,
+        address offerer,
+        bytes32 zoneHash
+    ) external pure override returns (bytes4 validOrderMagicValue) {
+        orderHash;
+        caller;
+        offerer;
+        zoneHash;
+
+        // Return the selector of isValidOrder as the magic value.
+        validOrderMagicValue = ZoneInterface.isValidOrder.selector;
+    }
+
+    /**
+     * @notice Check if a given order including extraData is currently valid.
+     *
+     * @dev This function is called by Seaport whenever any extraData is
+     *      provided by the caller.
+     *
+     * @param orderHash         The hash of the order.
+     * @param caller            The caller in question.
+     * @param order             The order in question.
+     * @param priorOrderHashes  The order hashes of each order supplied prior to
+     *                          the current order as part of a "match" variety
+     *                          of order fulfillment.
+     * @param criteriaResolvers The criteria resolvers corresponding to
+     *                          the order.
+     *
+     * @return validOrderMagicValue A magic value indicating if the order is
+     *                              currently valid.
+     */
+    function isValidOrderIncludingExtraData(
+        bytes32 orderHash,
+        address caller,
+        AdvancedOrder calldata order,
+        bytes32[] calldata priorOrderHashes,
+        CriteriaResolver[] calldata criteriaResolvers
+    ) external pure override returns (bytes4 validOrderMagicValue) {
+        orderHash;
+        caller;
+        order;
+        priorOrderHashes;
+        criteriaResolvers;
+
+        // Return the selector of isValidOrder as the magic value.
+        validOrderMagicValue = ZoneInterface.isValidOrder.selector;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/zones/PausableZone.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/seaport/contracts/zones/PausableZoneController.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.7;
+
+import { PausableZone } from "./PausableZone.sol";
+
+import {
+    PausableZoneControllerInterface
+} from "./interfaces/PausableZoneControllerInterface.sol";
+
+import {
+    PausableZoneEventsAndErrors
+} from "./interfaces/PausableZoneEventsAndErrors.sol";
+
+import {
+    Order,
+    Fulfillment,
+    OrderComponents,
+    AdvancedOrder,
+    CriteriaResolver,
+    Execution
+} from "../lib/ConsiderationStructs.sol";
+
+import { SeaportInterface } from "../interfaces/SeaportInterface.sol";
+
+/**
+ * @title  PausableZoneController
+ * @author cupOJoseph, BCLeFevre, stuckinaboot, stephankmin
+ * @notice PausableZoneController enables deploying, pausing and executing
+ *         orders on PausableZones. This deployer is designed to be owned
+ *         by a gnosis safe, DAO, or trusted party.
+ */
+contract PausableZoneController is
+    PausableZoneControllerInterface,
+    PausableZoneEventsAndErrors
+{
+    // Set the owner that can deploy, pause and execute orders on PausableZones.
+    address internal _owner;
+
+    // Set the address of the new potential owner of the zone.
+    address private _potentialOwner;
+
+    // Set the address with the ability to pause the zone.
+    address internal _pauser;
+
+    // Set the immutable zone creation code hash.
+    bytes32 public immutable zoneCreationCode;
+
+    /**
+     * @dev Throws if called by any account other than the owner or pauser.
+     */
+    modifier isPauser() {
+        if (msg.sender != _pauser && msg.sender != _owner) {
+            revert InvalidPauser();
+        }
+        _;
+    }
+
+    /**
+     * @notice Set the owner of the controller and store
+     *         the zone creation code.
+     *
+     * @param ownerAddress The deployer to be set as the owner.
+     */
+    constructor(address ownerAddress) {
+        // Set the owner address as the owner.
+        _owner = ownerAddress;
+
+        // Hash and store the zone creation code.
+        zoneCreationCode = keccak256(type(PausableZone).creationCode);
+    }
+
+    /**
+     * @notice Deploy a PausableZone to a precomputed address.
+     *
+     * @param salt The salt to be used to derive the zone address
+     *
+     * @return derivedAddress The derived address for the zone.
+     */
+    function createZone(bytes32 salt)
+        external
+        override
+        returns (address derivedAddress)
+    {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+
+        // Derive the PausableZone address.
+        // This expression demonstrates address computation but is not required.
+        derivedAddress = address(
+            uint160(
+                uint256(
+                    keccak256(
+                        abi.encodePacked(
+                            bytes1(0xff),
+                            address(this),
+                            salt,
+                            zoneCreationCode
+                        )
+                    )
+                )
+            )
+        );
+
+        // Revert if a zone is currently deployed to the derived address.
+        if (derivedAddress.code.length != 0) {
+            revert ZoneAlreadyExists(derivedAddress);
+        }
+
+        // Deploy the zone using the supplied salt.
+        new PausableZone{ salt: salt }();
+
+        // Emit an event signifying that the zone was created.
+        emit ZoneCreated(derivedAddress, salt);
+    }
+
+    /**
+     * @notice Pause orders on a given zone.
+     *
+     * @param zone The address of the zone to be paused.
+     *
+     * @return success A boolean indicating the zone has been paused.
+     */
+    function pause(address zone)
+        external
+        override
+        isPauser
+        returns (bool success)
+    {
+        // Call pause on the given zone.
+        PausableZone(zone).pause(msg.sender);
+
+        // Return a boolean indicating the pause was successful.
+        success = true;
+    }
+
+    /**
+     * @notice Cancel Seaport orders on a given zone.
+     *
+     * @param pausableZoneAddress The zone that manages the
+     * orders to be cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to cancel.
+     */
+    function cancelOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        OrderComponents[] calldata orders
+    ) external override {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+
+        // Create a zone object from the zone address.
+        PausableZone zone = PausableZone(pausableZoneAddress);
+
+        // Call cancelOrders on the given zone.
+        zone.cancelOrders(seaportAddress, orders);
+    }
+
+    /**
+     * @notice Execute an arbitrary number of matched orders on a given zone.
+     *
+     * @param pausableZoneAddress The zone that manages the orders
+     * to be cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to match.
+     * @param fulfillments        An array of elements allocating offer
+     *                            components to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        Order[] calldata orders,
+        Fulfillment[] calldata fulfillments
+    ) external payable override returns (Execution[] memory executions) {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+
+        // Create a zone object from the zone address.
+        PausableZone zone = PausableZone(pausableZoneAddress);
+
+        // Call executeMatchOrders on the given zone and return the sequence
+        // of transfers performed as part of matching the given orders.
+        executions = zone.executeMatchOrders{ value: msg.value }(
+            seaportAddress,
+            orders,
+            fulfillments
+        );
+    }
+
+    /**
+     * @notice Execute an arbitrary number of matched advanced orders on a given
+     *         zone.
+     *
+     * @param pausableZoneAddress The zone that manages the orders to be
+     *                            cancelled.
+     * @param seaportAddress      The Seaport address.
+     * @param orders              The orders to match.
+     * @param criteriaResolvers   An array where each element contains a
+     *                            reference to a specific order as well as that
+     *                            order's offer or consideration, a token
+     *                            identifier, and a proof that the supplied
+     *                            token identifier is contained in the
+     *                            order's merkle root.
+     * @param fulfillments        An array of elements allocating offer
+     *                            components to consideration components.
+     *
+     * @return executions An array of elements indicating the sequence of
+     *                    transfers performed as part of matching the given
+     *                    orders.
+     */
+    function executeMatchAdvancedOrders(
+        address pausableZoneAddress,
+        SeaportInterface seaportAddress,
+        AdvancedOrder[] calldata orders,
+        CriteriaResolver[] calldata criteriaResolvers,
+        Fulfillment[] calldata fulfillments
+    ) external payable override returns (Execution[] memory executions) {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+
+        // Create a zone object from the zone address.
+        PausableZone zone = PausableZone(pausableZoneAddress);
+
+        // Call executeMatchOrders on the given zone and return the sequence
+        // of transfers performed as part of matching the given orders.
+        executions = zone.executeMatchAdvancedOrders{ value: msg.value }(
+            seaportAddress,
+            orders,
+            criteriaResolvers,
+            fulfillments
+        );
+    }
+
+    /**
+     * @notice Initiate Zone ownership transfer by assigning a new potential
+     *         owner this contract. Once set, the new potential owner
+     *         may call `acceptOwnership` to claim ownership.
+     *         Only the owner in question may call this function.
+     *
+     * @param newPotentialOwner The address for which to initiate ownership
+     *                          transfer to.
+     */
+    function transferOwnership(address newPotentialOwner) external override {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+        // Ensure the new potential owner is not an invalid address.
+        if (newPotentialOwner == address(0)) {
+            revert OwnerCanNotBeSetAsZero();
+        }
+
+        // Emit an event indicating that the potential owner has been updated.
+        emit PotentialOwnerUpdated(newPotentialOwner);
+
+        // Set the new potential owner as the potential owner.
+        _potentialOwner = newPotentialOwner;
+    }
+
+    /**
+     * @notice Clear the currently set potential owner, if any.
+     *         Only the owner of this contract may call this function.
+     */
+    function cancelOwnershipTransfer() external override {
+        // Ensure the caller is the current owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+
+        // Emit an event indicating that the potential owner has been cleared.
+        emit PotentialOwnerUpdated(address(0));
+
+        // Clear the current new potential owner.
+        delete _potentialOwner;
+    }
+
+    /**
+     * @notice Accept ownership of this contract. Only the account that the
+     *         current owner has set as the new potential owner may call this
+     *         function.
+     */
+    function acceptOwnership() external override {
+        // Ensure the caller is the potential owner.
+        if (msg.sender != _potentialOwner) {
+            revert CallerIsNotPotentialOwner();
+        }
+
+        // Emit an event indicating that the potential owner has been cleared.
+        emit PotentialOwnerUpdated(address(0));
+
+        // Clear the current new potential owner
+        delete _potentialOwner;
+
+        // Emit an event indicating ownership has been transferred.
+        emit OwnershipTransferred(_owner, msg.sender);
+
+        // Set the caller as the owner of this contract.
+        _owner = msg.sender;
+    }
+
+    /**
+     * @notice Assign the given address with the ability to pause the zone.
+     *
+     * @param pauserToAssign The address to assign the pauser role.
+     */
+    function assignPauser(address pauserToAssign) external override {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+        // Ensure the pauser to assign is not an invalid address.
+        if (pauserToAssign == address(0)) {
+            revert PauserCanNotBeSetAsZero();
+        }
+
+        // Set the given account as the pauser.
+        _pauser = pauserToAssign;
+
+        // Emit an event indicating the pauser has been assigned.
+        emit PauserUpdated(_pauser);
+    }
+
+    /**
+     * @notice Assign the given address with the ability to operate the
+     *         given zone.
+     *
+     * @param pausableZoneAddress The zone address to assign operator role.
+     * @param operatorToAssign    The address to assign as operator.
+     */
+    function assignOperator(
+        address pausableZoneAddress,
+        address operatorToAssign
+    ) external override {
+        // Ensure the caller is the owner.
+        if (msg.sender != _owner) {
+            revert CallerIsNotOwner();
+        }
+        // Create a zone object from the zone address.
+        PausableZone zone = PausableZone(pausableZoneAddress);
+
+        // Call assignOperator on the zone by passing in the given
+        // operator address.
+        zone.assignOperator(operatorToAssign);
+    }
+
+    /**
+     * @notice An external view function that returns the owner.
+     *
+     * @return The address of the owner.
+     */
+    function owner() external view override returns (address) {
+        return _owner;
+    }
+
+    /**
+     * @notice An external view function that return the potential owner.
+     *
+     * @return The address of the potential owner.
+     */
+    function potentialOwner() external view override returns (address) {
+        return _potentialOwner;
+    }
+
+    /**
+     * @notice An external view function that returns the pauser.
+     *
+     * @return The address of the pauser.
+     */
+    function pauser() external view override returns (address) {
+        return _pauser;
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/seaport/contracts/zones/PausableZoneController.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IERC721Permit.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+
+import "../openzeppelin/contracts/IERC721.sol";
+
+/// @title ERC721 with permit
+/// @notice Extension to ERC721 that includes a permit function for signature based approvals
+interface IERC721Permit is IERC721 {
+    /// @notice The permit typehash used in the permit signature
+    /// @return The typehash for the permit
+    function PERMIT_TYPEHASH() external pure returns (bytes32);
+
+    /// @notice The domain separator used in the permit signature
+    /// @return The domain seperator used in encoding of permit signature
+    function DOMAIN_SEPARATOR() external view returns (bytes32);
+
+    /// @notice Approve of a specific token ID for spending by spender via signature
+    /// @param spender The account that is being approved
+    /// @param tokenId The ID of the token that is being approved for spending
+    /// @param deadline The deadline timestamp by which the call must be mined for the approve to work
+    /// @param v Must produce valid secp256k1 signature from the holder along with `r` and `s`
+    /// @param r Must produce valid secp256k1 signature from the holder along with `v` and `s`
+    /// @param s Must produce valid secp256k1 signature from the holder along with `r` and `v`
+    function permit(
+        address spender,
+        uint256 tokenId,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external payable;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IERC721Permit.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IMulticall.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+pragma abicoder v2;
+
+/// @title Multicall interface
+/// @notice Enables calling multiple methods in a single call to the contract
+interface IMulticall {
+    /// @notice Call multiple functions in the current contract and return the data from all of them if they all succeed
+    /// @dev The `msg.value` should not be trusted for any method callable from multicall.
+    /// @param data The encoded function data for each of the calls to make to this contract
+    /// @return results The results from each of the calls passed in via data
+    function multicall(bytes[] calldata data) external payable returns (bytes[] memory results);
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IMulticall.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/INonfungiblePositionManager.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+pragma abicoder v2;
+
+import "../openzeppelin/contracts/IERC721Metadata.sol";
+import "../openzeppelin/contracts/IERC721Enumerable.sol";
+
+import "./IPoolInitializer.sol";
+import "./IERC721Permit.sol";
+import "./IPeripheryPayments.sol";
+import "./IPeripheryImmutableState.sol";
+import "./PoolAddress.sol";
+
+/// @title Non-fungible token for positions
+/// @notice Wraps Uniswap V3 positions in a non-fungible token interface which allows for them to be transferred
+/// and authorized.
+interface INonfungiblePositionManager is
+    IPoolInitializer,
+    IPeripheryPayments,
+    IPeripheryImmutableState,
+    IERC721Metadata,
+    IERC721Enumerable,
+    IERC721Permit
+{
+    /// @notice Emitted when liquidity is increased for a position NFT
+    /// @dev Also emitted when a token is minted
+    /// @param tokenId The ID of the token for which liquidity was increased
+    /// @param liquidity The amount by which liquidity for the NFT position was increased
+    /// @param amount0 The amount of token0 that was paid for the increase in liquidity
+    /// @param amount1 The amount of token1 that was paid for the increase in liquidity
+    event IncreaseLiquidity(
+        uint256 indexed tokenId,
+        uint128 liquidity,
+        uint256 amount0,
+        uint256 amount1
+    );
+    /// @notice Emitted when liquidity is decreased for a position NFT
+    /// @param tokenId The ID of the token for which liquidity was decreased
+    /// @param liquidity The amount by which liquidity for the NFT position was decreased
+    /// @param amount0 The amount of token0 that was accounted for the decrease in liquidity
+    /// @param amount1 The amount of token1 that was accounted for the decrease in liquidity
+    event DecreaseLiquidity(
+        uint256 indexed tokenId,
+        uint128 liquidity,
+        uint256 amount0,
+        uint256 amount1
+    );
+    /// @notice Emitted when tokens are collected for a position NFT
+    /// @dev The amounts reported may not be exactly equivalent to the amounts transferred, due to rounding behavior
+    /// @param tokenId The ID of the token for which underlying tokens were collected
+    /// @param recipient The address of the account that received the collected tokens
+    /// @param amount0 The amount of token0 owed to the position that was collected
+    /// @param amount1 The amount of token1 owed to the position that was collected
+    event Collect(
+        uint256 indexed tokenId,
+        address recipient,
+        uint256 amount0,
+        uint256 amount1
+    );
+
+    /// @notice Returns the position information associated with a given token ID.
+    /// @dev Throws if the token ID is not valid.
+    /// @param tokenId The ID of the token that represents the position
+    /// @return nonce The nonce for permits
+    /// @return operator The address that is approved for spending
+    /// @return token0 The address of the token0 for a specific pool
+    /// @return token1 The address of the token1 for a specific pool
+    /// @return fee The fee associated with the pool
+    /// @return tickLower The lower end of the tick range for the position
+    /// @return tickUpper The higher end of the tick range for the position
+    /// @return liquidity The liquidity of the position
+    /// @return feeGrowthInside0LastX128 The fee growth of token0 as of the last action on the individual position
+    /// @return feeGrowthInside1LastX128 The fee growth of token1 as of the last action on the individual position
+    /// @return tokensOwed0 The uncollected amount of token0 owed to the position as of the last computation
+    /// @return tokensOwed1 The uncollected amount of token1 owed to the position as of the last computation
+    function positions(uint256 tokenId)
+        external
+        view
+        returns (
+            uint96 nonce,
+            address operator,
+            address token0,
+            address token1,
+            uint24 fee,
+            int24 tickLower,
+            int24 tickUpper,
+            uint128 liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        );
+
+    struct MintParams {
+        address token0;
+        address token1;
+        uint24 fee;
+        int24 tickLower;
+        int24 tickUpper;
+        uint256 amount0Desired;
+        uint256 amount1Desired;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        address recipient;
+        uint256 deadline;
+    }
+
+    /// @notice Creates a new position wrapped in a NFT
+    /// @dev Call this when the pool does exist and is initialized. Note that if the pool is created but not initialized
+    /// a method does not exist, i.e. the pool is assumed to be initialized.
+    /// @param params The params necessary to mint a position, encoded as `MintParams` in calldata
+    /// @return tokenId The ID of the token that represents the minted position
+    /// @return liquidity The amount of liquidity for this position
+    /// @return amount0 The amount of token0
+    /// @return amount1 The amount of token1
+    function mint(MintParams calldata params)
+        external
+        payable
+        returns (
+            uint256 tokenId,
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1
+        );
+
+    struct IncreaseLiquidityParams {
+        uint256 tokenId;
+        uint256 amount0Desired;
+        uint256 amount1Desired;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        uint256 deadline;
+    }
+
+    /// @notice Increases the amount of liquidity in a position, with tokens paid by the `msg.sender`
+    /// @param params tokenId The ID of the token for which liquidity is being increased,
+    /// amount0Desired The desired amount of token0 to be spent,
+    /// amount1Desired The desired amount of token1 to be spent,
+    /// amount0Min The minimum amount of token0 to spend, which serves as a slippage check,
+    /// amount1Min The minimum amount of token1 to spend, which serves as a slippage check,
+    /// deadline The time by which the transaction must be included to effect the change
+    /// @return liquidity The new liquidity amount as a result of the increase
+    /// @return amount0 The amount of token0 to acheive resulting liquidity
+    /// @return amount1 The amount of token1 to acheive resulting liquidity
+    function increaseLiquidity(IncreaseLiquidityParams calldata params)
+        external
+        payable
+        returns (
+            uint128 liquidity,
+            uint256 amount0,
+            uint256 amount1
+        );
+
+    struct DecreaseLiquidityParams {
+        uint256 tokenId;
+        uint128 liquidity;
+        uint256 amount0Min;
+        uint256 amount1Min;
+        uint256 deadline;
+    }
+
+    /// @notice Decreases the amount of liquidity in a position and accounts it to the position
+    /// @param params tokenId The ID of the token for which liquidity is being decreased,
+    /// amount The amount by which liquidity will be decreased,
+    /// amount0Min The minimum amount of token0 that should be accounted for the burned liquidity,
+    /// amount1Min The minimum amount of token1 that should be accounted for the burned liquidity,
+    /// deadline The time by which the transaction must be included to effect the change
+    /// @return amount0 The amount of token0 accounted to the position's tokens owed
+    /// @return amount1 The amount of token1 accounted to the position's tokens owed
+    function decreaseLiquidity(DecreaseLiquidityParams calldata params)
+        external
+        payable
+        returns (uint256 amount0, uint256 amount1);
+
+    struct CollectParams {
+        uint256 tokenId;
+        address recipient;
+        uint128 amount0Max;
+        uint128 amount1Max;
+    }
+
+    /// @notice Collects up to a maximum amount of fees owed to a specific position to the recipient
+    /// @param params tokenId The ID of the NFT for which tokens are being collected,
+    /// recipient The account that should receive the tokens,
+    /// amount0Max The maximum amount of token0 to collect,
+    /// amount1Max The maximum amount of token1 to collect
+    /// @return amount0 The amount of fees collected in token0
+    /// @return amount1 The amount of fees collected in token1
+    function collect(CollectParams calldata params)
+        external
+        payable
+        returns (uint256 amount0, uint256 amount1);
+
+    /// @notice Burns a token ID, which deletes it from the NFT contract. The token must have 0 liquidity and all tokens
+    /// must be collected first.
+    /// @param tokenId The ID of the token that is being burned
+    function burn(uint256 tokenId) external payable;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/INonfungiblePositionManager.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IPeripheryImmutableState.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.5.0;
+
+/// @title Immutable state
+/// @notice Functions that return immutable state of the router
+interface IPeripheryImmutableState {
+    /// @return Returns the address of the Uniswap V3 factory
+    function factory() external view returns (address);
+
+    /// @return Returns the address of WETH9
+    function WETH9() external view returns (address);
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IPeripheryImmutableState.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IPeripheryPayments.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+
+/// @title Periphery Payments
+/// @notice Functions to ease deposits and withdrawals of ETH
+interface IPeripheryPayments {
+    /// @notice Unwraps the contract's WETH9 balance and sends it to recipient as ETH.
+    /// @dev The amountMinimum parameter prevents malicious contracts from stealing WETH9 from users.
+    /// @param amountMinimum The minimum amount of WETH9 to unwrap
+    /// @param recipient The address receiving ETH
+    function unwrapWETH9(uint256 amountMinimum, address recipient)
+        external
+        payable;
+
+    /// @notice Refunds any ETH balance held by this contract to the `msg.sender`
+    /// @dev Useful for bundling with mint or increase liquidity that uses ether, or exact output swaps
+    /// that use ether for the input amount
+    function refundETH() external payable;
+
+    /// @notice Transfers the full amount of a token held by this contract to recipient
+    /// @dev The amountMinimum parameter prevents malicious contracts from stealing the token from users
+    /// @param token The contract address of the token which will be transferred to `recipient`
+    /// @param amountMinimum The minimum amount of token required for a transfer
+    /// @param recipient The destination address of the token
+    function sweepToken(
+        address token,
+        uint256 amountMinimum,
+        address recipient
+    ) external payable;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IPeripheryPayments.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IPoolInitializer.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.7.5;
+pragma abicoder v2;
+
+/// @title Creates and initializes V3 Pools
+/// @notice Provides a method for creating and initializing a pool, if necessary, for bundling with other methods that
+/// require the pool to exist.
+interface IPoolInitializer {
+    /// @notice Creates a new pool if it does not exist, then initializes if not initialized
+    /// @dev This method can be bundled with others via IMulticall for the first action (e.g. mint) performed against a pool
+    /// @param token0 The contract address of token0 of the pool
+    /// @param token1 The contract address of token1 of the pool
+    /// @param fee The fee amount of the v3 pool for the specified token pair
+    /// @param sqrtPriceX96 The initial square root price of the pool as a Q64.96 value
+    /// @return pool Returns the pool address based on the pair of tokens and fee, will return the newly created pool address if necessary
+    function createAndInitializePoolIfNecessary(
+        address token0,
+        address token1,
+        uint24 fee,
+        uint160 sqrtPriceX96
+    ) external payable returns (address pool);
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IPoolInitializer.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IUniswapV3Factory.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.5.0;
+
+/// @title The interface for the Uniswap V3 Factory
+/// @notice The Uniswap V3 Factory facilitates creation of Uniswap V3 pools and control over the protocol fees
+interface IUniswapV3Factory {
+    /// @notice Emitted when the owner of the factory is changed
+    /// @param oldOwner The owner before the owner was changed
+    /// @param newOwner The owner after the owner was changed
+    event OwnerChanged(address indexed oldOwner, address indexed newOwner);
+
+    /// @notice Emitted when a pool is created
+    /// @param token0 The first token of the pool by address sort order
+    /// @param token1 The second token of the pool by address sort order
+    /// @param fee The fee collected upon every swap in the pool, denominated in hundredths of a bip
+    /// @param tickSpacing The minimum number of ticks between initialized ticks
+    /// @param pool The address of the created pool
+    event PoolCreated(
+        address indexed token0,
+        address indexed token1,
+        uint24 indexed fee,
+        int24 tickSpacing,
+        address pool
+    );
+
+    /// @notice Emitted when a new fee amount is enabled for pool creation via the factory
+    /// @param fee The enabled fee, denominated in hundredths of a bip
+    /// @param tickSpacing The minimum number of ticks between initialized ticks for pools created with the given fee
+    event FeeAmountEnabled(uint24 indexed fee, int24 indexed tickSpacing);
+
+    /// @notice Returns the current owner of the factory
+    /// @dev Can be changed by the current owner via setOwner
+    /// @return The address of the factory owner
+    function owner() external view returns (address);
+
+    /// @notice Returns the tick spacing for a given fee amount, if enabled, or 0 if not enabled
+    /// @dev A fee amount can never be removed, so this value should be hard coded or cached in the calling context
+    /// @param fee The enabled fee, denominated in hundredths of a bip. Returns 0 in case of unenabled fee
+    /// @return The tick spacing
+    function feeAmountTickSpacing(uint24 fee) external view returns (int24);
+
+    /// @notice Returns the pool address for a given pair of tokens and a fee, or address 0 if it does not exist
+    /// @dev tokenA and tokenB may be passed in either token0/token1 or token1/token0 order
+    /// @param tokenA The contract address of either token0 or token1
+    /// @param tokenB The contract address of the other token
+    /// @param fee The fee collected upon every swap in the pool, denominated in hundredths of a bip
+    /// @return pool The pool address
+    function getPool(
+        address tokenA,
+        address tokenB,
+        uint24 fee
+    ) external view returns (address pool);
+
+    /// @notice Creates a pool for the given two tokens and fee
+    /// @param tokenA One of the two tokens in the desired pool
+    /// @param tokenB The other of the two tokens in the desired pool
+    /// @param fee The desired fee for the pool
+    /// @dev tokenA and tokenB may be passed in either order: token0/token1 or token1/token0. tickSpacing is retrieved
+    /// from the fee. The call will revert if the pool already exists, the fee is invalid, or the token arguments
+    /// are invalid.
+    /// @return pool The address of the newly created pool
+    function createPool(
+        address tokenA,
+        address tokenB,
+        uint24 fee
+    ) external returns (address pool);
+
+    /// @notice Updates the owner of the factory
+    /// @dev Must be called by the current owner
+    /// @param _owner The new owner of the factory
+    function setOwner(address _owner) external;
+
+    /// @notice Enables a fee amount with the given tickSpacing
+    /// @dev Fee amounts may never be removed once enabled
+    /// @param fee The fee amount to enable, denominated in hundredths of a bip (i.e. 1e-6)
+    /// @param tickSpacing The spacing between ticks to be enforced for all pools created with the given fee amount
+    function enableFeeAmount(uint24 fee, int24 tickSpacing) external;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IUniswapV3Factory.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/IUniswapV3PoolState.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.5.0;
+
+/// @title Pool state that can change
+/// @notice These methods compose the pool's state, and can change with any frequency including multiple times
+/// per transaction
+interface IUniswapV3PoolState {
+    /// @notice The 0th storage slot in the pool stores many values, and is exposed as a single method to save gas
+    /// when accessed externally.
+    /// @return sqrtPriceX96 The current price of the pool as a sqrt(token1/token0) Q64.96 value
+    /// tick The current tick of the pool, i.e. according to the last tick transition that was run.
+    /// This value may not always be equal to SqrtTickMath.getTickAtSqrtRatio(sqrtPriceX96) if the price is on a tick
+    /// boundary.
+    /// observationIndex The index of the last oracle observation that was written,
+    /// observationCardinality The current maximum number of observations stored in the pool,
+    /// observationCardinalityNext The next maximum number of observations, to be updated when the observation.
+    /// feeProtocol The protocol fee for both tokens of the pool.
+    /// Encoded as two 4 bit values, where the protocol fee of token1 is shifted 4 bits and the protocol fee of token0
+    /// is the lower 4 bits. Used as the denominator of a fraction of the swap fee, e.g. 4 means 1/4th of the swap fee.
+    /// unlocked Whether the pool is currently locked to reentrancy
+    function slot0()
+        external
+        view
+        returns (
+            uint160 sqrtPriceX96,
+            int24 tick,
+            uint16 observationIndex,
+            uint16 observationCardinality,
+            uint16 observationCardinalityNext,
+            uint8 feeProtocol,
+            bool unlocked
+        );
+
+    /// @notice The fee growth as a Q128.128 fees of token0 collected per unit of liquidity for the entire life of the pool
+    /// @dev This value can overflow the uint256
+    function feeGrowthGlobal0X128() external view returns (uint256);
+
+    /// @notice The fee growth as a Q128.128 fees of token1 collected per unit of liquidity for the entire life of the pool
+    /// @dev This value can overflow the uint256
+    function feeGrowthGlobal1X128() external view returns (uint256);
+
+    /// @notice The amounts of token0 and token1 that are owed to the protocol
+    /// @dev Protocol fees will never exceed uint128 max in either token
+    function protocolFees() external view returns (uint128 token0, uint128 token1);
+
+    /// @notice The currently in range liquidity available to the pool
+    /// @dev This value has no relationship to the total liquidity across all ticks
+    function liquidity() external view returns (uint128);
+
+    /// @notice Look up information about a specific tick in the pool
+    /// @param tick The tick to look up
+    /// @return liquidityGross the total amount of position liquidity that uses the pool either as tick lower or
+    /// tick upper,
+    /// liquidityNet how much liquidity changes when the pool price crosses the tick,
+    /// feeGrowthOutside0X128 the fee growth on the other side of the tick from the current tick in token0,
+    /// feeGrowthOutside1X128 the fee growth on the other side of the tick from the current tick in token1,
+    /// tickCumulativeOutside the cumulative tick value on the other side of the tick from the current tick
+    /// secondsPerLiquidityOutsideX128 the seconds spent per liquidity on the other side of the tick from the current tick,
+    /// secondsOutside the seconds spent on the other side of the tick from the current tick,
+    /// initialized Set to true if the tick is initialized, i.e. liquidityGross is greater than 0, otherwise equal to false.
+    /// Outside values can only be used if the tick is initialized, i.e. if liquidityGross is greater than 0.
+    /// In addition, these values are only relative and must be used only in comparison to previous snapshots for
+    /// a specific position.
+    function ticks(int24 tick)
+        external
+        view
+        returns (
+            uint128 liquidityGross,
+            int128 liquidityNet,
+            uint256 feeGrowthOutside0X128,
+            uint256 feeGrowthOutside1X128,
+            int56 tickCumulativeOutside,
+            uint160 secondsPerLiquidityOutsideX128,
+            uint32 secondsOutside,
+            bool initialized
+        );
+
+    /// @notice Returns 256 packed tick initialized boolean values. See TickBitmap for more information
+    function tickBitmap(int16 wordPosition) external view returns (uint256);
+
+    /// @notice Returns the information about a position by the position's key
+    /// @param key The position's key is a hash of a preimage composed by the owner, tickLower and tickUpper
+    /// @return _liquidity The amount of liquidity in the position,
+    /// Returns feeGrowthInside0LastX128 fee growth of token0 inside the tick range as of the last mint/burn/poke,
+    /// Returns feeGrowthInside1LastX128 fee growth of token1 inside the tick range as of the last mint/burn/poke,
+    /// Returns tokensOwed0 the computed amount of token0 owed to the position as of the last mint/burn/poke,
+    /// Returns tokensOwed1 the computed amount of token1 owed to the position as of the last mint/burn/poke
+    function positions(bytes32 key)
+        external
+        view
+        returns (
+            uint128 _liquidity,
+            uint256 feeGrowthInside0LastX128,
+            uint256 feeGrowthInside1LastX128,
+            uint128 tokensOwed0,
+            uint128 tokensOwed1
+        );
+
+    /// @notice Returns data about a specific observation index
+    /// @param index The element of the observations array to fetch
+    /// @dev You most likely want to use #observe() instead of this method to get an observation as of some amount of time
+    /// ago, rather than at a specific index in the array.
+    /// @return blockTimestamp The timestamp of the observation,
+    /// Returns tickCumulative the tick multiplied by seconds elapsed for the life of the pool as of the observation timestamp,
+    /// Returns secondsPerLiquidityCumulativeX128 the seconds per in range liquidity for the life of the pool as of the observation timestamp,
+    /// Returns initialized whether the observation has been initialized and the values are safe to use
+    function observations(uint256 index)
+        external
+        view
+        returns (
+            uint32 blockTimestamp,
+            int56 tickCumulative,
+            uint160 secondsPerLiquidityCumulativeX128,
+            bool initialized
+        );
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/IUniswapV3PoolState.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/libraries/BitMath.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.0;
+
+/// @title BitMath
+/// @dev This library provides functionality for computing bit properties of an unsigned integer
+library BitMath {
+    /// @notice Returns the index of the most significant bit of the number,
+    ///     where the least significant bit is at index 0 and the most significant bit is at index 255
+    /// @dev The function satisfies the property:
+    ///     x >= 2**mostSignificantBit(x) and x < 2**(mostSignificantBit(x)+1)
+    /// @param x the value for which to compute the most significant bit, must be greater than 0
+    /// @return r the index of the most significant bit
+    function mostSignificantBit(uint256 x) internal pure returns (uint8 r) {
+        require(x > 0);
+
+        unchecked {
+            if (x >= 0x100000000000000000000000000000000) {
+                x >>= 128;
+                r += 128;
+            }
+            if (x >= 0x10000000000000000) {
+                x >>= 64;
+                r += 64;
+            }
+            if (x >= 0x100000000) {
+                x >>= 32;
+                r += 32;
+            }
+            if (x >= 0x10000) {
+                x >>= 16;
+                r += 16;
+            }
+            if (x >= 0x100) {
+                x >>= 8;
+                r += 8;
+            }
+            if (x >= 0x10) {
+                x >>= 4;
+                r += 4;
+            }
+            if (x >= 0x4) {
+                x >>= 2;
+                r += 2;
+            }
+            if (x >= 0x2) r += 1;
+        }
+    }
+
+    /// @notice Returns the index of the least significant bit of the number,
+    ///     where the least significant bit is at index 0 and the most significant bit is at index 255
+    /// @dev The function satisfies the property:
+    ///     (x & 2**leastSignificantBit(x)) != 0 and (x & (2**(leastSignificantBit(x)) - 1)) == 0)
+    /// @param x the value for which to compute the least significant bit, must be greater than 0
+    /// @return r the index of the least significant bit
+    function leastSignificantBit(uint256 x) internal pure returns (uint8 r) {
+        require(x > 0);
+
+        unchecked {
+            r = 255;
+            if (x & type(uint128).max > 0) {
+                r -= 128;
+            } else {
+                x >>= 128;
+            }
+            if (x & type(uint64).max > 0) {
+                r -= 64;
+            } else {
+                x >>= 64;
+            }
+            if (x & type(uint32).max > 0) {
+                r -= 32;
+            } else {
+                x >>= 32;
+            }
+            if (x & type(uint16).max > 0) {
+                r -= 16;
+            } else {
+                x >>= 16;
+            }
+            if (x & type(uint8).max > 0) {
+                r -= 8;
+            } else {
+                x >>= 8;
+            }
+            if (x & 0xf > 0) {
+                r -= 4;
+            } else {
+                x >>= 4;
+            }
+            if (x & 0x3 > 0) {
+                r -= 2;
+            } else {
+                x >>= 2;
+            }
+            if (x & 0x1 > 0) r -= 1;
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/libraries/BitMath.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/libraries/FixedPoint128.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.4.0;
+
+/// @title FixedPoint128
+/// @notice A library for handling binary fixed point numbers, see https://en.wikipedia.org/wiki/Q_(number_format)
+library FixedPoint128 {
+    uint256 internal constant Q128 = 0x100000000000000000000000000000000;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/libraries/FixedPoint128.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/libraries/FixedPoint96.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity >=0.4.0;
+
+/// @title FixedPoint96
+/// @notice A library for handling binary fixed point numbers, see https://en.wikipedia.org/wiki/Q_(number_format)
+/// @dev Used in SqrtPriceMath.sol
+library FixedPoint96 {
+    uint8 internal constant RESOLUTION = 96;
+    uint256 internal constant Q96 = 0x1000000000000000000000000;
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/libraries/FixedPoint96.sol =====
+// ===== BEGIN SOURCE FILE: contracts/dependencies/uniswap/libraries/FullMath.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+/// @title Contains 512-bit math functions
+/// @notice Facilitates multiplication and division that can have overflow of an intermediate value without any loss of precision
+/// @dev Handles "phantom overflow" i.e., allows multiplication and division where an intermediate value overflows 256 bits
+library FullMath {
+    /// @notice Calculates floor(a×b÷denominator) with full precision. Throws if result overflows a uint256 or denominator == 0
+    /// @param a The multiplicand
+    /// @param b The multiplier
+    /// @param denominator The divisor
+    /// @return result The 256-bit result
+    /// @dev Credit to Remco Bloemen under MIT license https://xn--2-umb.com/21/muldiv
+    function mulDiv(
+        uint256 a,
+        uint256 b,
+        uint256 denominator
+    ) internal pure returns (uint256 result) {
+        unchecked {
+            // 512-bit multiply [prod1 prod0] = a * b
+            // Compute the product mod 2**256 and mod 2**256 - 1
+            // then use the Chinese Remainder Theorem to reconstruct
+            // the 512 bit result. The result is stored in two 256
+            // variables such that product = prod1 * 2**256 + prod0
+            uint256 prod0; // Least significant 256 bits of the product
+            uint256 prod1; // Most significant 256 bits of the product
+            assembly {
+                let mm := mulmod(a, b, not(0))
+                prod0 := mul(a, b)
+                prod1 := sub(sub(mm, prod0), lt(mm, prod0))
+            }
+
+            // Handle non-overflow cases, 256 by 256 division
+            if (prod1 == 0) {
+                require(denominator > 0);
+                assembly {
+                    result := div(prod0, denominator)
+                }
+                return result;
+            }
+
+            // Make sure the result is less than 2**256.
+            // Also prevents denominator == 0
+            require(denominator > prod1);
+
+            ///////////////////////////////////////////////
+            // 512 by 256 division.
+            ///////////////////////////////////////////////
+
+            // Make division exact by subtracting the remainder from [prod1 prod0]
+            // Compute remainder using mulmod
+            uint256 remainder;
+            assembly {
+                remainder := mulmod(a, b, denominator)
+            }
+            // Subtract 256 bit number from 512 bit number
+            assembly {
+                prod1 := sub(prod1, gt(remainder, prod0))
+                prod0 := sub(prod0, remainder)
+            }
+
+            // Factor powers of two out of denominator
+            // Compute largest power of two divisor of denominator.
+            // Always >= 1.
+            uint256 twos = (0 - denominator) & denominator;
+            // Divide denominator by power of two
+            assembly {
+                denominator := div(denominator, twos)
+            }
+
+            // Divide [prod1 prod0] by the factors of two
+            assembly {
+                prod0 := div(prod0, twos)
+            }
+            // Shift in bits from prod1 into prod0. For this we need
+            // to flip `twos` such that it is 2**256 / twos.
+            // If twos is zero, then it becomes one
+            assembly {
+                twos := add(div(sub(0, twos), twos), 1)
+            }
+            prod0 |= prod1 * twos;
+
+            // Invert denominator mod 2**256
+            // Now that denominator is an odd number, it has an inverse
+            // modulo 2**256 such that denominator * inv = 1 mod 2**256.
+            // Compute the inverse by starting with a seed that is correct
+            // correct for four bits. That is, denominator * inv = 1 mod 2**4
+            uint256 inv = (3 * denominator) ^ 2;
+            // Now use Newton-Raphson iteration to improve the precision.
+            // Thanks to Hensel's lifting lemma, this also works in modular
+            // arithmetic, doubling the correct bits in each step.
+            inv *= 2 - denominator * inv; // inverse mod 2**8
+            inv *= 2 - denominator * inv; // inverse mod 2**16
+            inv *= 2 - denominator * inv; // inverse mod 2**32
+            inv *= 2 - denominator * inv; // inverse mod 2**64
+            inv *= 2 - denominator * inv; // inverse mod 2**128
+            inv *= 2 - denominator * inv; // inverse mod 2**256
+
+            // Because the division is now exact we can divide by multiplying
+            // with the modular inverse of denominator. This will give us the
+            // correct result modulo 2**256. Since the precoditions guarantee
+            // that the outcome is less than 2**256, this is the final result.
+            // We don't need to compute the high bits of the result and prod1
+            // is no longer required.
+            result = prod0 * inv;
+            return result;
+        }
+    }
+
+    /// @notice Calculates ceil(a×b÷denominator) with full precision. Throws if result overflows a uint256 or denominator == 0
+    /// @param a The multiplicand
+    /// @param b The multiplier
+    /// @param denominator The divisor
+    /// @return result The 256-bit result
+    function mulDivRoundingUp(
+        uint256 a,
+        uint256 b,
+        uint256 denominator
+    ) internal pure returns (uint256 result) {
+        unchecked {
+            result = mulDiv(a, b, denominator);
+            if (mulmod(a, b, denominator) > 0) {
+                require(result < type(uint256).max);
+                result++;
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/dependencies/uniswap/libraries/FullMath.sol =====

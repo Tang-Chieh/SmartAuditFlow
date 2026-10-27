@@ -1,0 +1,2253 @@
+// ===== BEGIN SOURCE FILE: src/mimswap/periphery/Router.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {IERC20} from "openzeppelin-contracts/interfaces/IERC20.sol";
+import {DecimalMath} from "/mimswap/libraries/DecimalMath.sol";
+import {IWETH} from "interfaces/IWETH.sol";
+import {IMagicLP} from "/mimswap/interfaces/IMagicLP.sol";
+import {IFactory} from "/mimswap/interfaces/IFactory.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/interfaces/IERC20Metadata.sol";
+
+contract Router {
+    using SafeTransferLib for address;
+    using SafeTransferLib for address payable;
+
+    error ErrNotETHLP();
+    error ErrExpired();
+    error ErrZeroAddress();
+    error ErrPathTooLong();
+    error ErrEmptyPath();
+    error ErrBadPath();
+    error ErrTooHighSlippage(uint256 amountOut);
+    error ErrInvalidBaseToken();
+    error ErrInvalidQuoteToken();
+    error ErrInTokenNotETH();
+    error ErrOutTokenNotETH();
+    error ErrInvalidQuoteTarget();
+    error ErrZeroDecimals();
+    error ErrDecimalsDifferenceTooLarge();
+
+    uint256 public constant MAX_BASE_QUOTE_DECIMALS_DIFFERENCE = 12;
+
+    IWETH public immutable weth;
+    IFactory public immutable factory;
+
+    receive() external payable {}
+
+    constructor(IWETH weth_, IFactory factory_) {
+        if (address(weth_) == address(0) || address(factory_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        weth = weth_;
+        factory = factory_;
+    }
+
+    modifier ensureDeadline(uint256 deadline) {
+        if (block.timestamp > deadline) {
+            revert ErrExpired();
+        }
+        _;
+    }
+
+    function createPool(
+        address baseToken,
+        address quoteToken,
+        uint256 lpFeeRate,
+        uint256 i,
+        uint256 k,
+        address to,
+        uint256 baseInAmount,
+        uint256 quoteInAmount
+    ) external returns (address clone, uint256 shares) {
+        _validateDecimals(IERC20Metadata(baseToken).decimals(), IERC20Metadata(quoteToken).decimals());
+
+        clone = IFactory(factory).create(baseToken, quoteToken, lpFeeRate, i, k);
+
+        baseToken.safeTransferFrom(msg.sender, clone, baseInAmount);
+        quoteToken.safeTransferFrom(msg.sender, clone, quoteInAmount);
+        (shares, , ) = IMagicLP(clone).buyShares(to);
+    }
+
+    function createPoolETH(
+        address token,
+        bool useTokenAsQuote,
+        uint256 lpFeeRate,
+        uint256 i,
+        uint256 k,
+        address to,
+        uint256 tokenInAmount
+    ) external payable returns (address clone, uint256 shares) {
+        if (useTokenAsQuote) {
+            _validateDecimals(18, IERC20Metadata(token).decimals());
+        } else {
+            _validateDecimals(IERC20Metadata(token).decimals(), 18);
+        }
+
+        clone = IFactory(factory).create(useTokenAsQuote ? address(weth) : token, useTokenAsQuote ? token : address(weth), lpFeeRate, i, k);
+
+        weth.deposit{value: msg.value}();
+        token.safeTransferFrom(msg.sender, clone, tokenInAmount);
+        address(weth).safeTransferFrom(address(this), clone, msg.value);
+        (shares, , ) = IMagicLP(clone).buyShares(to);
+    }
+
+    function previewCreatePool(
+        uint256 i,
+        uint256 baseInAmount,
+        uint256 quoteInAmount
+    ) external pure returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount, uint256 shares) {
+        shares = quoteInAmount < DecimalMath.mulFloor(baseInAmount, i) ? DecimalMath.divFloor(quoteInAmount, i) : baseInAmount;
+        baseAdjustedInAmount = shares;
+        quoteAdjustedInAmount = DecimalMath.mulFloor(shares, i);
+
+        if (shares <= 2001) {
+            return (0, 0, 0);
+        }
+
+        shares -= 1001;
+    }
+
+    function previewAddLiquidity(
+        address lp,
+        uint256 baseInAmount,
+        uint256 quoteInAmount
+    ) external view returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount, uint256 shares) {
+        (uint256 baseReserve, uint256 quoteReserve) = IMagicLP(lp).getReserves();
+
+        uint256 baseBalance = IMagicLP(lp)._BASE_TOKEN_().balanceOf(address(lp)) + baseInAmount;
+        uint256 quoteBalance = IMagicLP(lp)._QUOTE_TOKEN_().balanceOf(address(lp)) + quoteInAmount;
+
+        baseInAmount = baseBalance - baseReserve;
+        quoteInAmount = quoteBalance - quoteReserve;
+
+        if (baseInAmount == 0) {
+            return (0, 0, 0);
+        }
+
+        uint256 totalSupply = IERC20(lp).totalSupply();
+
+        if (totalSupply == 0) {
+            if (quoteBalance == 0) {
+                return (0, 0, 0);
+            }
+
+            uint256 i = IMagicLP(lp)._I_();
+
+            shares = quoteBalance < DecimalMath.mulFloor(baseBalance, i) ? DecimalMath.divFloor(quoteBalance, i) : baseBalance;
+            baseAdjustedInAmount = shares;
+            quoteAdjustedInAmount = DecimalMath.mulFloor(shares, i);
+
+            if (shares <= 2001) {
+                return (0, 0, 0);
+            }
+
+            shares -= 1001;
+        } else if (baseReserve > 0 && quoteReserve > 0) {
+            uint256 baseInputRatio = DecimalMath.divFloor(baseInAmount, baseReserve);
+            uint256 quoteInputRatio = DecimalMath.divFloor(quoteInAmount, quoteReserve);
+            if (baseInputRatio <= quoteInputRatio) {
+                baseAdjustedInAmount = baseInAmount;
+                quoteAdjustedInAmount = DecimalMath.mulCeil(quoteReserve, baseInputRatio);
+                shares = DecimalMath.mulFloor(totalSupply, baseInputRatio);
+            } else {
+                quoteAdjustedInAmount = quoteInAmount;
+                baseAdjustedInAmount = DecimalMath.mulCeil(baseReserve, quoteInputRatio);
+                shares = DecimalMath.mulFloor(totalSupply, quoteInputRatio);
+            }
+        }
+    }
+
+    function addLiquidity(
+        address lp,
+        address to,
+        uint256 baseInAmount,
+        uint256 quoteInAmount,
+        uint256 minimumShares,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount, uint256 shares) {
+        (baseAdjustedInAmount, quoteAdjustedInAmount) = _adjustAddLiquidity(lp, baseInAmount, quoteInAmount);
+
+        IMagicLP(lp)._BASE_TOKEN_().safeTransferFrom(msg.sender, lp, baseAdjustedInAmount);
+        IMagicLP(lp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, lp, quoteAdjustedInAmount);
+
+        shares = _addLiquidity(lp, to, minimumShares);
+    }
+
+    function addLiquidityUnsafe(
+        address lp,
+        address to,
+        uint256 baseInAmount,
+        uint256 quoteInAmount,
+        uint256 minimumShares,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 shares) {
+        IMagicLP(lp)._BASE_TOKEN_().safeTransferFrom(msg.sender, lp, baseInAmount);
+        IMagicLP(lp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, lp, quoteInAmount);
+
+        return _addLiquidity(lp, to, minimumShares);
+    }
+
+    function addLiquidityETH(
+        address lp,
+        address to,
+        address payable refundTo,
+        uint256 tokenInAmount,
+        uint256 minimumShares,
+        uint256 deadline
+    ) external payable ensureDeadline(deadline) returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount, uint256 shares) {
+        uint256 wethAdjustedAmount;
+        uint256 tokenAdjustedAmount;
+        address token = IMagicLP(lp)._BASE_TOKEN_();
+        if (token == address(weth)) {
+            token = IMagicLP(lp)._QUOTE_TOKEN_();
+            (baseAdjustedInAmount, quoteAdjustedInAmount) = _adjustAddLiquidity(lp, msg.value, tokenInAmount);
+            wethAdjustedAmount = baseAdjustedInAmount;
+            tokenAdjustedAmount = quoteAdjustedInAmount;
+        } else if (IMagicLP(lp)._QUOTE_TOKEN_() == address(weth)) {
+            (baseAdjustedInAmount, quoteAdjustedInAmount) = _adjustAddLiquidity(lp, tokenInAmount, msg.value);
+            wethAdjustedAmount = quoteAdjustedInAmount;
+            tokenAdjustedAmount = baseAdjustedInAmount;
+        } else {
+            revert ErrNotETHLP();
+        }
+
+        weth.deposit{value: wethAdjustedAmount}();
+        address(weth).safeTransfer(lp, wethAdjustedAmount);
+
+        // Refund unused ETH
+        if (msg.value > wethAdjustedAmount) {
+            refundTo.safeTransferETH(msg.value - wethAdjustedAmount);
+        }
+
+        token.safeTransferFrom(msg.sender, lp, tokenAdjustedAmount);
+
+        shares = _addLiquidity(lp, to, minimumShares);
+    }
+
+    function addLiquidityETHUnsafe(
+        address lp,
+        address to,
+        uint256 tokenInAmount,
+        uint256 minimumShares,
+        uint256 deadline
+    ) external payable ensureDeadline(deadline) returns (uint256 shares) {
+        address token = IMagicLP(lp)._BASE_TOKEN_();
+        if (token == address(weth)) {
+            token = IMagicLP(lp)._QUOTE_TOKEN_();
+        } else if (IMagicLP(lp)._QUOTE_TOKEN_() != address(weth)) {
+            revert ErrNotETHLP();
+        }
+
+        weth.deposit{value: msg.value}();
+        address(weth).safeTransfer(lp, msg.value);
+
+        token.safeTransferFrom(msg.sender, lp, tokenInAmount);
+
+        return _addLiquidity(lp, to, minimumShares);
+    }
+
+    function previewRemoveLiquidity(address lp, uint256 sharesIn) external view returns (uint256 baseAmountOut, uint256 quoteAmountOut) {
+        uint256 baseBalance = IMagicLP(lp)._BASE_TOKEN_().balanceOf(address(lp));
+        uint256 quoteBalance = IMagicLP(lp)._QUOTE_TOKEN_().balanceOf(address(lp));
+
+        uint256 totalShares = IERC20(lp).totalSupply();
+
+        baseAmountOut = (baseBalance * sharesIn) / totalShares;
+        quoteAmountOut = (quoteBalance * sharesIn) / totalShares;
+    }
+
+    function removeLiquidity(
+        address lp,
+        address to,
+        uint256 sharesIn,
+        uint256 minimumBaseAmount,
+        uint256 minimumQuoteAmount,
+        uint256 deadline
+    ) external returns (uint256 baseAmountOut, uint256 quoteAmountOut) {
+        lp.safeTransferFrom(msg.sender, address(this), sharesIn);
+
+        return IMagicLP(lp).sellShares(sharesIn, to, minimumBaseAmount, minimumQuoteAmount, "", deadline);
+    }
+
+    function removeLiquidityETH(
+        address lp,
+        address to,
+        uint256 sharesIn,
+        uint256 minimumETHAmount,
+        uint256 minimumTokenAmount,
+        uint256 deadline
+    ) external returns (uint256 ethAmountOut, uint256 tokenAmountOut) {
+        lp.safeTransferFrom(msg.sender, address(this), sharesIn);
+
+        address token = IMagicLP(lp)._BASE_TOKEN_();
+        if (token == address(weth)) {
+            token = IMagicLP(lp)._QUOTE_TOKEN_();
+            (ethAmountOut, tokenAmountOut) = IMagicLP(lp).sellShares(
+                sharesIn,
+                address(this),
+                minimumETHAmount,
+                minimumTokenAmount,
+                "",
+                deadline
+            );
+        } else if (IMagicLP(lp)._QUOTE_TOKEN_() == address(weth)) {
+            (tokenAmountOut, ethAmountOut) = IMagicLP(lp).sellShares(
+                sharesIn,
+                address(this),
+                minimumTokenAmount,
+                minimumETHAmount,
+                "",
+                deadline
+            );
+        } else {
+            revert ErrNotETHLP();
+        }
+
+        weth.withdraw(ethAmountOut);
+        to.safeTransferETH(ethAmountOut);
+
+        token.safeTransfer(to, tokenAmountOut);
+    }
+
+    function swapTokensForTokens(
+        address to,
+        uint256 amountIn,
+        address[] calldata path,
+        uint256 directions,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        _validatePath(path);
+
+        address firstLp = path[0];
+
+        // Transfer to the first LP
+        if (directions & 1 == 0) {
+            IMagicLP(firstLp)._BASE_TOKEN_().safeTransferFrom(msg.sender, address(firstLp), amountIn);
+        } else {
+            IMagicLP(firstLp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, address(firstLp), amountIn);
+        }
+
+        return _swap(to, path, directions, minimumOut);
+    }
+
+    function swapETHForTokens(
+        address to,
+        address[] calldata path,
+        uint256 directions,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external payable ensureDeadline(deadline) returns (uint256 amountOut) {
+        _validatePath(path);
+
+        address firstLp = path[0];
+        address inToken;
+
+        if (directions & 1 == 0) {
+            inToken = IMagicLP(firstLp)._BASE_TOKEN_();
+        } else {
+            inToken = IMagicLP(firstLp)._QUOTE_TOKEN_();
+        }
+
+        // Transfer to the first LP
+        if (inToken != address(weth)) {
+            revert ErrInTokenNotETH();
+        }
+
+        weth.deposit{value: msg.value}();
+        inToken.safeTransfer(address(firstLp), msg.value);
+
+        return _swap(to, path, directions, minimumOut);
+    }
+
+    function swapTokensForETH(
+        address to,
+        uint256 amountIn,
+        address[] calldata path,
+        uint256 directions,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        _validatePath(path);
+
+        uint256 lastLpIndex = path.length - 1;
+        address lastLp = path[lastLpIndex];
+        address outToken;
+
+        if ((directions >> lastLpIndex) & 1 == 0) {
+            outToken = IMagicLP(lastLp)._QUOTE_TOKEN_();
+        } else {
+            outToken = IMagicLP(lastLp)._BASE_TOKEN_();
+        }
+
+        if (outToken != address(weth)) {
+            revert ErrOutTokenNotETH();
+        }
+
+        address firstLp = path[0];
+
+        // Transfer to the first LP
+        if (directions & 1 == 0) {
+            IMagicLP(firstLp)._BASE_TOKEN_().safeTransferFrom(msg.sender, firstLp, amountIn);
+        } else {
+            IMagicLP(firstLp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, firstLp, amountIn);
+        }
+
+        amountOut = _swap(address(this), path, directions, minimumOut);
+        weth.withdraw(amountOut);
+
+        to.safeTransferETH(amountOut);
+    }
+
+    function sellBaseTokensForTokens(
+        address lp,
+        address to,
+        uint256 amountIn,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        IMagicLP(lp)._BASE_TOKEN_().safeTransferFrom(msg.sender, lp, amountIn);
+        return _sellBase(lp, to, minimumOut);
+    }
+
+    function sellBaseETHForTokens(
+        address lp,
+        address to,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external payable ensureDeadline(deadline) returns (uint256 amountOut) {
+        address baseToken = IMagicLP(lp)._BASE_TOKEN_();
+
+        if (baseToken != address(weth)) {
+            revert ErrInvalidBaseToken();
+        }
+
+        weth.deposit{value: msg.value}();
+        baseToken.safeTransfer(lp, msg.value);
+        return _sellBase(lp, to, minimumOut);
+    }
+
+    function sellBaseTokensForETH(
+        address lp,
+        address to,
+        uint256 amountIn,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        if (IMagicLP(lp)._QUOTE_TOKEN_() != address(weth)) {
+            revert ErrInvalidQuoteToken();
+        }
+
+        IMagicLP(lp)._BASE_TOKEN_().safeTransferFrom(msg.sender, lp, amountIn);
+        amountOut = _sellBase(lp, address(this), minimumOut);
+        weth.withdraw(amountOut);
+        to.safeTransferETH(amountOut);
+    }
+
+    function sellQuoteTokensForTokens(
+        address lp,
+        address to,
+        uint256 amountIn,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        IMagicLP(lp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, lp, amountIn);
+
+        return _sellQuote(lp, to, minimumOut);
+    }
+
+    function sellQuoteETHForTokens(
+        address lp,
+        address to,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external payable ensureDeadline(deadline) returns (uint256 amountOut) {
+        address quoteToken = IMagicLP(lp)._QUOTE_TOKEN_();
+
+        if (quoteToken != address(weth)) {
+            revert ErrInvalidQuoteToken();
+        }
+
+        weth.deposit{value: msg.value}();
+        quoteToken.safeTransfer(lp, msg.value);
+        return _sellQuote(lp, to, minimumOut);
+    }
+
+    function sellQuoteTokensForETH(
+        address lp,
+        address to,
+        uint256 amountIn,
+        uint256 minimumOut,
+        uint256 deadline
+    ) external ensureDeadline(deadline) returns (uint256 amountOut) {
+        if (IMagicLP(lp)._BASE_TOKEN_() != address(weth)) {
+            revert ErrInvalidBaseToken();
+        }
+
+        IMagicLP(lp)._QUOTE_TOKEN_().safeTransferFrom(msg.sender, lp, amountIn);
+        amountOut = _sellQuote(lp, address(this), minimumOut);
+        weth.withdraw(amountOut);
+        to.safeTransferETH(amountOut);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _addLiquidity(address lp, address to, uint256 minimumShares) internal returns (uint256 shares) {
+        (shares, , ) = IMagicLP(lp).buyShares(to);
+
+        if (shares < minimumShares) {
+            revert ErrTooHighSlippage(shares);
+        }
+    }
+
+    /// Adapted from: https://github.com/DODOEX/contractV2/blob/main/contracts/SmartRoute/proxies/DODODspProxy.sol
+    /// Copyright 2020 DODO ZOO. Licensed under Apache-2.0.
+    function _adjustAddLiquidity(
+        address lp,
+        uint256 baseInAmount,
+        uint256 quoteInAmount
+    ) internal view returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount) {
+        (uint256 baseReserve, uint256 quoteReserve) = IMagicLP(lp).getReserves();
+        uint256 baseBalance = IMagicLP(lp)._BASE_TOKEN_().balanceOf(address(lp)) + baseInAmount;
+        uint256 quoteBalance = IMagicLP(lp)._QUOTE_TOKEN_().balanceOf(address(lp)) + quoteInAmount;
+
+        baseInAmount = baseBalance - baseReserve;
+        quoteInAmount = quoteBalance - quoteReserve;
+
+        if (IERC20(lp).totalSupply() == 0) {
+            uint256 i = IMagicLP(lp)._I_();
+            uint256 shares = quoteInAmount < DecimalMath.mulFloor(baseInAmount, i) ? DecimalMath.divFloor(quoteInAmount, i) : baseInAmount;
+            baseAdjustedInAmount = shares;
+            quoteAdjustedInAmount = DecimalMath.mulFloor(shares, i);
+        } else {
+            if (quoteReserve > 0 && baseReserve > 0) {
+                uint256 baseIncreaseRatio = DecimalMath.divFloor(baseInAmount, baseReserve);
+                uint256 quoteIncreaseRatio = DecimalMath.divFloor(quoteInAmount, quoteReserve);
+                if (baseIncreaseRatio <= quoteIncreaseRatio) {
+                    baseAdjustedInAmount = baseInAmount;
+                    quoteAdjustedInAmount = DecimalMath.mulFloor(quoteReserve, baseIncreaseRatio);
+                } else {
+                    quoteAdjustedInAmount = quoteInAmount;
+                    baseAdjustedInAmount = DecimalMath.mulFloor(baseReserve, quoteIncreaseRatio);
+                }
+            }
+        }
+    }
+
+    function _swap(address to, address[] calldata path, uint256 directions, uint256 minimumOut) internal returns (uint256 amountOut) {
+        uint256 iterations = path.length - 1; // Subtract by one as last swap is done separately
+
+        for (uint256 i = 0; i < iterations; ) {
+            if (directions & 1 == 0) {
+                // Sell base
+                IMagicLP(path[i]).sellBase(address(path[i + 1]));
+            } else {
+                // Sell quote
+                IMagicLP(path[i]).sellQuote(address(path[i + 1]));
+            }
+
+            directions >>= 1;
+
+            unchecked {
+                ++i;
+            }
+        }
+
+        if ((directions & 1 == 0)) {
+            amountOut = IMagicLP(path[iterations]).sellBase(to);
+        } else {
+            amountOut = IMagicLP(path[iterations]).sellQuote(to);
+        }
+
+        if (amountOut < minimumOut) {
+            revert ErrTooHighSlippage(amountOut);
+        }
+    }
+
+    function _sellBase(address lp, address to, uint256 minimumOut) internal returns (uint256 amountOut) {
+        amountOut = IMagicLP(lp).sellBase(to);
+        if (amountOut < minimumOut) {
+            revert ErrTooHighSlippage(amountOut);
+        }
+    }
+
+    function _sellQuote(address lp, address to, uint256 minimumOut) internal returns (uint256 amountOut) {
+        amountOut = IMagicLP(lp).sellQuote(to);
+
+        if (amountOut < minimumOut) {
+            revert ErrTooHighSlippage(amountOut);
+        }
+    }
+
+    function _validatePath(address[] calldata path) internal pure {
+        uint256 pathLength = path.length;
+
+        // Max 256 because of bits in directions
+        if (pathLength > 256) {
+            revert ErrPathTooLong();
+        }
+        if (pathLength <= 0) {
+            revert ErrEmptyPath();
+        }
+    }
+
+    function _validateDecimals(uint8 baseDecimals, uint8 quoteDecimals) internal pure {
+        if (baseDecimals == 0 || quoteDecimals == 0) {
+            revert ErrZeroDecimals();
+        }
+        if (quoteDecimals - baseDecimals > MAX_BASE_QUOTE_DECIMALS_DIFFERENCE) {
+            revert ErrDecimalsDifferenceTooLarge();
+        }
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/periphery/Router.sol =====
+// ===== BEGIN SOURCE FILE: src/mixins/FeeCollectable.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+
+abstract contract FeeCollectable {
+    error ErrInvalidFeeBips();
+    error ErrInvalidFeeOperator(address);
+    event LogFeeParametersChanged(
+        address indexed previousFeeCollector,
+        uint16 previousFeeAmount,
+        address indexed feeCollector,
+        uint16 feeAmount
+    );
+
+    uint256 internal constant BIPS = 10_000;
+
+    uint16 public feeBips;
+    address public feeCollector;
+
+    modifier onlyAllowedFeeOperator() {
+        if (!isFeeOperator(msg.sender)) {
+            revert ErrInvalidFeeOperator(msg.sender);
+        }
+        _;
+    }
+
+    function setFeeParameters(address _feeCollector, uint16 _feeBips) external onlyAllowedFeeOperator {
+        if (feeBips > BIPS) {
+            revert ErrInvalidFeeBips();
+        }
+
+        emit LogFeeParametersChanged(feeCollector, feeBips, _feeCollector, _feeBips);
+
+        feeCollector = _feeCollector;
+        feeBips = _feeBips;
+    }
+
+    function calculateFees(uint256 amountIn) internal view returns (uint userAmount, uint feeAmount) {
+        feeAmount = (amountIn * feeBips) / BIPS;
+        userAmount = amountIn - feeAmount;
+    }
+
+    function isFeeOperator(address account) public virtual returns (bool);
+}
+// ===== END SOURCE FILE: src/mixins/FeeCollectable.sol =====
+// ===== BEGIN SOURCE FILE: src/mixins/MasterContractManager.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2021 BoringCrypto - All rights reserved
+// Twitter: @Boring_Crypto
+// Special thanks to Keno for all his hard work and support
+pragma solidity >=0.8.0;
+
+// solhint-disable avoid-low-level-calls
+// solhint-disable not-rely-on-time
+// solhint-disable no-inline-assembly
+import {BoringOwnable} from "BoringSolidity/BoringOwnable.sol";
+import {BoringFactory} from "BoringSolidity/BoringFactory.sol";
+
+contract MasterContractManager is BoringOwnable, BoringFactory {
+    event LogWhiteListMasterContract(address indexed masterContract, bool approved);
+    event LogSetMasterContractApproval(address indexed masterContract, address indexed user, bool approved);
+    event LogRegisterProtocol(address indexed protocol);
+
+    /// @notice masterContract to user to approval state
+    mapping(address => mapping(address => bool)) public masterContractApproved;
+    /// @notice masterContract to whitelisted state for approval without signed message
+    mapping(address => bool) public whitelistedMasterContracts;
+    /// @notice user nonces for masterContract approvals
+    mapping(address => uint256) public nonces;
+
+    bytes32 private constant DOMAIN_SEPARATOR_SIGNATURE_HASH =
+        keccak256("EIP712Domain(string name,uint256 chainId,address verifyingContract)");
+    // See https://eips.ethereum.org/EIPS/eip-191
+    string private constant EIP191_PREFIX_FOR_EIP712_STRUCTURED_DATA = "\x19\x01";
+    bytes32 private constant APPROVAL_SIGNATURE_HASH =
+        keccak256("SetMasterContractApproval(string warning,address user,address masterContract,bool approved,uint256 nonce)");
+
+    // solhint-disable-next-line var-name-mixedcase
+    bytes32 private immutable _DOMAIN_SEPARATOR;
+    // solhint-disable-next-line var-name-mixedcase
+    uint256 private immutable DOMAIN_SEPARATOR_CHAIN_ID;
+
+    constructor() {
+        uint256 chainId;
+        assembly {
+            chainId := chainid()
+        }
+        _DOMAIN_SEPARATOR = _calculateDomainSeparator(DOMAIN_SEPARATOR_CHAIN_ID = chainId);
+    }
+
+    function _calculateDomainSeparator(uint256 chainId) private view returns (bytes32) {
+        return keccak256(abi.encode(DOMAIN_SEPARATOR_SIGNATURE_HASH, keccak256("BentoBox V1"), chainId, address(this)));
+    }
+
+    // solhint-disable-next-line func-name-mixedcase
+    function DOMAIN_SEPARATOR() public view returns (bytes32) {
+        uint256 chainId;
+        assembly {
+            chainId := chainid()
+        }
+        return chainId == DOMAIN_SEPARATOR_CHAIN_ID ? _DOMAIN_SEPARATOR : _calculateDomainSeparator(chainId);
+    }
+
+    /// @notice Other contracts need to register with this master contract so that users can approve them for the BentoBox.
+    function registerProtocol() public {
+        masterContractOf[msg.sender] = msg.sender;
+        emit LogRegisterProtocol(msg.sender);
+    }
+
+    /// @notice Enables or disables a contract for approval without signed message.
+    function whitelistMasterContract(address masterContract, bool approved) public onlyOwner {
+        // Checks
+        require(masterContract != address(0), "MasterCMgr: Cannot approve 0");
+
+        // Effects
+        whitelistedMasterContracts[masterContract] = approved;
+        emit LogWhiteListMasterContract(masterContract, approved);
+    }
+
+    /// @notice Approves or revokes a `masterContract` access to `user` funds.
+    /// @param user The address of the user that approves or revokes access.
+    /// @param masterContract The address who gains or loses access.
+    /// @param approved If True approves access. If False revokes access.
+    /// @param v Part of the signature. (See EIP-191)
+    /// @param r Part of the signature. (See EIP-191)
+    /// @param s Part of the signature. (See EIP-191)
+    // F4 - Check behaviour for all function arguments when wrong or extreme
+    // F4: Don't allow masterContract 0 to be approved. Unknown contracts will have a masterContract of 0.
+    // F4: User can't be 0 for signed approvals because the recoveredAddress will be 0 if ecrecover fails
+    function setMasterContractApproval(address user, address masterContract, bool approved, uint8 v, bytes32 r, bytes32 s) public {
+        // Checks
+        require(masterContract != address(0), "MasterCMgr: masterC not set"); // Important for security
+
+        // If no signature is provided, the fallback is executed
+        if (r == 0 && s == 0 && v == 0) {
+            require(user == msg.sender, "MasterCMgr: user not sender");
+            require(masterContractOf[user] == address(0), "MasterCMgr: user is clone");
+            require(whitelistedMasterContracts[masterContract], "MasterCMgr: not whitelisted");
+        } else {
+            // Important for security - any address without masterContract has address(0) as masterContract
+            // So approving address(0) would approve every address, leading to full loss of funds
+            // Also, ecrecover returns address(0) on failure. So we check this:
+            require(user != address(0), "MasterCMgr: User cannot be 0");
+
+            // C10 - Protect signatures against replay, use nonce and chainId (SWC-121)
+            // C10: nonce + chainId are used to prevent replays
+            // C11 - All signatures strictly EIP-712 (SWC-117 SWC-122)
+            // C11: signature is EIP-712 compliant
+            // C12 - abi.encodePacked can't contain variable length user input (SWC-133)
+            // C12: abi.encodePacked has fixed length parameters
+            bytes32 digest = keccak256(
+                abi.encodePacked(
+                    EIP191_PREFIX_FOR_EIP712_STRUCTURED_DATA,
+                    DOMAIN_SEPARATOR(),
+                    keccak256(
+                        abi.encode(
+                            APPROVAL_SIGNATURE_HASH,
+                            approved
+                                ? keccak256("Give FULL access to funds in (and approved to) BentoBox?")
+                                : keccak256("Revoke access to BentoBox?"),
+                            user,
+                            masterContract,
+                            approved,
+                            nonces[user]++
+                        )
+                    )
+                )
+            );
+            address recoveredAddress = ecrecover(digest, v, r, s);
+            require(recoveredAddress == user, "MasterCMgr: Invalid Signature");
+        }
+
+        // Effects
+        masterContractApproved[masterContract][user] = approved;
+        emit LogSetMasterContractApproval(masterContract, user, approved);
+    }
+}
+// ===== END SOURCE FILE: src/mixins/MasterContractManager.sol =====
+// ===== BEGIN SOURCE FILE: src/mixins/OperatableV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+
+/// @title OperatableV2
+/// @notice OperatableV2 is a contract that allows operator management.
+/// The difference with OperatableV1 apart from using solmate `Owned` vs `BoringOwnable` is that
+/// the constructor is taking in the owner except of using msg.sender.
+/// This allows ensuring that the owner is right one.
+/// For example, when deploying from a CREATE2 factory, the msg.sender would the factory address
+/// which is usually not what we want.
+contract OperatableV2 is Owned {
+    event OperatorChanged(address indexed, bool);
+    error NotAllowedOperator();
+
+    mapping(address => bool) public operators;
+
+    constructor(address _owner) Owned(_owner) {}
+
+    modifier onlyOperators() {
+        if (!operators[msg.sender] && msg.sender != owner) {
+            revert NotAllowedOperator();
+        }
+        _;
+    }
+
+    function setOperator(address operator, bool status) external onlyOwner {
+        operators[operator] = status;
+        emit OperatorChanged(operator, status);
+    }
+}
+// ===== END SOURCE FILE: src/mixins/OperatableV2.sol =====
+// ===== BEGIN SOURCE FILE: src/mixins/OperatableV3.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+/// @title OperatableV3
+/// @notice Same as OperatableV2 but without taking care of the Ownable part.
+/// This is useful when the contract inheriting this is already inheriting from Owned.
+abstract contract OperatableV3 {
+    event LogOperatorChanged(address indexed, bool);
+
+    error ErrNotAllowedOperator();
+    error ErrNotOwner();
+
+    mapping(address => bool) public operators;
+
+    constructor() {}
+
+    modifier onlyOperators() {
+        if (!operators[msg.sender] && !isOwner(msg.sender)) {
+            revert ErrNotAllowedOperator();
+        }
+        _;
+    }
+
+    function setOperator(address operator, bool status) external {
+        if (!isOwner(msg.sender)) {
+            revert ErrNotOwner();
+        }
+
+        operators[operator] = status;
+        emit LogOperatorChanged(operator, status);
+    }
+
+    function isOwner(address _account) internal view virtual returns (bool);
+}
+// ===== END SOURCE FILE: src/mixins/OperatableV3.sol =====
+// ===== BEGIN SOURCE FILE: src/oracles/aggregators/MagicLpAggregator.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {FixedPointMathLib} from "solady/utils/FixedPointMathLib.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/interfaces/IERC20Metadata.sol";
+import {IAggregator} from "interfaces/IAggregator.sol";
+import {IMagicLP} from "/mimswap/interfaces/IMagicLP.sol";
+
+contract MagicLpAggregator is IAggregator {
+    IMagicLP public immutable pair;
+    IAggregator public immutable baseOracle;
+    IAggregator public immutable quoteOracle;
+    uint8 public immutable baseDecimals;
+    uint8 public immutable quoteDecimals;
+
+    uint256 public constant WAD = 18;
+
+    /// @param pair_ The MagicLP pair address
+    /// @param baseOracle_ The base oracle
+    /// @param quoteOracle_ The quote oracle
+    constructor(IMagicLP pair_, IAggregator baseOracle_, IAggregator quoteOracle_) {
+        pair = pair_;
+        baseOracle = baseOracle_;
+        quoteOracle = quoteOracle_;
+        baseDecimals = IERC20Metadata(pair_._BASE_TOKEN_()).decimals();
+        quoteDecimals = IERC20Metadata(pair_._QUOTE_TOKEN_()).decimals();
+    }
+
+    function decimals() external pure override returns (uint8) {
+        return 18;
+    }
+
+    function _getReserves() internal view virtual returns (uint256, uint256) {
+        (uint256 baseReserve, uint256 quoteReserve) = pair.getReserves();
+    }
+
+    function latestAnswer() public view override returns (int256) {
+        uint256 baseAnswerNomalized = uint256(baseOracle.latestAnswer()) * (10 ** (WAD - baseOracle.decimals()));
+        uint256 quoteAnswerNormalized = uint256(quoteOracle.latestAnswer()) * (10 ** (WAD - quoteOracle.decimals()));
+        uint256 minAnswer = baseAnswerNomalized < quoteAnswerNormalized ? baseAnswerNomalized : quoteAnswerNormalized;
+
+        (uint256 baseReserve, uint256 quoteReserve) = _getReserves();
+        baseReserve = baseReserve * (10 ** (WAD - baseDecimals));
+        quoteReserve = quoteReserve * (10 ** (WAD - quoteDecimals));
+        return int256(minAnswer * (baseReserve + quoteReserve) / pair.totalSupply());
+    }
+
+    function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80) {
+        return (0, latestAnswer(), 0, 0, 0);
+    }
+}
+// ===== END SOURCE FILE: src/oracles/aggregators/MagicLpAggregator.sol =====
+// ===== BEGIN SOURCE FILE: src/oracles/ProxyOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+
+/// @title ProxyOracle
+/// @author 0xMerlin
+/// @notice Oracle used for getting the price of an oracle implementation
+contract ProxyOracle is IOracle, Owned {
+    IOracle public oracleImplementation;
+
+    event LogOracleImplementationChange(IOracle indexed oldOracle, IOracle indexed newOracle);
+
+    constructor() Owned(msg.sender) {}
+
+    function changeOracleImplementation(IOracle newOracle) external onlyOwner {
+        IOracle oldOracle = oracleImplementation;
+        oracleImplementation = newOracle;
+        emit LogOracleImplementationChange(oldOracle, newOracle);
+    }
+
+    function decimals() external view returns (uint8) {
+        return oracleImplementation.decimals();
+    }
+
+    // Get the latest exchange rate
+    /// @inheritdoc IOracle
+    function get(bytes calldata data) public override returns (bool, uint256) {
+        return oracleImplementation.get(data);
+    }
+
+    // Check the last exchange rate without any state changes
+    /// @inheritdoc IOracle
+    function peek(bytes calldata data) public view override returns (bool, uint256) {
+        return oracleImplementation.peek(data);
+    }
+
+    // Check the current spot exchange rate without any state changes
+    /// @inheritdoc IOracle
+    function peekSpot(bytes calldata data) external view override returns (uint256 rate) {
+        return oracleImplementation.peekSpot(data);
+    }
+
+    /// @inheritdoc IOracle
+    function name(bytes calldata) public pure override returns (string memory) {
+        return "Proxy Oracle";
+    }
+
+    /// @inheritdoc IOracle
+    function symbol(bytes calldata) public pure override returns (string memory) {
+        return "Proxy";
+    }
+}
+// ===== END SOURCE FILE: src/oracles/ProxyOracle.sol =====
+// ===== BEGIN SOURCE FILE: src/staking/LockingMultiRewards.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {OperatableV2} from "mixins/OperatableV2.sol";
+import {Pausable} from "openzeppelin-contracts/security/Pausable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {MathLib} from "libraries/MathLib.sol";
+
+/// @notice A staking contract that distributes multiple rewards to stakers.
+/// Stakers can lock their tokens for a period of time to get a boost on their rewards.
+/// @author Based from Curve Finance's MultiRewards contract https://github.com/curvefi/multi-rewards/blob/master/contracts/MultiRewards.sol
+/// @author Based from Ellipsis Finance's EpsStaker https://github.com/ellipsis-finance/ellipsis/blob/master/contracts/EpsStaker.sol
+/// @author Based from Convex Finance's CvxLockerV2 https://github.com/convex-eth/platform/blob/main/contracts/contracts/CvxLockerV2.sol
+contract LockingMultiRewards is OperatableV2, Pausable {
+    using SafeTransferLib for address;
+
+    event LogRewardAdded(uint256 reward);
+    event LogStaked(address indexed user, uint256 amount);
+    event LogLocked(address indexed user, uint256 amount, uint256 unlockTime, uint256 lockCount);
+    event LogUnlocked(address indexed user, uint256 amount, uint256 index);
+    event LogLockIndexChanged(address indexed user, uint256 fromIndex, uint256 toIndex);
+    event LogWithdrawn(address indexed user, uint256 amount);
+    event LogRewardLockCreated(address indexed user, uint256 unlockTime);
+    event LogRewardLocked(address indexed user, address indexed rewardsToken, uint256 reward);
+    event LogRewardPaid(address indexed user, address indexed rewardsToken, uint256 reward);
+    event LogRewardsDurationUpdated(address token, uint256 newDuration);
+    event LogRecovered(address token, uint256 amount);
+    event LogSetMinLockAmount(uint256 previous, uint256 current);
+
+    error ErrZeroAmount();
+    error ErrRewardAlreadyExists();
+    error ErrInvalidTokenAddress();
+    error ErrMaxUserLocksExceeded();
+    error ErrNotExpired();
+    error ErrInvalidUser();
+    error ErrLockAmountTooSmall();
+    error ErrLengthMismatch();
+    error ErrNoLocks();
+    error ErrLockNotExpired();
+    error ErrMaxRewardsExceeded();
+    error ErrSkimmingTooMuch();
+    error ErrInvalidLockIndex();
+    error ErrNotEnoughReward();
+    error ErrInvalidDurationRatio();
+    error ErrInvalidBoostMultiplier();
+    error ErrInvalidLockDuration();
+    error ErrInvalidRewardDuration();
+    error ErrInsufficientRemainingTime();
+
+    struct Reward {
+        uint256 periodFinish;
+        uint256 rewardRate;
+        uint256 rewardPerTokenStored;
+        bool exists;
+        uint248 lastUpdateTime;
+    }
+
+    struct Balances {
+        uint256 unlocked;
+        uint256 locked;
+    }
+
+    struct LockedBalance {
+        uint256 amount;
+        uint256 unlockTime;
+    }
+
+    struct RewardLockItem {
+        address token;
+        uint256 amount;
+    }
+
+    struct RewardLock {
+        RewardLockItem[] items;
+        uint256 unlockTime;
+    }
+
+    uint256 private constant BIPS = 10_000;
+    uint256 private constant MAX_NUM_REWARDS = 5;
+    uint256 private constant MIN_LOCK_DURATION = 1 weeks;
+    uint256 private constant MIN_REWARDS_DURATION = 1 days;
+
+    uint256 public immutable maxLocks;
+    uint256 public immutable lockingBoostMultiplerInBips;
+    uint256 public immutable rewardsDuration;
+    uint256 public immutable lockDuration;
+    address public immutable stakingToken;
+
+    mapping(address token => Reward info) private _rewardData;
+    mapping(address user => Balances balances) private _balances;
+    mapping(address user => LockedBalance[] locks) private _userLocks;
+    mapping(address user => RewardLock rewardLock) private _userRewardLock;
+
+    mapping(address user => mapping(address token => uint256 amount)) public userRewardPerTokenPaid;
+    mapping(address user => mapping(address token => uint256 amount)) public rewards;
+    mapping(address user => uint256 index) public lastLockIndex;
+
+    address[] public rewardTokens;
+
+    uint256 public lockedSupply; // all locked boosted deposits
+    uint256 public unlockedSupply; // all unlocked unboosted deposits
+    uint256 public minLockAmount; // minimum amount allowed to lock
+    uint256 public stakingTokenBalance; // total staking token balance
+
+    ///
+    /// @dev Constructor
+    /// @param _stakingToken The token that is being staked
+    /// @param _owner The owner of the contract
+    /// @param _lockingBoostMultiplerInBips The multiplier for the locking boost. 30000 means if you stake 100, you get 300 locked
+    /// @param _rewardsDuration The duration of the rewards period in seconds, should be 7 days by default.
+    /// @param _lockDuration The duration of the lock period in seconds, should be 13 weeks by default.
+    constructor(
+        address _stakingToken,
+        uint256 _lockingBoostMultiplerInBips,
+        uint256 _rewardsDuration,
+        uint256 _lockDuration,
+        address _owner
+    ) OperatableV2(_owner) {
+        if (_lockingBoostMultiplerInBips <= BIPS) {
+            revert ErrInvalidBoostMultiplier();
+        }
+
+        if (_lockDuration < MIN_LOCK_DURATION) {
+            revert ErrInvalidLockDuration();
+        }
+
+        if (_rewardsDuration < MIN_REWARDS_DURATION) {
+            revert ErrInvalidRewardDuration();
+        }
+
+        if (_lockDuration % _rewardsDuration != 0) {
+            revert ErrInvalidDurationRatio();
+        }
+
+        stakingToken = _stakingToken;
+        lockingBoostMultiplerInBips = _lockingBoostMultiplerInBips;
+        rewardsDuration = _rewardsDuration;
+        lockDuration = _lockDuration;
+
+        // kocks are combined into the same `rewardsDuration` epoch. So, if
+        // a user stake with locking every `rewardsDuration` this should reach the
+        // maximum number of possible simultaneous because the first lock gets expired,
+        // freeing up a slot.
+        maxLocks = _lockDuration / _rewardsDuration;
+    }
+
+    /// @notice Stakes the given amount of tokens for the given user.
+    /// @param amount The amount of tokens to stake
+    /// @param lock_ If true, the tokens will be locked for the lock duration for a reward boost
+    function stake(uint256 amount, bool lock_) public whenNotPaused {
+        _stakeFor(msg.sender, amount, lock_);
+    }
+
+    /// @notice Locks an existing unlocked balance.
+    function lock(uint256 amount) public whenNotPaused {
+        if (amount == 0) {
+            revert ErrZeroAmount();
+        }
+
+        _updateRewardsForUser(msg.sender);
+
+        _balances[msg.sender].unlocked -= amount;
+        unlockedSupply -= amount;
+
+        _createLock(msg.sender, amount);
+    }
+
+    /// @notice Withdraws the given amount of unlocked tokens for the given user.
+    /// @param amount The amount of unlocked tokens to withdraw
+    function withdraw(uint256 amount) public virtual {
+        if (amount == 0) {
+            revert ErrZeroAmount();
+        }
+
+        _updateRewardsForUser(msg.sender);
+
+        _balances[msg.sender].unlocked -= amount;
+        unlockedSupply -= amount;
+
+        stakingToken.safeTransfer(msg.sender, amount);
+        stakingTokenBalance -= amount;
+
+        emit LogWithdrawn(msg.sender, amount);
+    }
+
+    function withdrawWithRewards(uint256 amount) public virtual {
+        withdraw(amount);
+        _getRewards(msg.sender);
+    }
+
+    function getRewards() public virtual {
+        _updateRewardsForUser(msg.sender);
+        _getRewards(msg.sender);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    function rewardData(address token) external view returns (Reward memory) {
+        return _rewardData[token];
+    }
+
+    function rewardsForDuration(address rewardToken) external view returns (uint256) {
+        return _rewardData[rewardToken].rewardRate * rewardsDuration;
+    }
+
+    function rewardTokensLength() external view returns (uint256) {
+        return rewardTokens.length;
+    }
+
+    function balances(address user) external view returns (Balances memory) {
+        return _balances[user];
+    }
+
+    function userRewardLock(address user) external view returns (RewardLock memory) {
+        return _userRewardLock[user];
+    }
+
+    function userLocks(address user) external view returns (LockedBalance[] memory) {
+        return _userLocks[user];
+    }
+
+    function userLocksLength(address user) external view returns (uint256) {
+        return _userLocks[user].length;
+    }
+
+    function locked(address user) external view returns (uint256) {
+        return _balances[user].locked;
+    }
+
+    function unlocked(address user) external view returns (uint256) {
+        return _balances[user].unlocked;
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return unlockedSupply + ((lockedSupply * lockingBoostMultiplerInBips) / BIPS);
+    }
+
+    function balanceOf(address user) public view returns (uint256) {
+        Balances storage bal = _balances[user];
+        return bal.unlocked + ((bal.locked * lockingBoostMultiplerInBips) / BIPS);
+    }
+
+    /// @dev Calculates when the next unlock event will occur given the current epoch.
+    /// It ensures that the unlock timing coincides with the intervals at which rewards are distributed.
+    /// If the current time is within an ongoing reward interval, the function establishes the
+    /// unlock period to begin at the next epoch.
+    /// So, if you stake at week 1 + 4 days, you will be able to unlock at the end of week 14.
+    // |    week -1   |    week 1    |    week 2    |      ...     |    week 13   |    week 14   |
+    // |--------------|--------------|--------------|--------------|--------------|--------------|
+    // |                   ^ block.timestamp                                      |
+    // |                             ^ lock starts (adjusted)                                    ^ unlock ends (nextUnlockTime)
+    function nextUnlockTime() public view returns (uint256) {
+        return nextEpoch() + lockDuration;
+    }
+
+    function epoch() public view returns (uint256) {
+        return (block.timestamp / rewardsDuration) * rewardsDuration;
+    }
+
+    function nextEpoch() public view returns (uint256) {
+        return epoch() + rewardsDuration;
+    }
+
+    function remainingEpochTime() public view returns (uint256) {
+        return nextEpoch() - block.timestamp;
+    }
+
+    function lastTimeRewardApplicable(address rewardToken) public view returns (uint256) {
+        return MathLib.min(block.timestamp, _rewardData[rewardToken].periodFinish);
+    }
+
+    function rewardPerToken(address rewardToken) public view returns (uint256) {
+        return _rewardPerToken(rewardToken, lastTimeRewardApplicable(rewardToken), totalSupply());
+    }
+
+    function _rewardPerToken(address rewardToken, uint256 lastTimeRewardApplicable_, uint256 totalSupply_) public view returns (uint256) {
+        if (totalSupply_ == 0) {
+            return _rewardData[rewardToken].rewardPerTokenStored;
+        }
+
+        uint256 timeElapsed = lastTimeRewardApplicable_ - _rewardData[rewardToken].lastUpdateTime;
+        uint256 pendingRewardsPerToken = (timeElapsed * _rewardData[rewardToken].rewardRate * 1e18) / totalSupply_;
+
+        return _rewardData[rewardToken].rewardPerTokenStored + pendingRewardsPerToken;
+    }
+
+    function earned(address user, address rewardToken) public view returns (uint256) {
+        return _earned(user, balanceOf(user), rewardToken, rewardPerToken(rewardToken));
+    }
+
+    function _earned(address user, uint256 balance_, address rewardToken, uint256 rewardPerToken_) internal view returns (uint256) {
+        uint256 pendingUserRewardsPerToken = rewardPerToken_ - userRewardPerTokenPaid[user][rewardToken];
+        return ((balance_ * pendingUserRewardsPerToken) / 1e18) + rewards[user][rewardToken];
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    function addReward(address rewardToken) public onlyOwner {
+        if (rewardToken == address(0)) {
+            revert ErrInvalidTokenAddress();
+        }
+
+        if (_rewardData[rewardToken].exists) {
+            revert ErrRewardAlreadyExists();
+        }
+
+        if (rewardTokens.length == MAX_NUM_REWARDS) {
+            revert ErrMaxRewardsExceeded();
+        }
+
+        rewardTokens.push(rewardToken);
+        _rewardData[rewardToken].exists = true;
+    }
+
+    function setMinLockAmount(uint256 _minLockAmount) external onlyOwner {
+        emit LogSetMinLockAmount(minLockAmount, _minLockAmount);
+        minLockAmount = _minLockAmount;
+    }
+
+    /// @notice This function can recover any token except for the staking token beyond the balance necessary for rewards.
+    /// WARNING: Use this function with caution to ensure it does not affect the reward mechanism.
+    function recover(address tokenAddress, uint256 tokenAmount) external onlyOwner {
+        // In case it's the staking token, allow to skim the excess
+        if (tokenAddress == stakingToken && tokenAmount > stakingToken.balanceOf(address(this)) - stakingTokenBalance) {
+            revert ErrSkimmingTooMuch();
+        }
+
+        tokenAddress.safeTransfer(owner, tokenAmount);
+        emit LogRecovered(tokenAddress, tokenAmount);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    /// EMERGENCY FUNCTIONS
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    /// OPERATORS
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    
+    function stakeFor(address account, uint256 amount, bool lock_) external onlyOperators {
+        _stakeFor(account, amount, lock_);
+    }
+    
+    /// @notice Distribute new rewards to the stakers
+    /// @param rewardToken The address of the reward token
+    /// @param amount The amount of reward tokens to distribute
+    /// @param minRemainingTime The minimum remaining time for the current reward period
+    /// Used to avoid distributing rewards on a lower period than the expected one.
+    /// Example: If the reward period is 7 days, and there are 2 days left, `minRemainingTime` higher than
+    /// 2 days will revert the transaction.
+    /// To ignore this check, set `minRemainingTime` to 0.
+    function notifyRewardAmount(address rewardToken, uint256 amount, uint minRemainingTime) public onlyOperators {
+        if (!_rewardData[rewardToken].exists) {
+            revert ErrInvalidTokenAddress();
+        }
+
+        _updateRewards();
+        rewardToken.safeTransferFrom(msg.sender, address(this), amount);
+
+        Reward storage reward = _rewardData[rewardToken];
+
+        uint256 _nextEpoch = nextEpoch();
+        uint256 _remainingRewardTime = _nextEpoch - block.timestamp;
+
+        if (_remainingRewardTime < minRemainingTime) {
+            revert ErrInsufficientRemainingTime();
+        }
+
+        // Take the remainder of the current rewards and add it to the amount for the next period
+        if (block.timestamp < reward.periodFinish) {
+            amount += _remainingRewardTime * reward.rewardRate;
+        }
+
+        // avoid `rewardRate` being 0
+        if (amount < _remainingRewardTime) {
+            revert ErrNotEnoughReward();
+        }
+
+        reward.rewardRate = amount / _remainingRewardTime;
+        reward.lastUpdateTime = uint248(block.timestamp);
+        reward.periodFinish = _nextEpoch;
+
+        emit LogRewardAdded(amount);
+    }
+
+    /// @notice Updates the balances of the given user and lock indexes
+    // Should be called once a `rewardDuration` (for example, every week)
+    function processExpiredLocks(address[] memory users, uint256[] calldata lockIndexes) external onlyOperators {
+        if (users.length != lockIndexes.length) {
+            revert ErrLengthMismatch();
+        }
+
+        _updateRewardsForUsers(users);
+
+        // Release all expired users' locks
+        for (uint256 i; i < users.length; ) {
+            address user = users[i];
+            Balances storage bal = _balances[user];
+            LockedBalance[] storage locks = _userLocks[user];
+
+            if (locks.length == 0) {
+                revert ErrNoLocks();
+            }
+
+            uint256 index = lockIndexes[i];
+
+            // Prevents processing `lastLockIndex` out of order
+            if (index == lastLockIndex[user] && locks.length > 1) {
+                revert ErrInvalidLockIndex();
+            }
+
+            // prohibit releasing non-expired locks
+            if (locks[index].unlockTime > block.timestamp) {
+                revert ErrLockNotExpired();
+            }
+
+            uint256 amount = locks[index].amount;
+            uint256 lastIndex = locks.length - 1;
+
+            /// Last lock index changed place with the one we just swapped.
+            if (lastLockIndex[user] == lastIndex) {
+                lastLockIndex[user] = index;
+            }
+
+            if (index != lastIndex) {
+                locks[index] = locks[lastIndex];
+                emit LogLockIndexChanged(user, lastIndex, index);
+            }
+
+            locks.pop();
+
+            unlockedSupply += amount;
+            lockedSupply -= amount;
+
+            bal.unlocked += amount;
+            bal.locked -= amount;
+
+            emit LogUnlocked(user, amount, index);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////////////
+    function _stakeFor(address account, uint256 amount, bool lock_) internal {
+        if (amount == 0) {
+            revert ErrZeroAmount();
+        }
+
+        // This staking contract isn't using balanceOf, so it's safe to transfer immediately
+        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        stakingTokenBalance += amount;
+
+        _updateRewardsForUser(account);
+
+        if (lock_) {
+            _createLock(account, amount);
+        } else {
+            _balances[account].unlocked += amount;
+            unlockedSupply += amount;
+
+            emit LogStaked(account, amount);
+        }
+    }
+
+    function _createLock(address user, uint256 amount) internal {
+        Balances storage bal = _balances[user];
+        uint256 _nextUnlockTime = nextUnlockTime();
+        uint256 _lastLockIndex = lastLockIndex[user];
+        uint256 lockCount = _userLocks[user].length;
+
+        bal.locked += amount;
+        lockedSupply += amount;
+
+        // Add to current lock if it's the same unlock time or the first one
+        // userLocks is sorted by unlockTime, so the last lock is the most recent one
+        if (lockCount == 0 || _userLocks[user][_lastLockIndex].unlockTime < _nextUnlockTime) {
+            // Limit the number of locks per user to avoid too much gas costs per user
+            // when looping through the locks
+            if (lockCount == maxLocks) {
+                revert ErrMaxUserLocksExceeded();
+            }
+
+            if (amount < minLockAmount) {
+                revert ErrLockAmountTooSmall();
+            }
+
+            _userLocks[user].push(LockedBalance({amount: amount, unlockTime: _nextUnlockTime}));
+            lastLockIndex[user] = lockCount;
+
+            unchecked {
+                ++lockCount;
+            }
+        }
+        /// It's the same reward period, so we just add the amount to the current lock
+        else {
+            _userLocks[user][_lastLockIndex].amount += amount;
+        }
+
+        emit LogLocked(user, amount, _nextUnlockTime, lockCount);
+    }
+
+    /// @dev Update the global accumulated rewards from the last update to this point,
+    /// in relation with the `totalSupply`
+    ///
+    /// The idea is to allow everyone that are currently part of that supply to get their allocated
+    /// reward share.
+    ///
+    /// Each user's reward share is taking in account when `rewards[user][token] = _earned(...)`
+    /// is called. And only updated when a user is interacting with `stake`, `lock`, `withdraw`
+    /// or `getRewards`.
+    ///
+    /// Otherwise, if it's yet-to-be-updated, it's going to get considered as part of the pending
+    /// yet-to-receive rewards in the `earned` function.
+    function _updateRewardsGlobal(address token_, uint256 totalSupply_) internal returns (uint256 rewardPerToken_) {
+        uint256 lastTimeRewardApplicable_ = lastTimeRewardApplicable(token_);
+        rewardPerToken_ = _rewardPerToken(token_, lastTimeRewardApplicable_, totalSupply_);
+
+        _rewardData[token_].rewardPerTokenStored = rewardPerToken_;
+        _rewardData[token_].lastUpdateTime = uint248(lastTimeRewardApplicable_); // safe to cast as this will never overflow
+    }
+
+    function _udpateUserRewards(address user_, uint256 balance_, address token_, uint256 rewardPerToken_) internal {
+        rewards[user_][token_] = _earned(user_, balance_, token_, rewardPerToken_);
+        userRewardPerTokenPaid[user_][token_] = rewardPerToken_;
+    }
+
+    /// @dev Simplest version of updating rewards. Mainly used by `notifyRewardAmount`.
+    /// where we don't need to update any particular user but the global state for
+    /// each reward tokens only.
+    function _updateRewards() internal {
+        uint256 totalSupply_ = totalSupply();
+
+        for (uint256 i; i < rewardTokens.length; ) {
+            _updateRewardsGlobal(rewardTokens[i], totalSupply_);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// @dev More gas efficient version of `_updateRewards` when we
+    /// only need to update the rewards for a single user.
+    function _updateRewardsForUser(address user) internal {
+        uint256 balance = balanceOf(user);
+        uint256 totalSupply_ = totalSupply();
+
+        for (uint256 i; i < rewardTokens.length; ) {
+            address token = rewardTokens[i];
+            _udpateUserRewards(user, balance, token, _updateRewardsGlobal(token, totalSupply_));
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// @dev `_updateRewardsForUser` for multiple users.
+    function _updateRewardsForUsers(address[] memory users) internal {
+        uint256 totalSupply_ = totalSupply();
+
+        for (uint256 i; i < rewardTokens.length; ) {
+            address token = rewardTokens[i];
+            uint256 rewardPerToken_ = _updateRewardsGlobal(token, totalSupply_);
+
+            // Record each user's rewards
+            for (uint256 j; j < users.length; ) {
+                address user = users[j];
+                _udpateUserRewards(user, balanceOf(user), token, rewardPerToken_);
+
+                unchecked {
+                    ++j;
+                }
+            }
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    /// @notice Claim unlocked rewards or create a new reward lock that
+    // makes them available the next epoch
+    function _getRewards(address user) internal {
+        RewardLock storage _rewardLock = _userRewardLock[user];
+
+        // first ever lock is always expired because `unlockTime` is 0
+        // unlock time is aligned to epoch
+        bool expired = _rewardLock.unlockTime <= block.timestamp;
+
+        // cache the length here since the loop will be modifying the array
+        uint256 rewardItemLength = _rewardLock.items.length;
+
+        // expired lock
+        // existing lock items will be reused
+        if (expired) {
+            _rewardLock.unlockTime = nextEpoch();
+            emit LogRewardLockCreated(user, _rewardLock.unlockTime);
+        }
+
+        for (uint256 i; i < rewardTokens.length; ) {
+            address rewardToken = rewardTokens[i];
+            uint256 rewardAmount = rewards[user][rewardToken];
+
+            // in all scenario, reset the reward amount immediately
+            rewards[user][rewardToken] = 0;
+
+            // don't assume the rewardTokens array is always the same length as the items array
+            // as new reward tokens can be added by the owner
+            if (i < rewardItemLength) {
+                RewardLockItem storage item = _rewardLock.items[i];
+
+                // expired lock, claim existing unlocked rewards if any
+                if (expired) {
+                    uint256 amount = item.amount;
+
+                    // since this current lock is expired and that item index
+                    // matches the reward index, override the current amount
+                    // with the new locked amount.
+                    item.amount = rewardAmount;
+
+                    // use cached amount
+                    if (amount > 0) {
+                        rewardToken.safeTransfer(user, amount);
+                        emit LogRewardPaid(user, rewardToken, amount);
+                    }
+                } else {
+                    // not expired, just add to the existing lock
+                    item.amount += rewardAmount;
+                }
+            }
+            // new reward token, create a new lock item
+            // could mean it's adding to an existing lock or creating a new one
+            else {
+                _userRewardLock[user].items.push(RewardLockItem({token: rewardToken, amount: rewardAmount}));
+            }
+
+            emit LogRewardLocked(user, rewardToken, rewardAmount);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: src/staking/LockingMultiRewards.sol =====
+// ===== BEGIN SOURCE FILE: utils/BaseScript.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Script} from "forge-std/Script.sol";
+import {Address} from "openzeppelin-contracts/utils/Address.sol";
+import {Vm, VmSafe} from "forge-std/Vm.sol";
+import {Toolkit, getToolkit, ChainId} from "utils/Toolkit.sol";
+import {Deployer, DeployerDeployment} from "forge-deploy/Deployer.sol";
+import {DefaultDeployerFunction} from "forge-deploy/DefaultDeployerFunction.sol";
+import {BlastMock} from "./mocks/BlastMock.sol";
+
+abstract contract BaseScript is Script {
+    Toolkit internal toolkit = getToolkit();
+
+    // Used to prevent new deployments from being created in case
+    // a deployment file doesn't exist.
+    bool internal disallowNewDeployment;
+
+    function run() public virtual returns (DeployerDeployment[] memory newDeployments) {
+        if (!testing() && block.chainid == ChainId.Blast) {
+            vm.etch(address(0x4300000000000000000000000000000000000002), address(new BlastMock()).code);
+            vm.allowCheatcodes(address(0x4300000000000000000000000000000000000002));
+        }
+
+        Address.functionDelegateCall(address(this), abi.encodeWithSignature("deploy()"));
+        return toolkit.deployer().newDeployments();
+    }
+
+    function setTesting(bool _testing) public {
+        toolkit.setTesting(_testing);
+    }
+
+    function setNewDeploymentEnabled(bool _enabled) public {
+        disallowNewDeployment = !_enabled;
+    }
+
+    function testing() internal view returns (bool) {
+        return toolkit.testing();
+    }
+
+    function deploy(string memory deploymentName, string memory artifactName) internal returns (address instance) {
+        return deploy(deploymentName, artifactName, "");
+    }
+
+    function deploy(string memory deploymentName, string memory artifact, bytes memory args) internal returns (address deployed) {
+        Deployer deployer = toolkit.deployer();
+        deploymentName = toolkit.prefixWithChainName(block.chainid, deploymentName);
+
+        if (toolkit.testing()) {
+            deployer.ignoreDeployment(deploymentName);
+        }
+
+        if (deployer.has(deploymentName)) {
+            return deployer.getAddress(deploymentName);
+        }
+
+        require(toolkit.testing() || !disallowNewDeployment, "BaseScript: new deployments are disabled");
+        
+        bytes memory bytecode = vm.getCode(artifact);
+        bytes memory data = bytes.concat(bytecode, args);
+        (bool prankActive, address prankAddress) = deployer.prankStatus();
+
+        if (prankActive) {
+            if (prankAddress != address(0)) {
+                vm.prank(prankAddress);
+            } else {
+                vm.prank(address(0));
+            }
+        }
+
+        assembly {
+            deployed := create(0, add(data, 0x20), mload(data))
+        }
+
+        if (deployed == address(0)) {
+            revert(string.concat("Failed to deploy ", deploymentName));
+        }
+
+        // No need to store anything in testing environment
+        if (!toolkit.testing()) {
+            (VmSafe.CallerMode callerMode, , ) = vm.readCallers();
+            require(callerMode != VmSafe.CallerMode.Broadcast, "BaseScript: unexpected broadcast mode");
+            if (callerMode == VmSafe.CallerMode.RecurrentBroadcast) {
+                vm.stopBroadcast();
+            }
+            deployer.save(deploymentName, deployed, artifact, args, bytecode);
+            if (callerMode == VmSafe.CallerMode.RecurrentBroadcast) {
+                vm.startBroadcast();
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: utils/BaseScript.sol =====
+// ===== BEGIN SOURCE FILE: utils/BaseTest.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import "forge-std/Test.sol";
+import "solady/utils/LibString.sol";
+import "./Toolkit.sol";
+import {BlastMock, BlastPointsMock} from "./mocks/BlastMock.sol";
+
+abstract contract BaseTest is Test {
+    using LibString for string;
+    Toolkit internal toolkit = getToolkit();
+
+    address payable internal alice;
+    address payable internal bob;
+    address payable internal carol;
+    address[] pranks;
+
+    function setUp() public virtual {
+        setUpNoMocks();
+
+        if (block.chainid == ChainId.Blast) {
+            vm.etch(address(0x4300000000000000000000000000000000000002), address(new BlastMock()).code);
+            vm.etch(toolkit.getAddress(block.chainid, "blastPoints"), address(new BlastPointsMock()).code);
+            vm.allowCheatcodes(address(0x4300000000000000000000000000000000000002));
+        }
+    }
+
+    function setUpNoMocks() public virtual {
+        popAllPranks();
+
+        alice = createUser("alice", address(0x1), 100 ether);
+        bob = createUser("bob", address(0x2), 100 ether);
+        carol = createUser("carol", address(0x3), 100 ether);
+    }
+
+    function createUser(string memory label, address account, uint256 amount) internal returns (address payable) {
+        vm.deal(account, amount);
+        vm.label(account, label);
+        return payable(account);
+    }
+
+    function advanceBlocks(uint256 delta) internal returns (uint256 blockNumber) {
+        blockNumber = block.number + delta;
+        vm.roll(blockNumber);
+    }
+
+    function advanceTime(uint256 delta) internal returns (uint256 timestamp) {
+        timestamp = block.timestamp + delta;
+        vm.warp(timestamp);
+    }
+
+    function pushPrank(address account) public {
+        if (pranks.length > 0) {
+            vm.stopPrank();
+        }
+        pranks.push(account);
+        vm.startPrank(account);
+    }
+
+    function popPrank() public {
+        if (pranks.length > 0) {
+            vm.stopPrank();
+            pranks.pop();
+
+            if (pranks.length > 0) {
+                vm.startPrank(pranks[pranks.length - 1]);
+            }
+        }
+    }
+
+    function popAllPranks() public {
+        while (pranks.length > 0) {
+            popPrank();
+        }
+    }
+
+    function fork(uint256 chainId, uint256 blockNumber) internal returns (uint256) {
+        string memory rpcUrlEnvVar = string.concat(toolkit.getChainName(chainId).upper(), "_RPC_URL");
+
+        if (blockNumber == Block.Latest) {
+            return vm.createSelectFork(vm.envString(rpcUrlEnvVar));
+        }
+        return vm.createSelectFork(vm.envString(rpcUrlEnvVar), blockNumber);
+    }
+}
+// ===== END SOURCE FILE: utils/BaseTest.sol =====
+// ===== BEGIN SOURCE FILE: utils/CauldronDeployLib.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {Vm, VmSafe} from "forge-std/Vm.sol";
+import {Deployer} from "forge-deploy/Deployer.sol";
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {CauldronLib} from "libraries/CauldronLib.sol";
+import {ICauldronV3} from "interfaces/ICauldronV3.sol";
+import {ICauldronV4} from "interfaces/ICauldronV4.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+import {IBentoBoxV1} from "interfaces/IBentoBoxV1.sol";
+import {Toolkit} from "utils/Toolkit.sol";
+
+library CauldronDeployLib {
+    Vm constant vm = Vm(address(bytes20(uint160(uint256(keccak256("hevm cheat code"))))));
+    Toolkit constant toolkit = Toolkit(address(bytes20(uint160(uint256(keccak256("toolkit"))))));
+
+    /// Cauldron percentages parameters are in bips unit
+    /// Examples:
+    ///  1 = 0.01%
+    ///  10_000 = 100%
+    ///  250 = 2.5%
+    ///
+    /// Adapted from original calculation. (variables are % values instead of bips):
+    ///  ltv = ltv * 1e3;
+    ///  borrowFee = borrowFee * (1e5 / 100);
+    ///  interest = interest * (1e18 / (365.25 * 3600 * 24) / 100);
+    ///  liquidationFee = liquidationFee * 1e3 + 1e5;
+    function getCauldronParameters(
+        IERC20 collateral,
+        IOracle oracle,
+        bytes memory oracleData,
+        uint256 ltvBips,
+        uint256 interestBips,
+        uint256 borrowFeeBips,
+        uint256 liquidationFeeBips
+    ) internal pure returns (bytes memory) {
+        return
+            abi.encode(
+                collateral,
+                oracle,
+                oracleData,
+                CauldronLib.getInterestPerSecond(interestBips),
+                liquidationFeeBips * 1e1 + 1e5,
+                ltvBips * 1e1,
+                borrowFeeBips * 1e1
+            );
+    }
+
+    function deployCauldronV4(
+        string memory deploymentName,
+        IBentoBoxV1 degenBox,
+        address masterContract,
+        IERC20 collateral,
+        IOracle oracle,
+        bytes memory oracleData,
+        uint256 ltvBips,
+        uint256 interestBips,
+        uint256 borrowFeeBips,
+        uint256 liquidationFeeBips
+    ) internal returns (ICauldronV4 cauldron) {
+        Deployer deployer = toolkit.deployer();
+        deploymentName = toolkit.prefixWithChainName(block.chainid, deploymentName);
+
+        if (toolkit.testing()) {
+            deployer.ignoreDeployment(deploymentName);
+        }
+
+        if (deployer.has(deploymentName)) {
+            return ICauldronV4(deployer.getAddress(deploymentName));
+        }
+
+        bytes memory data = getCauldronParameters(collateral, oracle, oracleData, ltvBips, interestBips, borrowFeeBips, liquidationFeeBips);
+        cauldron = ICauldronV4(IBentoBoxV1(degenBox).deploy(masterContract, data, true));
+
+        (VmSafe.CallerMode callerMode, , ) = vm.readCallers();
+        require(callerMode != VmSafe.CallerMode.Broadcast, "deployCauldronV4: unexpected broadcast mode");
+        if (callerMode == VmSafe.CallerMode.RecurrentBroadcast) {
+            vm.stopBroadcast();
+        }
+        deployer.save(deploymentName, address(cauldron), "CauldronV4.sol:CauldronV4");
+        if (callerMode == VmSafe.CallerMode.RecurrentBroadcast) {
+            vm.startBroadcast();
+        }
+    }
+}
+// ===== END SOURCE FILE: utils/CauldronDeployLib.sol =====
+// ===== BEGIN SOURCE FILE: utils/Toolkit.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {Vm} from "forge-std/Vm.sol";
+import {LibString} from "solady/utils/LibString.sol";
+import {Deployer, DeployerDeployment, GlobalDeployer} from "forge-deploy/Deployer.sol";
+import {DefaultDeployerFunction} from "forge-deploy/DefaultDeployerFunction.sol";
+import {ICauldronV2} from "interfaces/ICauldronV2.sol";
+
+library ChainId {
+    uint256 internal constant All = 0;
+    uint256 internal constant Mainnet = 1;
+    uint256 internal constant Arbitrum = 42161;
+    uint256 internal constant Blast = 81457;
+}
+
+/// @dev https://layerzero.gitbook.io/docs/technical-reference/mainnet/supported-chain-ids
+library LayerZeroChainId {
+    uint16 internal constant Mainnet = 101;
+    uint16 internal constant Arbitrum = 110;
+    uint16 internal constant Blast = 243;
+}
+
+/// @dev https://layerzero.gitbook.io/docs/evm-guides/ua-custom-configuration
+library LayerZeroUAConfigType {
+    uint256 internal constant CONFIG_TYPE_INBOUND_PROOF_LIBRARY_VERSION = 1;
+    uint256 internal constant CONFIG_TYPE_INBOUND_BLOCK_CONFIRMATIONS = 2;
+    uint256 internal constant CONFIG_TYPE_RELAYER = 3;
+    uint256 internal constant CONFIG_TYPE_OUTBOUND_PROOF_TYPE = 4;
+    uint256 internal constant CONFIG_TYPE_OUTBOUND_BLOCK_CONFIRMATIONS = 5;
+    uint256 internal constant CONFIG_TYPE_ORACLE = 6;
+}
+
+library Block {
+    uint256 internal constant Latest = 0;
+}
+
+struct CauldronInfo {
+    address cauldron;
+    bool deprecated;
+    uint8 version;
+    string name;
+    uint256 creationBlock;
+}
+
+/// @notice Toolkit is a toolchain contract that stores all the addresses of the contracts, cauldrons configurations
+/// and other information and functionnalities that is needed for the deployment scripts and testing.
+/// It is not meant to be deployed but to be used for chainops.
+contract Toolkit {
+    using LibString for string;
+
+    Vm constant vm = Vm(address(bytes20(uint160(uint256(keccak256("hevm cheat code"))))));
+
+    ///////////////////////////////////////////////////////////////
+    /// @dev Json structs for reading from the config files
+    /// The name must be in alphabetical order as documented here:
+    /// https://book.getfoundry.sh/cheatcodes/parse-json
+    struct JsonAddressEntry {
+        string key;
+        address value;
+    }
+
+    struct JsonCauldronEntry {
+        uint64 creationBlock;
+        bool deprecated;
+        string key;
+        address value;
+        uint8 version;
+    }
+
+    struct JsonPairCodeHash {
+        string key;
+        bytes32 value;
+    }
+    //
+    ///////////////////////////////////////////////////////////////
+
+    mapping(string => address) private addressMap;
+    mapping(string => bytes32) private pairCodeHash;
+
+    // Cauldron Information
+    mapping(uint256 => CauldronInfo[]) private cauldronsPerChain;
+    mapping(uint256 => mapping(string => mapping(uint8 => address))) public cauldronAddressMap;
+    mapping(uint256 => mapping(address => bool)) private cauldronsPerChainExists;
+    mapping(uint256 => uint256) private totalCauldronsPerChain;
+    mapping(uint256 => uint256) private deprecatedCauldronsPerChain;
+    mapping(uint256 => string) private chainIdToName;
+    mapping(uint256 => uint256) private chainIdToLzChainId;
+
+    string[] private addressKeys;
+
+    uint[] public chains = [ChainId.All, ChainId.Mainnet, ChainId.Arbitrum, ChainId.Blast];
+
+    bool public testing;
+    GlobalDeployer public deployer;
+    mapping(uint256 => mapping(address => bool)) public masterContractPerChainMap;
+    mapping(uint256 => address[]) public masterContractsPerChain;
+
+    constructor() {
+        deployer = new GlobalDeployer();
+        vm.allowCheatcodes(address(deployer));
+        vm.makePersistent(address(deployer));
+        vm.label(address(deployer), "forge-deploy:deployer");
+        deployer.init();
+
+        chainIdToName[ChainId.All] = "all";
+        chainIdToName[ChainId.Mainnet] = "Mainnet";
+        chainIdToName[ChainId.Arbitrum] = "Arbitrum";
+        chainIdToName[ChainId.Blast] = "Blast";
+
+        chainIdToLzChainId[ChainId.Mainnet] = LayerZeroChainId.Mainnet;
+        chainIdToLzChainId[ChainId.Arbitrum] = LayerZeroChainId.Arbitrum;
+        chainIdToLzChainId[ChainId.Blast] = LayerZeroChainId.Blast;
+
+        for (uint i = 0; i < chains.length; i++) {
+            uint256 chainId = chains[i];
+            string memory path = string.concat(vm.projectRoot(), "/config/", chainIdToName[chainId].lower(), ".json");
+
+            try vm.readFile(path) returns (string memory json) {
+                {
+                    bytes memory jsonContent = vm.parseJson(json, ".addresses");
+                    JsonAddressEntry[] memory entries = abi.decode(jsonContent, (JsonAddressEntry[]));
+
+                    for (uint j = 0; j < entries.length; j++) {
+                        JsonAddressEntry memory entry = entries[j];
+                        setAddress(chainId, entry.key, entry.value);
+                    }
+                }
+                {
+                    bytes memory jsonContent = vm.parseJson(json, ".cauldrons");
+                    JsonCauldronEntry[] memory entries = abi.decode(jsonContent, (JsonCauldronEntry[]));
+
+                    for (uint j = 0; j < entries.length; j++) {
+                        JsonCauldronEntry memory entry = entries[j];
+                        addCauldron(chainId, entry.key, entry.value, entry.version, entry.deprecated, entry.creationBlock);
+                    }
+                }
+                {
+                    bytes memory jsonContent = vm.parseJson(json, ".pairCodeHashes");
+                    JsonPairCodeHash[] memory entries = abi.decode(jsonContent, (JsonPairCodeHash[]));
+
+                    for (uint j = 0; j < entries.length; j++) {
+                        JsonPairCodeHash memory entry = entries[j];
+                        pairCodeHash[string.concat(chainIdToName[chainId].lower(), ".", entry.key)] = entry.value;
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    function setAddress(uint256 chainid, string memory key, address value) public {
+        if (chainid != ChainId.All) {
+            key = string.concat(chainIdToName[chainid].lower(), ".", key);
+        }
+
+        require(addressMap[key] == address(0), string.concat("address already exists: ", key));
+        addressMap[key] = value;
+        addressKeys.push(key);
+
+        vm.label(value, key);
+    }
+
+    function addCauldron(uint256 chainid, string memory name, address value, uint8 version, bool deprecated, uint256 creationBlock) public {
+        require(!cauldronsPerChainExists[chainid][value], string.concat("cauldron already added: ", vm.toString(value)));
+
+        CauldronInfo memory cauldronInfo = CauldronInfo({
+            deprecated: deprecated,
+            cauldron: value,
+            version: version,
+            name: name,
+            creationBlock: creationBlock
+        });
+
+        cauldronsPerChainExists[chainid][value] = true;
+        cauldronAddressMap[chainid][name][version] = value;
+        cauldronsPerChain[chainid].push(cauldronInfo);
+
+        totalCauldronsPerChain[chainid]++;
+
+        if (deprecated) {
+            deprecatedCauldronsPerChain[chainid]++;
+            vm.label(value, string.concat(chainIdToName[chainid].lower(), ".cauldron.deprecated.", name));
+        } else {
+            vm.label(value, string.concat(chainIdToName[chainid].lower(), ".cauldron.", name));
+        }
+    }
+
+    function getCauldrons(uint256 chainid, bool includeDeprecated) public view returns (CauldronInfo[] memory filteredCauldronInfos) {
+        uint256 len = totalCauldronsPerChain[chainid];
+        if (!includeDeprecated) {
+            len -= deprecatedCauldronsPerChain[chainid];
+        }
+
+        CauldronInfo[] memory cauldronInfos = cauldronsPerChain[chainid];
+        filteredCauldronInfos = new CauldronInfo[](len);
+
+        uint256 index = 0;
+        for (uint256 i = 0; i < cauldronInfos.length; i++) {
+            CauldronInfo memory info = cauldronInfos[i];
+
+            if (info.deprecated && !includeDeprecated) {
+                continue;
+            }
+
+            filteredCauldronInfos[index] = info;
+            index++;
+        }
+    }
+
+    function getCauldrons(
+        uint256 chainid,
+        bool includeDeprecated,
+        // (address cauldron, bool deprecated, uint8 version, string memory name, uint256 creationBlock)
+        function(address, bool, uint8, string memory, uint256) external view returns (bool) predicate
+    ) public view returns (CauldronInfo[] memory filteredCauldronInfos) {
+        CauldronInfo[] memory cauldronInfos = getCauldrons(chainid, includeDeprecated);
+
+        uint256 len = 0;
+
+        // remove based on the predicate
+        for (uint256 i = 0; i < cauldronInfos.length; i++) {
+            CauldronInfo memory info = cauldronInfos[i];
+
+            if (!predicate(info.cauldron, info.deprecated, info.version, info.name, info.creationBlock)) {
+                cauldronInfos[i].cauldron = address(0);
+                continue;
+            }
+
+            len++;
+        }
+
+        filteredCauldronInfos = new CauldronInfo[](len);
+        uint256 filteredCauldronInfosIndex = 0;
+        for (uint256 i = 0; i < cauldronInfos.length; i++) {
+            if (cauldronInfos[i].cauldron != address(0)) {
+                filteredCauldronInfos[filteredCauldronInfosIndex] = cauldronInfos[i];
+                filteredCauldronInfosIndex++;
+            }
+        }
+    }
+
+    function getAddress(string memory key) public view returns (address) {
+        require(addressMap[key] != address(0), string.concat("address not found: ", key));
+        return addressMap[key];
+    }
+
+    function getAddress(string calldata name, uint256 chainid) public view returns (address) {
+        if (chainid == ChainId.All) {
+            return getAddress(name);
+        }
+        string memory key = string.concat(chainIdToName[chainid].lower(), ".", name);
+        return getAddress(key);
+    }
+
+    function getAddress(uint256 chainid, string calldata name) public view returns (address) {
+        return getAddress(name, chainid);
+    }
+
+    function getPairCodeHash(string calldata key) public view returns (bytes32) {
+        require(pairCodeHash[key] != "", string.concat("pairCodeHash not found: ", key));
+        return pairCodeHash[key];
+    }
+
+    function getChainName(uint256 chainid) public view returns (string memory) {
+        return chainIdToName[chainid];
+    }
+
+    function getLzChainId(uint256 chainid) public view returns (uint256 lzChainId) {
+        lzChainId = chainIdToLzChainId[chainid];
+        require(lzChainId != 0, string.concat("layer zero chain id not found from chain id ", vm.toString(chainid)));
+    }
+
+    function setTesting(bool _testing) public {
+        testing = _testing;
+    }
+
+    function prefixWithChainName(uint256 chainid, string memory name) public view returns (string memory) {
+        return string.concat(getChainName(chainid), "_", name);
+    }
+
+    function getChainsLength() public view returns (uint256) {
+        return chains.length;
+    }
+
+    function getOrLoadMasterContracts(uint256 chainid, bool includeDeprecated) public returns (address[] memory) {
+        if (masterContractsPerChain[chainid].length > 0) {
+            return masterContractsPerChain[chainid];
+        }
+
+        CauldronInfo[] memory cauldronInfos = getCauldrons(chainid, includeDeprecated);
+
+        for (uint256 i = 0; i < cauldronInfos.length; i++) {
+            address masterContract = address(ICauldronV2(cauldronInfos[i].cauldron).masterContract());
+            if (!masterContractPerChainMap[chainid][masterContract]) {
+                masterContractPerChainMap[chainid][masterContract] = true;
+                masterContractsPerChain[chainid].push(masterContract);
+            }
+        }
+
+        return masterContractsPerChain[chainid];
+    }
+
+    function formatDecimals(uint256 value) public pure returns (string memory) {
+        return formatDecimals(value, 18);
+    }
+
+    function formatDecimals(uint256 value, uint256 decimals) public pure returns (string memory str) {
+        uint256 divisor = 10 ** uint256(decimals);
+        uint256 integerPart = value / divisor;
+        uint256 fractionalPart = value % divisor;
+
+        string memory fractionalPartStr = LibString.toString(fractionalPart);
+        bytes memory zeroPadding = new bytes(decimals - bytes(fractionalPartStr).length);
+
+        for (uint256 i = 0; i < zeroPadding.length; i++) {
+            zeroPadding[i] = bytes1(uint8(48));
+        }
+
+        string memory integerPartStr = "";
+        uint128 index;
+
+        while (integerPart > 0) {
+            uint256 part = integerPart % 10;
+            bool isSet = index != 0 && index % 3 == 0;
+
+            string memory stringified = vm.toString(part);
+            string memory glue = ",";
+
+            if (!isSet) glue = "";
+            integerPartStr = string(abi.encodePacked(stringified, glue, integerPartStr));
+
+            integerPart = integerPart / 10;
+            index += 1;
+        }
+
+        return string(abi.encodePacked(integerPartStr, ".", zeroPadding, fractionalPartStr));
+    }
+}
+
+function getToolkit() returns (Toolkit toolkit) {
+    address location = address(bytes20(uint160(uint256(keccak256("toolkit")))));
+    toolkit = Toolkit(location);
+
+    if (location.code.length == 0) {
+        Vm vm = Vm(address(bytes20(uint160(uint256(keccak256("hevm cheat code"))))));
+        bytes memory creationCode = vm.getCode("Toolkit.sol");
+        vm.etch(location, abi.encodePacked(creationCode, ""));
+        vm.allowCheatcodes(location);
+        (bool success, bytes memory runtimeBytecode) = location.call{value: 0}("");
+        require(success, "Fail to initialize Toolkit");
+        vm.etch(location, runtimeBytecode);
+        vm.makePersistent(address(location));
+        vm.label(location, "toolkit");
+    }
+}
+// ===== END SOURCE FILE: utils/Toolkit.sol =====

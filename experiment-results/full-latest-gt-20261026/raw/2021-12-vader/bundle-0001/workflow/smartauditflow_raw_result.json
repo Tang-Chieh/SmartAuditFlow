@@ -1,0 +1,423 @@
+{
+  "Findings": [
+    {
+      "Issue": "Synth issuance and redemption use manipulable AMM spot reserves",
+      "Severity": "High",
+      "Description": "VaderPoolV2.mintSynth and burnSynth calculate synth issuance and native-asset redemption exclusively from the pair's current stored reserves through VaderMath.calculateSwap. Those reserves are updated by permissionless swaps exposed through VaderRouterV2. An attacker can move the reserve ratio with a large swap, call mintSynth or burnSynth while the manipulated reserves are recorded, and optionally reverse the swap afterward. Neither function uses cumulative-price/TWAP data, an independent oracle, freshness or deviation checks, liquidity bounds, or user-provided price limits. The existing cumulative-price mechanism is therefore ineffective for these operations because it is not consumed by either pricing path.",
+      "Impact": "A temporary reserve distortion changes the number of synths minted for a fixed native deposit or the native assets paid for a fixed synth amount. This can result in over-issuance, over-redemption, or depletion of the pool's native reserves, depending on the manipulation direction and available liquidity.",
+      "Location": "contracts/dex-v2/pool/VaderPoolV2.sol — VaderPoolV2.mintSynth; contracts/dex-v2/pool/VaderPoolV2.sol — VaderPoolV2.burnSynth; contracts/dex-v2/pool/BasePoolV2.sol — BasePoolV2.swap",
+      "Mitigation": "Price synth issuance and redemption using a sufficiently long, validated TWAP or an independent oracle rather than the current reserves alone. Enforce freshness and deviation bounds, minimum liquidity requirements, and explicit maximum-redemption or minimum-output limits. Also verify that the calculated redemption amount does not exceed the pool's actual available native-asset balance before transferring funds.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "AMM reserve manipulation can reduce liquidity minted to depositors",
+      "Severity": "High",
+      "Description": "Both liquidity-minting implementations calculate LP units from instantaneous AMM reserves and do not protect the depositor with an effective minimum-liquidity or ratio bound. In the V2 path, BasePoolV2._mint reads reserves and applies VaderMath.calculateLiquidityUnits, while VaderRouterV2.addLiquidity discards amountAMin and amountBMin and performs no post-mint minimum check. In the legacy path, VaderRouter._addLiquidity accepts the full desired amounts without ratio validation, and BasePool.mint calculates liquidity from the current reserves and balance-derived deposits. An attacker can front-run a visible liquidity deposit with a large swap, skew the reserves, allow the victim's deposit to be evaluated against the manipulated ratio, and back-run with an opposing swap. The victim's assets are transferred while the resulting liquidity position can be materially smaller than expected.",
+      "Impact": "A depositor may provide the full requested amounts but receive fewer LP units and a lower-value liquidity position. The value attributable to the unfavorable deposit ratio remains with existing liquidity providers, including an attacker who holds liquidity. The advertised minimum parameters do not prevent this outcome in either router path.",
+      "Location": "contracts/dex-v2/router/VaderRouterV2.sol — VaderRouterV2.addLiquidity; contracts/dex-v2/pool/BasePoolV2.sol — BasePoolV2._mint; contracts/dex/router/VaderRouter.sol — VaderRouter._addLiquidity; contracts/dex/pool/BasePool.sol — BasePool.mint",
+      "Mitigation": "Add and enforce a minimum LP-units-out parameter for every liquidity mint. Make amountAMin and amountBMin functional where those parameters are exposed, or remove them and replace them with explicit slippage controls. Calculate the expected deposit ratio using a validated TWAP or independent oracle and reject deposits whose ratio or resulting liquidity deviates beyond the user's configured bounds.",
+      "finding_id": "SAF-002"
+    },
+    {
+      "Issue": "LP impermanent-loss reimbursement is calculated from manipulable redemption values",
+      "Severity": "Medium",
+      "Description": "The V2 and legacy LP redemption paths derive the reimbursable loss from redemption amounts calculated using current AMM state. BasePoolV2._burn uses stored reserves, while BasePool._burn uses current token balances that are updated by swaps. VaderPoolV2.burn and VaderPool.burn pass those amounts to VaderMath.calculateLoss, and the router then forwards coveredLoss to VaderReserve.reimburseImpermanentLoss. The reimbursement conversion may use an LBT price, but the loss amount has already been determined from the manipulated spot reserve or balance ratio. An attacker holding an LP position can move the pool price before redemption, redeem while the manipulated state is active, and cause the reserve-funded reimbursement calculation to reflect that transient state. Router amountAMin and amountBMin checks only constrain token quantities and do not validate coveredLoss against an oracle or TWAP.",
+      "Impact": "The reserve can pay VADER for a loss amount that is overstated or otherwise distorted by temporary AMM manipulation. This can extract reserve assets or misallocate impermanent-loss compensation, subject to the cost of manipulating the pool and the attacker's LP position.",
+      "Location": "contracts/dex-v2/pool/BasePoolV2.sol — BasePoolV2._burn; contracts/dex-v2/pool/VaderPoolV2.sol — VaderPoolV2.burn; contracts/dex/pool/BasePool.sol — BasePool._burn; contracts/dex/pool/VaderPool.sol — VaderPool.burn; contracts/reserve/VaderReserve.sol — VaderReserve.reimburseImpermanentLoss",
+      "Mitigation": "Calculate impermanent loss using a manipulation-resistant TWAP or independent oracle valuation rather than the redemption-time reserve ratio or raw balances. Apply freshness, deviation, and liquidity checks, cap reimbursement against an oracle-derived maximum loss, and consider delaying reimbursement until a subsequent validated price observation is available.",
+      "finding_id": "SAF-003"
+    },
+    {
+      "Issue": "LiquidityBasedTWAP uses attacker-influenced spot weights and lacks effective freshness validation",
+      "Severity": "High",
+      "Description": "LiquidityBasedTWAP time-weights the AMM price component but computes each pair's liquidity weight from a single current reserve snapshot. _updateVaderPrice and _updateUSDVPrice calculate currentLiquidityEvaluation from pair.getReserves or vaderPool.getReserves and persist it as pastLiquidityEvaluation. That persisted value is used during a later aggregate price calculation, allowing reserve manipulation at synchronization time to change a pair's future weight even if the pair's TWAP price itself is not materially changed. The aggregate calculations also use prior observations without enforcing a maximum age, and getChainlinkPrice checks round consistency and positivity but not updatedAt freshness. The resulting LBT prices are consumed by USDV.mint, USDV.burn, and VaderReserve.reimburseImpermanentLoss. No deviation check, minimum reserve requirement, or complete-update/freshness requirement prevents manipulated, stale, or partially updated observations from affecting those financial outcomes.",
+      "Impact": "An attacker who can manipulate a configured pair's reserves until synchronization, or cause an included pair's reserve-derived weight to become dominant, can bias the aggregate VADER or USDV price. Downstream effects include excess USDV issuance, excess VADER redemption, or distorted reserve-funded impermanent-loss reimbursement. Stale or partially updated observations can likewise cause these operations to use an unvalidated price.",
+      "Location": "contracts/lbt/LiquidityBasedTWAP.sol — LiquidityBasedTWAP._updateVaderPrice; contracts/lbt/LiquidityBasedTWAP.sol — LiquidityBasedTWAP._updateUSDVPrice; contracts/lbt/LiquidityBasedTWAP.sol — LiquidityBasedTWAP.syncVaderPrice; contracts/lbt/LiquidityBasedTWAP.sol — LiquidityBasedTWAP.syncUSDVPrice; contracts/lbt/LiquidityBasedTWAP.sol — LiquidityBasedTWAP.getChainlinkPrice; contracts/tokens/USDV.sol — USDV.mint; contracts/tokens/USDV.sol — USDV.burn",
+      "Mitigation": "Derive liquidity weights from time-weighted reserve-value observations over the same measurement window as the price TWAP, rather than from a single synchronization-time reserve snapshot. Enforce maximum observation age, Chainlink updatedAt freshness, normalized TWAP-to-independent-oracle deviation limits, minimum liquidity thresholds, bounded weight changes, and coherent updates across all configured pairs before returning a price.",
+      "finding_id": "SAF-004"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Synth issuance and redemption use manipulable AMM spot reserves",
+      "description": "VaderPoolV2.mintSynth and burnSynth calculate synth issuance and native-asset redemption exclusively from the pair's current stored reserves through VaderMath.calculateSwap. Those reserves are updated by permissionless swaps exposed through VaderRouterV2. An attacker can move the reserve ratio with a large swap, call mintSynth or burnSynth while the manipulated reserves are recorded, and optionally reverse the swap afterward. Neither function uses cumulative-price/TWAP data, an independent oracle, freshness or deviation checks, liquidity bounds, or user-provided price limits. The existing cumulative-price mechanism is therefore ineffective for these operations because it is not consumed by either pricing path.",
+      "impact": "A temporary reserve distortion changes the number of synths minted for a fixed native deposit or the native assets paid for a fixed synth amount. This can result in over-issuance, over-redemption, or depletion of the pool's native reserves, depending on the manipulation direction and available liquidity.",
+      "mitigation": "Price synth issuance and redemption using a sufficiently long, validated TWAP or an independent oracle rather than the current reserves alone. Enforce freshness and deviation bounds, minimum liquidity requirements, and explicit maximum-redemption or minimum-output limits. Also verify that the calculated redemption amount does not exceed the pool's actual available native-asset balance before transferring funds.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "mintSynth",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "burnSynth",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+          "contract": "BasePoolV2",
+          "function": "swap",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "AMM reserve manipulation can reduce liquidity minted to depositors",
+      "description": "Both liquidity-minting implementations calculate LP units from instantaneous AMM reserves and do not protect the depositor with an effective minimum-liquidity or ratio bound. In the V2 path, BasePoolV2._mint reads reserves and applies VaderMath.calculateLiquidityUnits, while VaderRouterV2.addLiquidity discards amountAMin and amountBMin and performs no post-mint minimum check. In the legacy path, VaderRouter._addLiquidity accepts the full desired amounts without ratio validation, and BasePool.mint calculates liquidity from the current reserves and balance-derived deposits. An attacker can front-run a visible liquidity deposit with a large swap, skew the reserves, allow the victim's deposit to be evaluated against the manipulated ratio, and back-run with an opposing swap. The victim's assets are transferred while the resulting liquidity position can be materially smaller than expected.",
+      "impact": "A depositor may provide the full requested amounts but receive fewer LP units and a lower-value liquidity position. The value attributable to the unfavorable deposit ratio remains with existing liquidity providers, including an attacker who holds liquidity. The advertised minimum parameters do not prevent this outcome in either router path.",
+      "mitigation": "Add and enforce a minimum LP-units-out parameter for every liquidity mint. Make amountAMin and amountBMin functional where those parameters are exposed, or remove them and replace them with explicit slippage controls. Calculate the expected deposit ratio using a validated TWAP or independent oracle and reject deposits whose ratio or resulting liquidity deviates beyond the user's configured bounds.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+          "contract": "VaderRouterV2",
+          "function": "addLiquidity",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+          "contract": "BasePoolV2",
+          "function": "_mint",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex/router/VaderRouter.sol",
+          "contract": "VaderRouter",
+          "function": "_addLiquidity",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex/pool/BasePool.sol",
+          "contract": "BasePool",
+          "function": "mint",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-003",
+      "title": "LP impermanent-loss reimbursement is calculated from manipulable redemption values",
+      "description": "The V2 and legacy LP redemption paths derive the reimbursable loss from redemption amounts calculated using current AMM state. BasePoolV2._burn uses stored reserves, while BasePool._burn uses current token balances that are updated by swaps. VaderPoolV2.burn and VaderPool.burn pass those amounts to VaderMath.calculateLoss, and the router then forwards coveredLoss to VaderReserve.reimburseImpermanentLoss. The reimbursement conversion may use an LBT price, but the loss amount has already been determined from the manipulated spot reserve or balance ratio. An attacker holding an LP position can move the pool price before redemption, redeem while the manipulated state is active, and cause the reserve-funded reimbursement calculation to reflect that transient state. Router amountAMin and amountBMin checks only constrain token quantities and do not validate coveredLoss against an oracle or TWAP.",
+      "impact": "The reserve can pay VADER for a loss amount that is overstated or otherwise distorted by temporary AMM manipulation. This can extract reserve assets or misallocate impermanent-loss compensation, subject to the cost of manipulating the pool and the attacker's LP position.",
+      "mitigation": "Calculate impermanent loss using a manipulation-resistant TWAP or independent oracle valuation rather than the redemption-time reserve ratio or raw balances. Apply freshness, deviation, and liquidity checks, cap reimbursement against an oracle-derived maximum loss, and consider delaying reimbursement until a subsequent validated price observation is available.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+          "contract": "BasePoolV2",
+          "function": "_burn",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "contract": "VaderPoolV2",
+          "function": "burn",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex/pool/BasePool.sol",
+          "contract": "BasePool",
+          "function": "_burn",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/dex/pool/VaderPool.sol",
+          "contract": "VaderPool",
+          "function": "burn",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/reserve/VaderReserve.sol",
+          "contract": "VaderReserve",
+          "function": "reimburseImpermanentLoss",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-004",
+      "title": "LiquidityBasedTWAP uses attacker-influenced spot weights and lacks effective freshness validation",
+      "description": "LiquidityBasedTWAP time-weights the AMM price component but computes each pair's liquidity weight from a single current reserve snapshot. _updateVaderPrice and _updateUSDVPrice calculate currentLiquidityEvaluation from pair.getReserves or vaderPool.getReserves and persist it as pastLiquidityEvaluation. That persisted value is used during a later aggregate price calculation, allowing reserve manipulation at synchronization time to change a pair's future weight even if the pair's TWAP price itself is not materially changed. The aggregate calculations also use prior observations without enforcing a maximum age, and getChainlinkPrice checks round consistency and positivity but not updatedAt freshness. The resulting LBT prices are consumed by USDV.mint, USDV.burn, and VaderReserve.reimburseImpermanentLoss. No deviation check, minimum reserve requirement, or complete-update/freshness requirement prevents manipulated, stale, or partially updated observations from affecting those financial outcomes.",
+      "impact": "An attacker who can manipulate a configured pair's reserves until synchronization, or cause an included pair's reserve-derived weight to become dominant, can bias the aggregate VADER or USDV price. Downstream effects include excess USDV issuance, excess VADER redemption, or distorted reserve-funded impermanent-loss reimbursement. Stale or partially updated observations can likewise cause these operations to use an unvalidated price.",
+      "mitigation": "Derive liquidity weights from time-weighted reserve-value observations over the same measurement window as the price TWAP, rather than from a single synchronization-time reserve snapshot. Enforce maximum observation age, Chainlink updatedAt freshness, normalized TWAP-to-independent-oracle deviation limits, minimum liquidity thresholds, bounded weight changes, and coherent updates across all configured pairs before returning a price.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "_updateVaderPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "_updateUSDVPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "syncVaderPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "syncUSDVPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "contract": "LiquidityBasedTWAP",
+          "function": "getChainlinkPrice",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/tokens/USDV.sol",
+          "contract": "USDV",
+          "function": "mint",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/tokens/USDV.sol",
+          "contract": "USDV",
+          "function": "burn",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 4,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Synth issuance and redemption use manipulable AMM spot reserves\",\n    \"description\": \"VaderPoolV2.mintSynth and burnSynth calculate synth issuance and native-asset redemption exclusively from the pair's current stored reserves through VaderMath.calculateSwap. Those reserves are updated by permissionless swaps exposed through VaderRouterV2. An attacker can move the reserve ratio with a large swap, call mintSynth or burnSynth while the manipulated reserves are recorded, and optionally reverse the swap afterward. Neither function uses cumulative-price/TWAP data, an independent oracle, freshness or deviation checks, liquidity bounds, or user-provided price limits. The existing cumulative-price mechanism is therefore ineffective for these operations because it is not consumed by either pricing path.\",\n    \"impact\": \"A temporary reserve distortion changes the number of synths minted for a fixed native deposit or the native assets paid for a fixed synth amount. This can result in over-issuance, over-redemption, or depletion of the pool's native reserves, depending on the manipulation direction and available liquidity.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/dex-v2/pool/VaderPoolV2.sol\",\n        \"contract\": \"VaderPoolV2\",\n        \"function\": \"mintSynth\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex-v2/pool/VaderPoolV2.sol\",\n        \"contract\": \"VaderPoolV2\",\n        \"function\": \"burnSynth\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex-v2/pool/BasePoolV2.sol\",\n        \"contract\": \"BasePoolV2\",\n        \"function\": \"swap\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Price synth issuance and redemption using a sufficiently long, validated TWAP or an independent oracle rather than the current reserves alone. Enforce freshness and deviation bounds, minimum liquidity requirements, and explicit maximum-redemption or minimum-output limits. Also verify that the calculated redemption amount does not exceed the pool's actual available native-asset balance before transferring funds.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"AMM reserve manipulation can reduce liquidity minted to depositors\",\n    \"description\": \"Both liquidity-minting implementations calculate LP units from instantaneous AMM reserves and do not protect the depositor with an effective minimum-liquidity or ratio bound. In the V2 path, BasePoolV2._mint reads reserves and applies VaderMath.calculateLiquidityUnits, while VaderRouterV2.addLiquidity discards amountAMin and amountBMin and performs no post-mint minimum check. In the legacy path, VaderRouter._addLiquidity accepts the full desired amounts without ratio validation, and BasePool.mint calculates liquidity from the current reserves and balance-derived deposits. An attacker can front-run a visible liquidity deposit with a large swap, skew the reserves, allow the victim's deposit to be evaluated against the manipulated ratio, and back-run with an opposing swap. The victim's assets are transferred while the resulting liquidity position can be materially smaller than expected.\",\n    \"impact\": \"A depositor may provide the full requested amounts but receive fewer LP units and a lower-value liquidity position. The value attributable to the unfavorable deposit ratio remains with existing liquidity providers, including an attacker who holds liquidity. The advertised minimum parameters do not prevent this outcome in either router path.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/dex-v2/router/VaderRouterV2.sol\",\n        \"contract\": \"VaderRouterV2\",\n        \"function\": \"addLiquidity\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex-v2/pool/BasePoolV2.sol\",\n        \"contract\": \"BasePoolV2\",\n        \"function\": \"_mint\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex/router/VaderRouter.sol\",\n        \"contract\": \"VaderRouter\",\n        \"function\": \"_addLiquidity\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex/pool/BasePool.sol\",\n        \"contract\": \"BasePool\",\n        \"function\": \"mint\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Add and enforce a minimum LP-units-out parameter for every liquidity mint. Make amountAMin and amountBMin functional where those parameters are exposed, or remove them and replace them with explicit slippage controls. Calculate the expected deposit ratio using a validated TWAP or independent oracle and reject deposits whose ratio or resulting liquidity deviates beyond the user's configured bounds.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-003\",\n    \"title\": \"LP impermanent-loss reimbursement is calculated from manipulable redemption values\",\n    \"description\": \"The V2 and legacy LP redemption paths derive the reimbursable loss from redemption amounts calculated using current AMM state. BasePoolV2._burn uses stored reserves, while BasePool._burn uses current token balances that are updated by swaps. VaderPoolV2.burn and VaderPool.burn pass those amounts to VaderMath.calculateLoss, and the router then forwards coveredLoss to VaderReserve.reimburseImpermanentLoss. The reimbursement conversion may use an LBT price, but the loss amount has already been determined from the manipulated spot reserve or balance ratio. An attacker holding an LP position can move the pool price before redemption, redeem while the manipulated state is active, and cause the reserve-funded reimbursement calculation to reflect that transient state. Router amountAMin and amountBMin checks only constrain token quantities and do not validate coveredLoss against an oracle or TWAP.\",\n    \"impact\": \"The reserve can pay VADER for a loss amount that is overstated or otherwise distorted by temporary AMM manipulation. This can extract reserve assets or misallocate impermanent-loss compensation, subject to the cost of manipulating the pool and the attacker's LP position.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/dex-v2/pool/BasePoolV2.sol\",\n        \"contract\": \"BasePoolV2\",\n        \"function\": \"_burn\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex-v2/pool/VaderPoolV2.sol\",\n        \"contract\": \"VaderPoolV2\",\n        \"function\": \"burn\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex/pool/BasePool.sol\",\n        \"contract\": \"BasePool\",\n        \"function\": \"_burn\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/dex/pool/VaderPool.sol\",\n        \"contract\": \"VaderPool\",\n        \"function\": \"burn\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/reserve/VaderReserve.sol\",\n        \"contract\": \"VaderReserve\",\n        \"function\": \"reimburseImpermanentLoss\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Calculate impermanent loss using a manipulation-resistant TWAP or independent oracle valuation rather than the redemption-time reserve ratio or raw balances. Apply freshness, deviation, and liquidity checks, cap reimbursement against an oracle-derived maximum loss, and consider delaying reimbursement until a subsequent validated price observation is available.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-004\",\n    \"title\": \"LiquidityBasedTWAP uses attacker-influenced spot weights and lacks effective freshness validation\",\n    \"description\": \"LiquidityBasedTWAP time-weights the AMM price component but computes each pair's liquidity weight from a single current reserve snapshot. _updateVaderPrice and _updateUSDVPrice calculate currentLiquidityEvaluation from pair.getReserves or vaderPool.getReserves and persist it as pastLiquidityEvaluation. That persisted value is used during a later aggregate price calculation, allowing reserve manipulation at synchronization time to change a pair's future weight even if the pair's TWAP price itself is not materially changed. The aggregate calculations also use prior observations without enforcing a maximum age, and getChainlinkPrice checks round consistency and positivity but not updatedAt freshness. The resulting LBT prices are consumed by USDV.mint, USDV.burn, and VaderReserve.reimburseImpermanentLoss. No deviation check, minimum reserve requirement, or complete-update/freshness requirement prevents manipulated, stale, or partially updated observations from affecting those financial outcomes.\",\n    \"impact\": \"An attacker who can manipulate a configured pair's reserves until synchronization, or cause an included pair's reserve-derived weight to become dominant, can bias the aggregate VADER or USDV price. Downstream effects include excess USDV issuance, excess VADER redemption, or distorted reserve-funded impermanent-loss reimbursement. Stale or partially updated observations can likewise cause these operations to use an unvalidated price.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/lbt/LiquidityBasedTWAP.sol\",\n        \"contract\": \"LiquidityBasedTWAP\",\n        \"function\": \"_updateVaderPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/lbt/LiquidityBasedTWAP.sol\",\n        \"contract\": \"LiquidityBasedTWAP\",\n        \"function\": \"_updateUSDVPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/lbt/LiquidityBasedTWAP.sol\",\n        \"contract\": \"LiquidityBasedTWAP\",\n        \"function\": \"syncVaderPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/lbt/LiquidityBasedTWAP.sol\",\n        \"contract\": \"LiquidityBasedTWAP\",\n        \"function\": \"syncUSDVPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/lbt/LiquidityBasedTWAP.sol\",\n        \"contract\": \"LiquidityBasedTWAP\",\n        \"function\": \"getChainlinkPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/tokens/USDV.sol\",\n        \"contract\": \"USDV\",\n        \"function\": \"mint\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/tokens/USDV.sol\",\n        \"contract\": \"USDV\",\n        \"function\": \"burn\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Derive liquidity weights from time-weighted reserve-value observations over the same measurement window as the price TWAP, rather than from a single synchronization-time reserve snapshot. Enforce maximum observation age, Chainlink updatedAt freshness, normalized TWAP-to-independent-oracle deviation limits, minimum liquidity thresholds, bounded weight changes, and coherent updates across all configured pairs before returning a price.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 3,
+  "MediumIssues": 1,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 394.89190316200256,
+    "session_id": "6df1a9ea-5b81-47e2-9877-ff8e7e68f17c"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2021-12-vader",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Synth issuance and redemption use manipulable AMM spot reserves",
+        "description": "VaderPoolV2.mintSynth and burnSynth calculate synth issuance and native-asset redemption exclusively from the pair's current stored reserves through VaderMath.calculateSwap. Those reserves are updated by permissionless swaps exposed through VaderRouterV2. An attacker can move the reserve ratio with a large swap, call mintSynth or burnSynth while the manipulated reserves are recorded, and optionally reverse the swap afterward. Neither function uses cumulative-price/TWAP data, an independent oracle, freshness or deviation checks, liquidity bounds, or user-provided price limits. The existing cumulative-price mechanism is therefore ineffective for these operations because it is not consumed by either pricing path.",
+        "impact": "A temporary reserve distortion changes the number of synths minted for a fixed native deposit or the native assets paid for a fixed synth amount. This can result in over-issuance, over-redemption, or depletion of the pool's native reserves, depending on the manipulation direction and available liquidity.",
+        "mitigation": "Price synth issuance and redemption using a sufficiently long, validated TWAP or an independent oracle rather than the current reserves alone. Enforce freshness and deviation bounds, minimum liquidity requirements, and explicit maximum-redemption or minimum-output limits. Also verify that the calculated redemption amount does not exceed the pool's actual available native-asset balance before transferring funds.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+            "contract": "VaderPoolV2",
+            "function": "mintSynth",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+            "contract": "VaderPoolV2",
+            "function": "burnSynth",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+            "contract": "BasePoolV2",
+            "function": "swap",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "AMM reserve manipulation can reduce liquidity minted to depositors",
+        "description": "Both liquidity-minting implementations calculate LP units from instantaneous AMM reserves and do not protect the depositor with an effective minimum-liquidity or ratio bound. In the V2 path, BasePoolV2._mint reads reserves and applies VaderMath.calculateLiquidityUnits, while VaderRouterV2.addLiquidity discards amountAMin and amountBMin and performs no post-mint minimum check. In the legacy path, VaderRouter._addLiquidity accepts the full desired amounts without ratio validation, and BasePool.mint calculates liquidity from the current reserves and balance-derived deposits. An attacker can front-run a visible liquidity deposit with a large swap, skew the reserves, allow the victim's deposit to be evaluated against the manipulated ratio, and back-run with an opposing swap. The victim's assets are transferred while the resulting liquidity position can be materially smaller than expected.",
+        "impact": "A depositor may provide the full requested amounts but receive fewer LP units and a lower-value liquidity position. The value attributable to the unfavorable deposit ratio remains with existing liquidity providers, including an attacker who holds liquidity. The advertised minimum parameters do not prevent this outcome in either router path.",
+        "mitigation": "Add and enforce a minimum LP-units-out parameter for every liquidity mint. Make amountAMin and amountBMin functional where those parameters are exposed, or remove them and replace them with explicit slippage controls. Calculate the expected deposit ratio using a validated TWAP or independent oracle and reject deposits whose ratio or resulting liquidity deviates beyond the user's configured bounds.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+            "contract": "VaderRouterV2",
+            "function": "addLiquidity",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+            "contract": "BasePoolV2",
+            "function": "_mint",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex/router/VaderRouter.sol",
+            "contract": "VaderRouter",
+            "function": "_addLiquidity",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex/pool/BasePool.sol",
+            "contract": "BasePool",
+            "function": "mint",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-003",
+        "title": "LP impermanent-loss reimbursement is calculated from manipulable redemption values",
+        "description": "The V2 and legacy LP redemption paths derive the reimbursable loss from redemption amounts calculated using current AMM state. BasePoolV2._burn uses stored reserves, while BasePool._burn uses current token balances that are updated by swaps. VaderPoolV2.burn and VaderPool.burn pass those amounts to VaderMath.calculateLoss, and the router then forwards coveredLoss to VaderReserve.reimburseImpermanentLoss. The reimbursement conversion may use an LBT price, but the loss amount has already been determined from the manipulated spot reserve or balance ratio. An attacker holding an LP position can move the pool price before redemption, redeem while the manipulated state is active, and cause the reserve-funded reimbursement calculation to reflect that transient state. Router amountAMin and amountBMin checks only constrain token quantities and do not validate coveredLoss against an oracle or TWAP.",
+        "impact": "The reserve can pay VADER for a loss amount that is overstated or otherwise distorted by temporary AMM manipulation. This can extract reserve assets or misallocate impermanent-loss compensation, subject to the cost of manipulating the pool and the attacker's LP position.",
+        "mitigation": "Calculate impermanent loss using a manipulation-resistant TWAP or independent oracle valuation rather than the redemption-time reserve ratio or raw balances. Apply freshness, deviation, and liquidity checks, cap reimbursement against an oracle-derived maximum loss, and consider delaying reimbursement until a subsequent validated price observation is available.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+            "contract": "BasePoolV2",
+            "function": "_burn",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+            "contract": "VaderPoolV2",
+            "function": "burn",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex/pool/BasePool.sol",
+            "contract": "BasePool",
+            "function": "_burn",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/dex/pool/VaderPool.sol",
+            "contract": "VaderPool",
+            "function": "burn",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/reserve/VaderReserve.sol",
+            "contract": "VaderReserve",
+            "function": "reimburseImpermanentLoss",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-004",
+        "title": "LiquidityBasedTWAP uses attacker-influenced spot weights and lacks effective freshness validation",
+        "description": "LiquidityBasedTWAP time-weights the AMM price component but computes each pair's liquidity weight from a single current reserve snapshot. _updateVaderPrice and _updateUSDVPrice calculate currentLiquidityEvaluation from pair.getReserves or vaderPool.getReserves and persist it as pastLiquidityEvaluation. That persisted value is used during a later aggregate price calculation, allowing reserve manipulation at synchronization time to change a pair's future weight even if the pair's TWAP price itself is not materially changed. The aggregate calculations also use prior observations without enforcing a maximum age, and getChainlinkPrice checks round consistency and positivity but not updatedAt freshness. The resulting LBT prices are consumed by USDV.mint, USDV.burn, and VaderReserve.reimburseImpermanentLoss. No deviation check, minimum reserve requirement, or complete-update/freshness requirement prevents manipulated, stale, or partially updated observations from affecting those financial outcomes.",
+        "impact": "An attacker who can manipulate a configured pair's reserves until synchronization, or cause an included pair's reserve-derived weight to become dominant, can bias the aggregate VADER or USDV price. Downstream effects include excess USDV issuance, excess VADER redemption, or distorted reserve-funded impermanent-loss reimbursement. Stale or partially updated observations can likewise cause these operations to use an unvalidated price.",
+        "mitigation": "Derive liquidity weights from time-weighted reserve-value observations over the same measurement window as the price TWAP, rather than from a single synchronization-time reserve snapshot. Enforce maximum observation age, Chainlink updatedAt freshness, normalized TWAP-to-independent-oracle deviation limits, minimum liquidity thresholds, bounded weight changes, and coherent updates across all configured pairs before returning a price.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+            "contract": "LiquidityBasedTWAP",
+            "function": "_updateVaderPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+            "contract": "LiquidityBasedTWAP",
+            "function": "_updateUSDVPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+            "contract": "LiquidityBasedTWAP",
+            "function": "syncVaderPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+            "contract": "LiquidityBasedTWAP",
+            "function": "syncUSDVPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+            "contract": "LiquidityBasedTWAP",
+            "function": "getChainlinkPrice",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/tokens/USDV.sol",
+            "contract": "USDV",
+            "function": "mint",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/tokens/USDV.sol",
+            "contract": "USDV",
+            "function": "burn",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

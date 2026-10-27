@@ -1,0 +1,345 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2023-03-olympus",
+  "source_repo_dir": "2023-03-olympus",
+  "working_directory": "sherlock-olympus",
+  "source_root_relative_to_repo": "sherlock-olympus",
+  "expected_resolved_commit": "fae48b3a40f2a2f4ccf412fbee16aeea5b29c410",
+  "actual_git_head": "fae48b3a40f2a2f4ccf412fbee16aeea5b29c410",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 21,
+  "excluded_solidity_file_count": 11,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 34808,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 34808,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "src/external/OlympusERC20.sol",
+          "sha256": "ae53c971add63ca651597f4daf4a71be1b535d0ecb3d0a38332668ce23594281",
+          "source_bytes_utf8": 31624,
+          "source_line_count": 931,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 932
+        },
+        {
+          "file": "src/interfaces/AggregatorV2V3Interface.sol",
+          "sha256": "3826edf5e664d427c65ac8f7f0590d4cd7a51351d07f10445bc986b361c8d6fc",
+          "source_bytes_utf8": 1628,
+          "source_line_count": 53,
+          "imports": [],
+          "bundle_marker_line": 934,
+          "bundle_source_start_line": 935,
+          "bundle_source_end_line": 987
+        },
+        {
+          "file": "src/Kernel.sol",
+          "sha256": "02fb784b9d280dcc47a1a95f100567c500b5fbac8c1c1295774cdb27696a40e9",
+          "source_bytes_utf8": 17169,
+          "source_line_count": 415,
+          "imports": [],
+          "bundle_marker_line": 989,
+          "bundle_source_start_line": 990,
+          "bundle_source_end_line": 1404
+        },
+        {
+          "file": "src/libraries/FullMath.sol",
+          "sha256": "6d21f1fba6268bfdb756cf72d792c61eca711107630ce5a5058edeb6d959ec8e",
+          "source_bytes_utf8": 5527,
+          "source_line_count": 128,
+          "imports": [],
+          "bundle_marker_line": 1406,
+          "bundle_source_start_line": 1407,
+          "bundle_source_end_line": 1534
+        },
+        {
+          "file": "src/libraries/TransferHelper.sol",
+          "sha256": "a50de6cc12ab90ceee62ff4d19f367b554f783fc333d991b2ae23461cdff6850",
+          "source_bytes_utf8": 1496,
+          "source_line_count": 45,
+          "imports": [
+            "solmate/tokens/ERC20.sol"
+          ],
+          "bundle_marker_line": 1536,
+          "bundle_source_start_line": 1537,
+          "bundle_source_end_line": 1581
+        },
+        {
+          "file": "src/modules/BLREG/BLREG.v1.sol",
+          "sha256": "e9741afe67c4383e83822656c86c48efd58e51b5e800b7168f7f00a11ae08ac0",
+          "source_bytes_utf8": 1415,
+          "source_line_count": 36,
+          "imports": [
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1583,
+          "bundle_source_start_line": 1584,
+          "bundle_source_end_line": 1619
+        },
+        {
+          "file": "src/modules/BLREG/OlympusBoostedLiquidityRegistry.sol",
+          "sha256": "8ec3c4ea08f44c0996cc74fc843230c8cb0d6ab46ae12300c17bf9dc3696f9ef",
+          "source_bytes_utf8": 2380,
+          "source_line_count": 61,
+          "imports": [
+            "src/modules/BLREG/BLREG.v1.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1621,
+          "bundle_source_start_line": 1622,
+          "bundle_source_end_line": 1682
+        },
+        {
+          "file": "src/modules/MINTR/MINTR.v1.sol",
+          "sha256": "1780cdefcd15b9104351772276aa22d85f64a3426ecdd8d2cbf15bd47bb29a67",
+          "source_bytes_utf8": 2104,
+          "source_line_count": 58,
+          "imports": [
+            "src/external/OlympusERC20.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1684,
+          "bundle_source_start_line": 1685,
+          "bundle_source_end_line": 1742
+        },
+        {
+          "file": "src/modules/MINTR/OlympusMinter.sol",
+          "sha256": "2875f4ad835521878df3add24a167e5bb104ff25e9e49749fce99bbbcb35e16d",
+          "source_bytes_utf8": 3071,
+          "source_line_count": 94,
+          "imports": [
+            "src/modules/MINTR/MINTR.v1.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1744,
+          "bundle_source_start_line": 1745,
+          "bundle_source_end_line": 1838
+        },
+        {
+          "file": "src/modules/ROLES/OlympusRoles.sol",
+          "sha256": "15fde5d60c0340edcefc8cbf5b66e604833227a829b2a05a7085bb6adf6ecfb2",
+          "source_bytes_utf8": 3047,
+          "source_line_count": 83,
+          "imports": [
+            "src/modules/ROLES/ROLES.v1.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1840,
+          "bundle_source_start_line": 1841,
+          "bundle_source_end_line": 1923
+        },
+        {
+          "file": "src/modules/ROLES/ROLES.v1.sol",
+          "sha256": "d128d436ca23f294dd6deb70d99c493387cdaa318bbedf21e11d975c21cf7ef8",
+          "source_bytes_utf8": 1581,
+          "source_line_count": 39,
+          "imports": [
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1925,
+          "bundle_source_start_line": 1926,
+          "bundle_source_end_line": 1964
+        },
+        {
+          "file": "src/modules/TRSRY/OlympusTreasury.sol",
+          "sha256": "8dedbbd0c4a35ab7a4288aafd6e55e0d1a6b18d5a2fb602be8dc5176afe1228a",
+          "source_bytes_utf8": 6065,
+          "source_line_count": 182,
+          "imports": [
+            "solmate/tokens/ERC20.sol",
+            "solmate/utils/ReentrancyGuard.sol",
+            "libraries/TransferHelper.sol",
+            "src/modules/TRSRY/TRSRY.v1.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 1966,
+          "bundle_source_start_line": 1967,
+          "bundle_source_end_line": 2148
+        },
+        {
+          "file": "src/modules/TRSRY/TRSRY.v1.sol",
+          "sha256": "1fcbd2daea1331ac4f4417fc03c02056912ae74b234c05604d80715d142b17e5",
+          "source_bytes_utf8": 4525,
+          "source_line_count": 127,
+          "imports": [
+            "solmate/tokens/ERC20.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 2150,
+          "bundle_source_start_line": 2151,
+          "bundle_source_end_line": 2277
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/BLVaultLido.sol",
+          "sha256": "754bcff7caabb4ac85650b74815d377648b96f44872cedfaf55e5a328a105492",
+          "source_bytes_utf8": 16235,
+          "source_line_count": 448,
+          "imports": [
+            "policies/BoostedLiquidity/interfaces/IBLVaultLido.sol",
+            "policies/BoostedLiquidity/interfaces/IBLVaultManagerLido.sol",
+            "policies/BoostedLiquidity/BLVaultManagerLido.sol",
+            "policies/BoostedLiquidity/interfaces/IBalancer.sol",
+            "policies/BoostedLiquidity/interfaces/IAura.sol",
+            "src/external/OlympusERC20.sol",
+            "solmate/tokens/ERC20.sol",
+            "clones/Clone.sol",
+            "libraries/TransferHelper.sol",
+            "libraries/FullMath.sol"
+          ],
+          "bundle_marker_line": 2279,
+          "bundle_source_start_line": 2280,
+          "bundle_source_end_line": 2727
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/BLVaultManagerLido.sol",
+          "sha256": "b42fd498a696deb633f0deeb91a4cfe3a0114f247e79f0107de16de9d645e2d4",
+          "source_bytes_utf8": 20558,
+          "source_line_count": 540,
+          "imports": [
+            "src/modules/MINTR/MINTR.v1.sol",
+            "src/modules/ROLES/OlympusRoles.sol",
+            "src/modules/TRSRY/TRSRY.v1.sol",
+            "src/modules/BLREG/BLREG.v1.sol",
+            "src/Kernel.sol",
+            "interfaces/AggregatorV2V3Interface.sol",
+            "policies/BoostedLiquidity/interfaces/IAura.sol",
+            "policies/BoostedLiquidity/interfaces/IBalancer.sol",
+            "policies/BoostedLiquidity/interfaces/ILido.sol",
+            "policies/BoostedLiquidity/interfaces/IBLVaultLido.sol",
+            "policies/BoostedLiquidity/interfaces/IBLVaultManagerLido.sol",
+            "policies/BoostedLiquidity/BLVaultLido.sol",
+            "clones/ClonesWithImmutableArgs.sol"
+          ],
+          "bundle_marker_line": 2729,
+          "bundle_source_start_line": 2730,
+          "bundle_source_end_line": 3269
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/interfaces/IAura.sol",
+          "sha256": "243f59f1dc204f41c09c9392a777627fe0bb51def6f24fb6d0083b20211f2e62",
+          "source_bytes_utf8": 1072,
+          "source_line_count": 37,
+          "imports": [],
+          "bundle_marker_line": 3271,
+          "bundle_source_start_line": 3272,
+          "bundle_source_end_line": 3308
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/interfaces/IBalancer.sol",
+          "sha256": "b4431af11305b21dd75b6df4923fc9a1deff66ea1ffbf2f9be78105967936e99",
+          "source_bytes_utf8": 2046,
+          "source_line_count": 85,
+          "imports": [
+            "solmate/tokens/ERC20.sol"
+          ],
+          "bundle_marker_line": 3310,
+          "bundle_source_start_line": 3311,
+          "bundle_source_end_line": 3395
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/interfaces/IBLVaultLido.sol",
+          "sha256": "96adf8dd87f84aecf90e0dfd1bd8a341d3538c3ec058751af21e21c972f00021",
+          "source_bytes_utf8": 3303,
+          "source_line_count": 57,
+          "imports": [],
+          "bundle_marker_line": 3397,
+          "bundle_source_start_line": 3398,
+          "bundle_source_end_line": 3454
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/interfaces/IBLVaultManagerLido.sol",
+          "sha256": "550dc2a3b6e6626e688a703aeb5b3b1acab5c2ff133c173bcb418e04aba1c6cb",
+          "source_bytes_utf8": 9019,
+          "source_line_count": 164,
+          "imports": [
+            "src/modules/MINTR/MINTR.v1.sol",
+            "src/modules/ROLES/ROLES.v1.sol",
+            "src/modules/TRSRY/TRSRY.v1.sol",
+            "interfaces/AggregatorV2V3Interface.sol",
+            "policies/BoostedLiquidity/interfaces/IAura.sol",
+            "policies/BoostedLiquidity/interfaces/IBLVaultLido.sol"
+          ],
+          "bundle_marker_line": 3456,
+          "bundle_source_start_line": 3457,
+          "bundle_source_end_line": 3620
+        },
+        {
+          "file": "src/policies/BoostedLiquidity/interfaces/ILido.sol",
+          "sha256": "2382d66778c1ca5c81b2cfbfac225d80d55f9a6a2f0d2a7b8a23ae6d1c1c3357",
+          "source_bytes_utf8": 147,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 3622,
+          "bundle_source_start_line": 3623,
+          "bundle_source_end_line": 3628
+        },
+        {
+          "file": "src/policies/RolesAdmin.sol",
+          "sha256": "69b64bb52a0d5d0317ae047eac6e12d59baaf78990145722a28c5622331b8030",
+          "source_bytes_utf8": 3108,
+          "source_line_count": 84,
+          "imports": [
+            "src/modules/ROLES/ROLES.v1.sol",
+            "src/Kernel.sol"
+          ],
+          "bundle_marker_line": 3630,
+          "bundle_source_start_line": 3631,
+          "bundle_source_end_line": 3714
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "src/test/lib/larping.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/lib/ModuleTestFixtureGenerator.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/lib/quabi/Quabi.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/lib/UserFactory.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/mocks/AuraMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/mocks/BalancerMocks.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/mocks/MockLegacyAuthority.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/mocks/MockOhm.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/mocks/MockPriceFeed.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/policies/BoostedLiquidity/BLVaultLidoMocks.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "src/test/policies/BoostedLiquidity/BLVaultManagerLidoMocks.t.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ]
+}

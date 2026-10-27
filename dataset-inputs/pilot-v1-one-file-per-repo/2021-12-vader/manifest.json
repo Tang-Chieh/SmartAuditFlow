@@ -1,0 +1,1099 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2021-12-vader",
+  "source_repo_dir": "2021-12-vader",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "fd2787013608438beae361ce1bb6d9ffba466c45",
+  "actual_git_head": "fd2787013608438beae361ce1bb6d9ffba466c45",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 81,
+  "excluded_solidity_file_count": 12,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 76946,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 76946,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+          "sha256": "2f73ecf30d69dd850cdd1287ea5feae8fa95a09b53c65f0270a77beb0b8a7bb7",
+          "source_bytes_utf8": 21664,
+          "source_line_count": 623,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/ERC721.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../dex/math/VaderMath.sol",
+            "../../dex/utils/GasThrottle.sol",
+            "../../external/libraries/UQ112x112.sol",
+            "../../interfaces/dex-v2/pool/IBasePoolV2.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 624
+        },
+        {
+          "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+          "sha256": "663459e6230eea62f7e72716cc44c2411ee95e1c1a9bd6c839a97a3d2736032c",
+          "source_bytes_utf8": 16327,
+          "source_line_count": 515,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "./BasePoolV2.sol",
+            "../../external/libraries/FixedPoint.sol",
+            "../../interfaces/shared/IERC20Extended.sol",
+            "../../interfaces/dex-v2/pool/IVaderPoolV2.sol",
+            "../../interfaces/dex-v2/wrapper/ILPWrapper.sol",
+            "../../interfaces/dex-v2/synth/ISynthFactory.sol"
+          ],
+          "bundle_marker_line": 626,
+          "bundle_source_start_line": 627,
+          "bundle_source_end_line": 1141
+        },
+        {
+          "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+          "sha256": "021c8419a383300aee65d583ef9dec42c2c6c3b2e32c617af7a3db4a8ab2a4ac",
+          "source_bytes_utf8": 11347,
+          "source_line_count": 334,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../dex/math/VaderMath.sol",
+            "../../interfaces/reserve/IVaderReserve.sol",
+            "../../interfaces/dex-v2/router/IVaderRouterV2.sol",
+            "../../interfaces/dex-v2/pool/IVaderPoolV2.sol"
+          ],
+          "bundle_marker_line": 1143,
+          "bundle_source_start_line": 1144,
+          "bundle_source_end_line": 1477
+        },
+        {
+          "file": "contracts/dex-v2/synths/Synth.sol",
+          "sha256": "f5abb71b321e73e51a8c1be686988f1d7a2acec98cae95f69b5dc7a374083fde",
+          "source_bytes_utf8": 1448,
+          "source_line_count": 54,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/shared/IERC20Extended.sol",
+            "../../interfaces/dex-v2/synth/ISynth.sol"
+          ],
+          "bundle_marker_line": 1479,
+          "bundle_source_start_line": 1480,
+          "bundle_source_end_line": 1533
+        },
+        {
+          "file": "contracts/dex-v2/synths/SynthFactory.sol",
+          "sha256": "18eb346c4850ae1d7706bd9607844ce5649c43d1a0d7cfbb1fddbd7013dc9ec5",
+          "source_bytes_utf8": 949,
+          "source_line_count": 38,
+          "imports": [
+            "./Synth.sol",
+            "../../interfaces/dex-v2/synth/ISynthFactory.sol"
+          ],
+          "bundle_marker_line": 1535,
+          "bundle_source_start_line": 1536,
+          "bundle_source_end_line": 1573
+        },
+        {
+          "file": "contracts/dex-v2/wrapper/LPToken.sol",
+          "sha256": "7e9e337a32b1d22fa9bd406f3c45df11b9a27a23ad5f0e028f449246eff1ede4",
+          "source_bytes_utf8": 2030,
+          "source_line_count": 70,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/dex-v2/pool/IVaderPoolV2.sol",
+            "../../interfaces/dex-v2/wrapper/ILPToken.sol"
+          ],
+          "bundle_marker_line": 1575,
+          "bundle_source_start_line": 1576,
+          "bundle_source_end_line": 1645
+        },
+        {
+          "file": "contracts/dex-v2/wrapper/LPWrapper.sol",
+          "sha256": "1328e8b1c036691c0c49efcc7af1e9ca3dcf076e682ef4c8c594c16f330e8535",
+          "source_bytes_utf8": 1042,
+          "source_line_count": 35,
+          "imports": [
+            "./LPToken.sol",
+            "../../interfaces/dex-v2/wrapper/ILPWrapper.sol"
+          ],
+          "bundle_marker_line": 1647,
+          "bundle_source_start_line": 1648,
+          "bundle_source_end_line": 1682
+        },
+        {
+          "file": "contracts/dex/math/VaderMath.sol",
+          "sha256": "b923bf335f99c5de378b3a71264bf92da57e547071c297a0e6bfd4f47fa8d852",
+          "source_bytes_utf8": 6009,
+          "source_line_count": 181,
+          "imports": [],
+          "bundle_marker_line": 1684,
+          "bundle_source_start_line": 1685,
+          "bundle_source_end_line": 1865
+        },
+        {
+          "file": "contracts/dex/pool/BasePool.sol",
+          "sha256": "bb1f50c9eee956dfc2a947baeca91a5461cfc3c095ec55dad0af780ec9e3eff3",
+          "source_bytes_utf8": 16533,
+          "source_line_count": 430,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC721/ERC721.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "../math/VaderMath.sol",
+            "../utils/GasThrottle.sol",
+            "../../external/libraries/UQ112x112.sol",
+            "../../interfaces/dex/pool/IBasePool.sol",
+            "../../interfaces/shared/IERC20Extended.sol"
+          ],
+          "bundle_marker_line": 1867,
+          "bundle_source_start_line": 1868,
+          "bundle_source_end_line": 2297
+        },
+        {
+          "file": "contracts/dex/pool/VaderPool.sol",
+          "sha256": "2259a105c4f9075ed4d375ea0df77ec74b0f40199fb4de94109f810298b70826",
+          "source_bytes_utf8": 3938,
+          "source_line_count": 130,
+          "imports": [
+            "./BasePool.sol",
+            "../../interfaces/dex/pool/IVaderPool.sol"
+          ],
+          "bundle_marker_line": 2299,
+          "bundle_source_start_line": 2300,
+          "bundle_source_end_line": 2429
+        },
+        {
+          "file": "contracts/dex/pool/VaderPoolFactory.sol",
+          "sha256": "46468d64329f51516ce47986c535210f05ba56e0a951ddff1fac9cb67496a67e",
+          "source_bytes_utf8": 4724,
+          "source_line_count": 145,
+          "imports": [
+            "./VaderPool.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/shared/IERC20Extended.sol",
+            "../../interfaces/dex/pool/IVaderPoolFactory.sol"
+          ],
+          "bundle_marker_line": 2431,
+          "bundle_source_start_line": 2432,
+          "bundle_source_end_line": 2576
+        },
+        {
+          "file": "contracts/dex/queue/SwapQueue.sol",
+          "sha256": "f08003b5f40dc39fcef6bb584fd309cd6f0ed41384b4a8085fe262826e1ed163",
+          "source_bytes_utf8": 1069,
+          "source_line_count": 34,
+          "imports": [
+            "@openzeppelin/contracts/utils/Address.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/dex/queue/ISwapQueue.sol"
+          ],
+          "bundle_marker_line": 2578,
+          "bundle_source_start_line": 2579,
+          "bundle_source_end_line": 2612
+        },
+        {
+          "file": "contracts/dex/router/VaderRouter.sol",
+          "sha256": "a1a6e836b7cd2b7a768046db9c4f80a7ae1c93bf896fa8f741c24dede6ebab79",
+          "source_bytes_utf8": 17068,
+          "source_line_count": 505,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../math/VaderMath.sol",
+            "../../interfaces/reserve/IVaderReserve.sol",
+            "../../interfaces/dex/router/IVaderRouter.sol",
+            "../../interfaces/dex/pool/IVaderPoolFactory.sol"
+          ],
+          "bundle_marker_line": 2614,
+          "bundle_source_start_line": 2615,
+          "bundle_source_end_line": 3119
+        },
+        {
+          "file": "contracts/dex/utils/GasThrottle.sol",
+          "sha256": "95b9ac37c662eb2bd5c0bd5fe58931b7313158d0bb309a00c660d4c1a1291852",
+          "source_bytes_utf8": 695,
+          "source_line_count": 22,
+          "imports": [
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/external/chainlink/IAggregator.sol"
+          ],
+          "bundle_marker_line": 3121,
+          "bundle_source_start_line": 3122,
+          "bundle_source_end_line": 3143
+        },
+        {
+          "file": "contracts/external/interfaces/AggregatorV3Interface.sol",
+          "sha256": "2f6c8a74a5f8391712f29b990ea5db7fa1b35fb541d0a1c73ab57beb54ffb7aa",
+          "source_bytes_utf8": 1009,
+          "source_line_count": 35,
+          "imports": [],
+          "bundle_marker_line": 3145,
+          "bundle_source_start_line": 3146,
+          "bundle_source_end_line": 3180
+        },
+        {
+          "file": "contracts/external/libraries/Babylonian.sol",
+          "sha256": "3223bcd7ef25c0232b1c6cffffef02e5fc22d7f8f993565ca6e1f6d631b5c58e",
+          "source_bytes_utf8": 1581,
+          "source_line_count": 53,
+          "imports": [],
+          "bundle_marker_line": 3182,
+          "bundle_source_start_line": 3183,
+          "bundle_source_end_line": 3235
+        },
+        {
+          "file": "contracts/external/libraries/BitMath.sol",
+          "sha256": "34d8a75d60591b8ceb8c7c69af8b8b0e0af8dbeb87141662333298678f9caa4e",
+          "source_bytes_utf8": 2144,
+          "source_line_count": 85,
+          "imports": [],
+          "bundle_marker_line": 3237,
+          "bundle_source_start_line": 3238,
+          "bundle_source_end_line": 3322
+        },
+        {
+          "file": "contracts/external/libraries/FixedPoint.sol",
+          "sha256": "e9a60a3ea14815597a8ed9137c5b2b40b2e0e8a63d4d0c5a45564eabe7b4d911",
+          "source_bytes_utf8": 6693,
+          "source_line_count": 196,
+          "imports": [
+            "./FullMath.sol",
+            "./Babylonian.sol",
+            "./BitMath.sol"
+          ],
+          "bundle_marker_line": 3324,
+          "bundle_source_start_line": 3325,
+          "bundle_source_end_line": 3520
+        },
+        {
+          "file": "contracts/external/libraries/FullMath.sol",
+          "sha256": "d533105e594f425dceeb9fd0c7a3e27b3241cc7e36c396015743ca8f0b88696e",
+          "source_bytes_utf8": 1338,
+          "source_line_count": 55,
+          "imports": [],
+          "bundle_marker_line": 3522,
+          "bundle_source_start_line": 3523,
+          "bundle_source_end_line": 3577
+        },
+        {
+          "file": "contracts/external/libraries/TransferHelper.sol",
+          "sha256": "ebc96a2c11188b080037831c6dca6483d792b854b13dea46b77119f5ca55a48e",
+          "source_bytes_utf8": 1903,
+          "source_line_count": 60,
+          "imports": [],
+          "bundle_marker_line": 3579,
+          "bundle_source_start_line": 3580,
+          "bundle_source_end_line": 3639
+        },
+        {
+          "file": "contracts/external/libraries/UniswapMath.sol",
+          "sha256": "34a39f42ce0e5a0e2ff8bc6074c02f90712a92ef43bd18613d8741ace7658ed2",
+          "source_bytes_utf8": 665,
+          "source_line_count": 25,
+          "imports": [],
+          "bundle_marker_line": 3641,
+          "bundle_source_start_line": 3642,
+          "bundle_source_end_line": 3666
+        },
+        {
+          "file": "contracts/external/libraries/UniswapV2Library.sol",
+          "sha256": "d4c80f5465a333865e8c3a039ec9163a4425620f9c7fb9931164f4c2c009520b",
+          "source_bytes_utf8": 5453,
+          "source_line_count": 149,
+          "imports": [
+            "@openzeppelin/contracts/utils/math/SafeMath.sol",
+            "../../interfaces/external/uniswap/IUniswapV2Pair.sol"
+          ],
+          "bundle_marker_line": 3668,
+          "bundle_source_start_line": 3669,
+          "bundle_source_end_line": 3817
+        },
+        {
+          "file": "contracts/external/libraries/UniswapV2OracleLibrary.sol",
+          "sha256": "dc11632c18eaf2d491a2cbf90e4128aa6d3ce5b43b8894a2ca8a12dacbdd05fd",
+          "source_bytes_utf8": 1872,
+          "source_line_count": 51,
+          "imports": [
+            "../../interfaces/external/uniswap/IUniswapV2Pair.sol",
+            "./FixedPoint.sol"
+          ],
+          "bundle_marker_line": 3819,
+          "bundle_source_start_line": 3820,
+          "bundle_source_end_line": 3870
+        },
+        {
+          "file": "contracts/external/libraries/UQ112x112.sol",
+          "sha256": "311e721fac3392623d501790304174f427b8b9f8c6dea1feab089da4c22e5cc1",
+          "source_bytes_utf8": 638,
+          "source_line_count": 22,
+          "imports": [],
+          "bundle_marker_line": 3872,
+          "bundle_source_start_line": 3873,
+          "bundle_source_end_line": 3894
+        },
+        {
+          "file": "contracts/external/UniswapV2ERC20.sol",
+          "sha256": "0c1d7e6c133e098b7c3c5868a7f6e74e396a7880db96d74a86752805737d9f30",
+          "source_bytes_utf8": 3731,
+          "source_line_count": 125,
+          "imports": [
+            "../interfaces/external/uniswap/IUniswapV2ERC20.sol"
+          ],
+          "bundle_marker_line": 3896,
+          "bundle_source_start_line": 3897,
+          "bundle_source_end_line": 4021
+        },
+        {
+          "file": "contracts/external/UniswapV2Pair.sol",
+          "sha256": "6129a31df831cddca2625f1133b7b0c55a068f245fad15898e588872c6b2a3ed",
+          "source_bytes_utf8": 10569,
+          "source_line_count": 280,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./UniswapV2ERC20.sol",
+            "./libraries/UniswapMath.sol",
+            "./libraries/UQ112x112.sol",
+            "../interfaces/external/uniswap/IUniswapV2Pair.sol",
+            "../interfaces/external/uniswap/IUniswapV2Factory.sol",
+            "../interfaces/external/uniswap/IUniswapV2Callee.sol"
+          ],
+          "bundle_marker_line": 4023,
+          "bundle_source_start_line": 4024,
+          "bundle_source_end_line": 4303
+        },
+        {
+          "file": "contracts/governance/GovernorAlpha.sol",
+          "sha256": "4e51dc8ddd556b378799cc44c0325953ee495d3b2f6afe6b6accedfa18e0852b",
+          "source_bytes_utf8": 27840,
+          "source_line_count": 855,
+          "imports": [
+            "../interfaces/governance/ITimelock.sol",
+            "../interfaces/x-vader/IXVader.sol"
+          ],
+          "bundle_marker_line": 4305,
+          "bundle_source_start_line": 4306,
+          "bundle_source_end_line": 5160
+        },
+        {
+          "file": "contracts/governance/Timelock.sol",
+          "sha256": "e72820f87ca526cbcc0bfa35c0882b9efe6b4cfedf9266079fe721708a3ae91d",
+          "source_bytes_utf8": 9500,
+          "source_line_count": 317,
+          "imports": [
+            "../interfaces/governance/ITimelock.sol"
+          ],
+          "bundle_marker_line": 5162,
+          "bundle_source_start_line": 5163,
+          "bundle_source_end_line": 5479
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/pool/IBasePoolV2.sol",
+          "sha256": "6072ea32333225cb42f824dee06f7f540eb913d5ca69ae22a9c7f5ca986a2b82",
+          "source_bytes_utf8": 2752,
+          "source_line_count": 107,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 5481,
+          "bundle_source_start_line": 5482,
+          "bundle_source_end_line": 5588
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/pool/IVaderPoolFactoryV2.sol",
+          "sha256": "e071f2a0ea4bb97dfba02dcca0496ba301c119613b7f3ae0a68cb8aa4414f8c0",
+          "source_bytes_utf8": 684,
+          "source_line_count": 30,
+          "imports": [
+            "./IVaderPoolV2.sol"
+          ],
+          "bundle_marker_line": 5590,
+          "bundle_source_start_line": 5591,
+          "bundle_source_end_line": 5620
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/pool/IVaderPoolV2.sol",
+          "sha256": "ede4ac555b2fcf65df6942df06fb2354a8e320d0f544b479eae2957a3dc845cb",
+          "source_bytes_utf8": 2037,
+          "source_line_count": 76,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "./IBasePoolV2.sol"
+          ],
+          "bundle_marker_line": 5622,
+          "bundle_source_start_line": 5623,
+          "bundle_source_end_line": 5698
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/router/IVaderRouterV2.sol",
+          "sha256": "845bd53a12b9feaf2e5e4d10d2b8afef7957ac4584553f4915c72e89c7512939",
+          "source_bytes_utf8": 1333,
+          "source_line_count": 50,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 5700,
+          "bundle_source_start_line": 5701,
+          "bundle_source_end_line": 5750
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/synth/ISynth.sol",
+          "sha256": "d757bcb6942a444077b9aef5bcd2bfdd7d2d1695ac23729e687031c8952c2bad",
+          "source_bytes_utf8": 265,
+          "source_line_count": 11,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 5752,
+          "bundle_source_start_line": 5753,
+          "bundle_source_end_line": 5763
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/synth/ISynthFactory.sol",
+          "sha256": "fcf624f48300456e31f507eb6c855b2dfbf05a5c6d36156391252c10d7caf442",
+          "source_bytes_utf8": 371,
+          "source_line_count": 14,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "../../shared/IERC20Extended.sol",
+            "./ISynth.sol"
+          ],
+          "bundle_marker_line": 5765,
+          "bundle_source_start_line": 5766,
+          "bundle_source_end_line": 5779
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/wrapper/ILPToken.sol",
+          "sha256": "254d38581fc10a294ec7b0df543b300af6f7badd3498e24c854d5d3c329ee490",
+          "source_bytes_utf8": 242,
+          "source_line_count": 11,
+          "imports": [
+            "../../shared/IERC20Extended.sol"
+          ],
+          "bundle_marker_line": 5781,
+          "bundle_source_start_line": 5782,
+          "bundle_source_end_line": 5792
+        },
+        {
+          "file": "contracts/interfaces/dex-v2/wrapper/ILPWrapper.sol",
+          "sha256": "8f27f502e8d6b395314ae6cdccd7b0e93312ec6c888fb8629c7d2e5093d2f29f",
+          "source_bytes_utf8": 283,
+          "source_line_count": 11,
+          "imports": [
+            "../../shared/IERC20Extended.sol"
+          ],
+          "bundle_marker_line": 5794,
+          "bundle_source_start_line": 5795,
+          "bundle_source_end_line": 5805
+        },
+        {
+          "file": "contracts/interfaces/dex/pool/IBasePool.sol",
+          "sha256": "582c0e2c8b9c9435ead64affa305a41ce15d6324e21d8c8bd844081f32e74c3c",
+          "source_bytes_utf8": 1769,
+          "source_line_count": 68,
+          "imports": [],
+          "bundle_marker_line": 5807,
+          "bundle_source_start_line": 5808,
+          "bundle_source_end_line": 5875
+        },
+        {
+          "file": "contracts/interfaces/dex/pool/IVaderPool.sol",
+          "sha256": "3d085f6c820ebf5234cff199aa2c7831414a3d1956fa30a9894e0c055d3496b2",
+          "source_bytes_utf8": 614,
+          "source_line_count": 26,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/IERC721.sol",
+            "./IBasePool.sol"
+          ],
+          "bundle_marker_line": 5877,
+          "bundle_source_start_line": 5878,
+          "bundle_source_end_line": 5903
+        },
+        {
+          "file": "contracts/interfaces/dex/pool/IVaderPoolFactory.sol",
+          "sha256": "ab367cbd8d7677b801a268fe693523a570be3c2231545be21cb6ea4f9d12de11",
+          "source_bytes_utf8": 683,
+          "source_line_count": 31,
+          "imports": [
+            "./IVaderPool.sol"
+          ],
+          "bundle_marker_line": 5905,
+          "bundle_source_start_line": 5906,
+          "bundle_source_end_line": 5936
+        },
+        {
+          "file": "contracts/interfaces/dex/queue/IGasQueue.sol",
+          "sha256": "eff1f853cf5568c04a80675442e9450b6c53a29e25f7badb4487cb8171a5d65b",
+          "source_bytes_utf8": 218,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 5938,
+          "bundle_source_start_line": 5939,
+          "bundle_source_end_line": 5947
+        },
+        {
+          "file": "contracts/interfaces/dex/queue/ISwapQueue.sol",
+          "sha256": "6a9976da592794c9272e27d3d7e4be68734b23260c92e59a13b5e1a668764814",
+          "source_bytes_utf8": 467,
+          "source_line_count": 23,
+          "imports": [],
+          "bundle_marker_line": 5949,
+          "bundle_source_start_line": 5950,
+          "bundle_source_end_line": 5972
+        },
+        {
+          "file": "contracts/interfaces/dex/router/IVaderRouter.sol",
+          "sha256": "bb2cc91ff8e1746479c2330803f69557c98d55b672d29c4b7f968d86d5485874",
+          "source_bytes_utf8": 1536,
+          "source_line_count": 62,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 5974,
+          "bundle_source_start_line": 5975,
+          "bundle_source_end_line": 6036
+        },
+        {
+          "file": "contracts/interfaces/external/chainlink/IAggregator.sol",
+          "sha256": "ff55a15cd6843326bcf3d24f23265567f056594b43e02b455e8fb8ee78021a41",
+          "source_bytes_utf8": 157,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 6038,
+          "bundle_source_start_line": 6039,
+          "bundle_source_end_line": 6045
+        },
+        {
+          "file": "contracts/interfaces/external/chainlink/IAggregatorV3.sol",
+          "sha256": "a8f71fc76e85262101472af5d3b85e202c01c36c6164b8afb2aa1a1f25c18c22",
+          "source_bytes_utf8": 1001,
+          "source_line_count": 35,
+          "imports": [],
+          "bundle_marker_line": 6047,
+          "bundle_source_start_line": 6048,
+          "bundle_source_end_line": 6082
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2Callee.sol",
+          "sha256": "9767e3971ebab540a3ad30ad9aab4cd0cc854b257039886cbff0de6484ca519b",
+          "source_bytes_utf8": 268,
+          "source_line_count": 11,
+          "imports": [],
+          "bundle_marker_line": 6084,
+          "bundle_source_start_line": 6085,
+          "bundle_source_end_line": 6095
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2ERC20.sol",
+          "sha256": "68a0c238819a6fc9b557615ae5e95f7ba61a72746b71df94f116e9f9ab9f6a44",
+          "source_bytes_utf8": 1389,
+          "source_line_count": 52,
+          "imports": [],
+          "bundle_marker_line": 6097,
+          "bundle_source_start_line": 6098,
+          "bundle_source_end_line": 6149
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2Factory.sol",
+          "sha256": "83b92a01b31f43cb2b1553f274c0ee3552f29d8fcf5a15e65cbf54f1480a52b2",
+          "source_bytes_utf8": 838,
+          "source_line_count": 32,
+          "imports": [],
+          "bundle_marker_line": 6151,
+          "bundle_source_start_line": 6152,
+          "bundle_source_end_line": 6183
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2Pair.sol",
+          "sha256": "60e8617ebcec8728ce05f4d9ffbc84ec989eaa6a4ca9039cf0c72ba6010f0bbc",
+          "source_bytes_utf8": 1660,
+          "source_line_count": 65,
+          "imports": [
+            "./IUniswapV2ERC20.sol"
+          ],
+          "bundle_marker_line": 6185,
+          "bundle_source_start_line": 6186,
+          "bundle_source_end_line": 6250
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2Router01.sol",
+          "sha256": "927cbea0fa4bc1025deda6d2e63163f3b50139428ffe386adcbafae29620af78",
+          "source_bytes_utf8": 4394,
+          "source_line_count": 161,
+          "imports": [],
+          "bundle_marker_line": 6252,
+          "bundle_source_start_line": 6253,
+          "bundle_source_end_line": 6413
+        },
+        {
+          "file": "contracts/interfaces/external/uniswap/IUniswapV2Router02.sol",
+          "sha256": "3416852f9ea6a6f2d619c0ced11ddd6697d8c67846d68013ff89e15cdce196b4",
+          "source_bytes_utf8": 1472,
+          "source_line_count": 51,
+          "imports": [
+            "./IUniswapV2Router01.sol"
+          ],
+          "bundle_marker_line": 6415,
+          "bundle_source_start_line": 6416,
+          "bundle_source_end_line": 6466
+        },
+        {
+          "file": "contracts/interfaces/external/weth/IWETH.sol",
+          "sha256": "820d6d20ae9f67e3c6854a952e5c86dfe05126ade1adf152360ac35013c085ab",
+          "source_bytes_utf8": 253,
+          "source_line_count": 10,
+          "imports": [],
+          "bundle_marker_line": 6468,
+          "bundle_source_start_line": 6469,
+          "bundle_source_end_line": 6478
+        },
+        {
+          "file": "contracts/interfaces/governance/ITimelock.sol",
+          "sha256": "a35d258655d01ae6c6e58fe626d87dbdf824bed81e6fdbb7734d2849c544ee5d",
+          "source_bytes_utf8": 909,
+          "source_line_count": 37,
+          "imports": [],
+          "bundle_marker_line": 6480,
+          "bundle_source_start_line": 6481,
+          "bundle_source_end_line": 6517
+        },
+        {
+          "file": "contracts/interfaces/lbt/ILiquidityBasedTWAP.sol",
+          "sha256": "87ab3fb079c212ff2203530f2d43148d0750bd8b566f9739c32ad4ea4adcd725",
+          "source_bytes_utf8": 1255,
+          "source_line_count": 50,
+          "imports": [
+            "../../external/libraries/FixedPoint.sol"
+          ],
+          "bundle_marker_line": 6519,
+          "bundle_source_start_line": 6520,
+          "bundle_source_end_line": 6569
+        },
+        {
+          "file": "contracts/interfaces/reserve/IVaderReserve.sol",
+          "sha256": "eb2ff276c1da1f437723c9c221355ec2768611cf195ee1e4d4bf0ed195da8a7e",
+          "source_bytes_utf8": 592,
+          "source_line_count": 20,
+          "imports": [],
+          "bundle_marker_line": 6571,
+          "bundle_source_start_line": 6572,
+          "bundle_source_end_line": 6591
+        },
+        {
+          "file": "contracts/interfaces/shared/IERC20Extended.sol",
+          "sha256": "7e8a179ee3fc269f74d462b557b4bc26a12a03bf451e771c14c3853be387b6d0",
+          "source_bytes_utf8": 399,
+          "source_line_count": 15,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 6593,
+          "bundle_source_start_line": 6594,
+          "bundle_source_end_line": 6608
+        },
+        {
+          "file": "contracts/interfaces/tokens/converter/IConverter.sol",
+          "sha256": "f499fecedb391c46e20c8105573345fa2948f36ded1eb3c3fbf0558d9015199c",
+          "source_bytes_utf8": 448,
+          "source_line_count": 19,
+          "imports": [],
+          "bundle_marker_line": 6610,
+          "bundle_source_start_line": 6611,
+          "bundle_source_end_line": 6629
+        },
+        {
+          "file": "contracts/interfaces/tokens/IUSDV.sol",
+          "sha256": "574ee0e97dfaf1c2c03e05e9444b0a089547609ca3867f7e6e041c627f61d8b1",
+          "source_bytes_utf8": 868,
+          "source_line_count": 38,
+          "imports": [],
+          "bundle_marker_line": 6631,
+          "bundle_source_start_line": 6632,
+          "bundle_source_end_line": 6669
+        },
+        {
+          "file": "contracts/interfaces/tokens/IVader.sol",
+          "sha256": "9930c686c6302a2eddae39d4bef577f1ec9a220f472df57e9a811fbde31dfbd3",
+          "source_bytes_utf8": 925,
+          "source_line_count": 34,
+          "imports": [],
+          "bundle_marker_line": 6671,
+          "bundle_source_start_line": 6672,
+          "bundle_source_end_line": 6705
+        },
+        {
+          "file": "contracts/interfaces/tokens/vesting/ILinearVesting.sol",
+          "sha256": "d2bb9e2fbbb0f56d888d9f8ba050fe70e76a4a7bbff77c48b64c31fb6b314bcb",
+          "source_bytes_utf8": 1006,
+          "source_line_count": 39,
+          "imports": [],
+          "bundle_marker_line": 6707,
+          "bundle_source_start_line": 6708,
+          "bundle_source_end_line": 6746
+        },
+        {
+          "file": "contracts/interfaces/x-vader/IXVader.sol",
+          "sha256": "8f73b910c8dc27c99a477500d665edf72df790535768314556d7feb2bc678e49",
+          "source_bytes_utf8": 400,
+          "source_line_count": 16,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 6748,
+          "bundle_source_start_line": 6749,
+          "bundle_source_end_line": 6764
+        },
+        {
+          "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+          "sha256": "6a7d2aec685c2ed0fed6738bb56c85b4512e94d8ae96e0d630627a8784c9e636",
+          "source_bytes_utf8": 15832,
+          "source_line_count": 492,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "../external/libraries/UniswapV2OracleLibrary.sol",
+            "../interfaces/external/chainlink/IAggregatorV3.sol",
+            "../interfaces/external/uniswap/IUniswapV2Pair.sol",
+            "../interfaces/lbt/ILiquidityBasedTWAP.sol",
+            "../interfaces/dex-v2/pool/IVaderPoolV2.sol"
+          ],
+          "bundle_marker_line": 6766,
+          "bundle_source_start_line": 6767,
+          "bundle_source_end_line": 7258
+        },
+        {
+          "file": "contracts/Migrations.sol",
+          "sha256": "dda117f9e1a8b9303b2e3ba5890828d76919d7be367566ee939df27500a6fd71",
+          "source_bytes_utf8": 487,
+          "source_line_count": 19,
+          "imports": [],
+          "bundle_marker_line": 7260,
+          "bundle_source_start_line": 7261,
+          "bundle_source_end_line": 7279
+        },
+        {
+          "file": "contracts/reserve/VaderReserve.sol",
+          "sha256": "219e52fb87f5f0f603051aea72f97f6b647f48c39c539745ff72b6918cce270d",
+          "source_bytes_utf8": 3711,
+          "source_line_count": 133,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../shared/ProtocolConstants.sol",
+            "../interfaces/reserve/IVaderReserve.sol",
+            "../interfaces/lbt/ILiquidityBasedTWAP.sol"
+          ],
+          "bundle_marker_line": 7281,
+          "bundle_source_start_line": 7282,
+          "bundle_source_end_line": 7414
+        },
+        {
+          "file": "contracts/shared/ProtocolConstants.sol",
+          "sha256": "84d5c97e1d3488c5316fe63f349acb4798293cf0038a20a76459e245f9981953",
+          "source_bytes_utf8": 2570,
+          "source_line_count": 81,
+          "imports": [],
+          "bundle_marker_line": 7416,
+          "bundle_source_start_line": 7417,
+          "bundle_source_end_line": 7497
+        },
+        {
+          "file": "contracts/staking-rewards/IStakingRewards.sol",
+          "sha256": "fd1392172419022b8422222a5d513f6ee5382f38aee6df3b5066753800ae48f7",
+          "source_bytes_utf8": 811,
+          "source_line_count": 32,
+          "imports": [],
+          "bundle_marker_line": 7499,
+          "bundle_source_start_line": 7500,
+          "bundle_source_end_line": 7531
+        },
+        {
+          "file": "contracts/staking-rewards/Owned.sol",
+          "sha256": "650733045aa2a2b4039f658d1607a03baf2d16742a2cde217fcab1e037d477f1",
+          "source_bytes_utf8": 1046,
+          "source_line_count": 37,
+          "imports": [],
+          "bundle_marker_line": 7533,
+          "bundle_source_start_line": 7534,
+          "bundle_source_end_line": 7570
+        },
+        {
+          "file": "contracts/staking-rewards/Pausable.sol",
+          "sha256": "493d7c92f28596dd27f31778782865c7648e65a86f78a5b644e8a3d7d8ff467f",
+          "source_bytes_utf8": 1241,
+          "source_line_count": 46,
+          "imports": [
+            "./Owned.sol"
+          ],
+          "bundle_marker_line": 7572,
+          "bundle_source_start_line": 7573,
+          "bundle_source_end_line": 7618
+        },
+        {
+          "file": "contracts/staking-rewards/RewardsDistributionRecipient.sol",
+          "sha256": "fd70b8613e4036770a95d37d932efe31d42d2ec1aead2df67f5aae182b09d387",
+          "source_bytes_utf8": 533,
+          "source_line_count": 19,
+          "imports": [
+            "./Owned.sol"
+          ],
+          "bundle_marker_line": 7620,
+          "bundle_source_start_line": 7621,
+          "bundle_source_end_line": 7639
+        },
+        {
+          "file": "contracts/staking-rewards/StakingRewards.sol",
+          "sha256": "4bd6a9442d64c5bef7f7254f461aa6bdd9a9f22ccd298649fec8fd94c0038f88",
+          "source_bytes_utf8": 6751,
+          "source_line_count": 206,
+          "imports": [
+            "@openzeppelin/contracts/utils/math/SafeMath.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "./IStakingRewards.sol",
+            "./RewardsDistributionRecipient.sol",
+            "./Pausable.sol"
+          ],
+          "bundle_marker_line": 7641,
+          "bundle_source_start_line": 7642,
+          "bundle_source_end_line": 7847
+        },
+        {
+          "file": "contracts/tokens/converter/Converter.sol",
+          "sha256": "f64dfb147409b168617dce69058d0c175370355ae55c4940fe17f5f316dcf26d",
+          "source_bytes_utf8": 5415,
+          "source_line_count": 171,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/tokens/converter/IConverter.sol",
+            "../../interfaces/tokens/vesting/ILinearVesting.sol"
+          ],
+          "bundle_marker_line": 7849,
+          "bundle_source_start_line": 7850,
+          "bundle_source_end_line": 8020
+        },
+        {
+          "file": "contracts/tokens/USDV.sol",
+          "sha256": "fc4bd92daadcfdf5c3b354a4e385682979ce6b4d9cb14b0072ec43b032d289af",
+          "source_bytes_utf8": 6560,
+          "source_line_count": 223,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../shared/ProtocolConstants.sol",
+            "../interfaces/shared/IERC20Extended.sol",
+            "../interfaces/tokens/IUSDV.sol",
+            "../interfaces/reserve/IVaderReserve.sol",
+            "../interfaces/lbt/ILiquidityBasedTWAP.sol"
+          ],
+          "bundle_marker_line": 8022,
+          "bundle_source_start_line": 8023,
+          "bundle_source_end_line": 8245
+        },
+        {
+          "file": "contracts/tokens/Vader.sol",
+          "sha256": "8797a59243149d6f2a0c2f758f38b8a01c05576f083a644832fd8221389824f9",
+          "source_bytes_utf8": 7824,
+          "source_line_count": 238,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../shared/ProtocolConstants.sol",
+            "../interfaces/tokens/IUSDV.sol",
+            "../interfaces/tokens/IVader.sol",
+            "../interfaces/tokens/vesting/ILinearVesting.sol",
+            "../interfaces/tokens/converter/IConverter.sol"
+          ],
+          "bundle_marker_line": 8247,
+          "bundle_source_start_line": 8248,
+          "bundle_source_end_line": 8485
+        },
+        {
+          "file": "contracts/tokens/vesting/LinearVesting.sol",
+          "sha256": "a2b7bde9e669b34a6021992600f73c42add37044bd936c6feb6347e5a78043da",
+          "source_bytes_utf8": 8253,
+          "source_line_count": 287,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "../../shared/ProtocolConstants.sol",
+            "../../interfaces/tokens/vesting/ILinearVesting.sol"
+          ],
+          "bundle_marker_line": 8487,
+          "bundle_source_start_line": 8488,
+          "bundle_source_end_line": 8774
+        },
+        {
+          "file": "contracts/x-vader/XVader.sol",
+          "sha256": "1c5ec491c042c73667639694f244cfdc524a7d5f16f37976ab74ee93ba6c98e8",
+          "source_bytes_utf8": 2104,
+          "source_line_count": 55,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol",
+            "../shared/ProtocolConstants.sol"
+          ],
+          "bundle_marker_line": 8776,
+          "bundle_source_start_line": 8777,
+          "bundle_source_end_line": 8831
+        },
+        {
+          "file": "repo/vader-bond/contracts/interfaces/IERC20Metadata.sol",
+          "sha256": "9bab2d873fd0280617dd8c51acffc339365fa28b941e71d94461a6fb30665c4e",
+          "source_bytes_utf8": 154,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 8833,
+          "bundle_source_start_line": 8834,
+          "bundle_source_end_line": 8839
+        },
+        {
+          "file": "repo/vader-bond/contracts/interfaces/ITreasury.sol",
+          "sha256": "5ba109e009b811a0787c80681e9045079797f534d2ce602d83f0b2e32c0ab6d4",
+          "source_bytes_utf8": 325,
+          "source_line_count": 12,
+          "imports": [],
+          "bundle_marker_line": 8841,
+          "bundle_source_start_line": 8842,
+          "bundle_source_end_line": 8853
+        },
+        {
+          "file": "repo/vader-bond/contracts/lib/FixedPoint.sol",
+          "sha256": "ffaee339de1ae4a18da53e95bbf0310482a847c49fd4b7de41ed6f3b77df3a15",
+          "source_bytes_utf8": 1569,
+          "source_line_count": 43,
+          "imports": [
+            "./FullMath.sol"
+          ],
+          "bundle_marker_line": 8855,
+          "bundle_source_start_line": 8856,
+          "bundle_source_end_line": 8898
+        },
+        {
+          "file": "repo/vader-bond/contracts/lib/FullMath.sol",
+          "sha256": "771c0c72a555b35f0451775e2fcbf5c001b1bb2524d644b1e2428715c2be5581",
+          "source_bytes_utf8": 1055,
+          "source_line_count": 45,
+          "imports": [],
+          "bundle_marker_line": 8900,
+          "bundle_source_start_line": 8901,
+          "bundle_source_end_line": 8945
+        },
+        {
+          "file": "repo/vader-bond/contracts/Ownable.sol",
+          "sha256": "2b3d0f2bd0646e35cb77f61935bb37b56c3ce2f7518065cf843dfc69fe05bb70",
+          "source_bytes_utf8": 752,
+          "source_line_count": 33,
+          "imports": [],
+          "bundle_marker_line": 8947,
+          "bundle_source_start_line": 8948,
+          "bundle_source_end_line": 8980
+        },
+        {
+          "file": "repo/vader-bond/contracts/Treasury.sol",
+          "sha256": "3afcaa5ca4a54dede0522d01ae74a9e8865ef15c456be28a0a0c6ee3bd96d4b4",
+          "source_bytes_utf8": 2817,
+          "source_line_count": 85,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/SafeERC20.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol",
+            "./interfaces/IERC20Metadata.sol",
+            "./interfaces/ITreasury.sol",
+            "./Ownable.sol"
+          ],
+          "bundle_marker_line": 8982,
+          "bundle_source_start_line": 8983,
+          "bundle_source_end_line": 9067
+        },
+        {
+          "file": "repo/vader-bond/contracts/VaderBond.sol",
+          "sha256": "b3a42b366d4da5b4d61e8e64444cdf3943ede9750ace9558bbef6923f4c95654",
+          "source_bytes_utf8": 14184,
+          "source_line_count": 402,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/SafeERC20.sol",
+            "@openzeppelin/contracts/math/SafeMath.sol",
+            "@openzeppelin/contracts/utils/ReentrancyGuard.sol",
+            "./interfaces/IERC20Metadata.sol",
+            "./interfaces/ITreasury.sol",
+            "./Ownable.sol"
+          ],
+          "bundle_marker_line": 9069,
+          "bundle_source_start_line": 9070,
+          "bundle_source_end_line": 9471
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mocks/MockAggregatorV3.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockConstants.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockGovernorAlpha.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockMTree.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockTarget.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockTimelock.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockToken.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockUniswapV2Factory.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockUniswapV2Library.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockUniswapV2Router.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/MockXVader.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "repo/vader-bond/contracts/test/TestToken.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ]
+}

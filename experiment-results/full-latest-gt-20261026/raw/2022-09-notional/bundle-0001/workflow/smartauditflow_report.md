@@ -1,0 +1,47 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Normal vault deposits accept BPT amounts determined by manipulable pool state",
+    "description": "Both vault deposit paths join the Balancer pool using the current pool state without validating the pool price against an independent oracle or TWAP. `Boosted3TokenAuraVault._depositFromNotional` calls `Boosted3TokenPoolUtils._deposit`, and `MetaStable2TokenAuraVault._depositFromNotional` calls `TwoTokenPoolUtils._deposit`; both ultimately invoke `BalancerUtils._joinPoolExactTokensIn`, which accepts the caller-supplied `minBPT`. The deposit paths do not call the corresponding spot-price validation functions, and `minBPT` may be permissive, including zero. An attacker can temporarily alter Balancer pool balances through swaps, execute a deposit while the BPT output is calculated from the manipulated state, and receive strategy tokens based on the returned BPT amount. The resulting BPT amount is converted into strategy tokens by `StrategyUtils._convertBPTClaimToStrategyTokens`, so the manipulated join result directly affects share issuance. The supplied source does not quantify profitability or prove the exact favorable manipulation magnitude, but it demonstrates the concrete attacker-influenceable pool-state-to-strategy-token-minting path.",
+    "impact": "A manipulated join can cause an attacker to receive an economically favorable number of BPT-backed strategy tokens, potentially diluting existing strategy-token holders and creating incorrect vault-share accounting. Subsequent redemption or use of those strategy tokens may transfer more underlying value than warranted by the attacker’s deposit.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/vaults/Boosted3TokenAuraVault.sol",
+        "contract": "Boosted3TokenAuraVault",
+        "function": "_depositFromNotional",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/vaults/MetaStable2TokenAuraVault.sol",
+        "contract": "MetaStable2TokenAuraVault",
+        "function": "_depositFromNotional",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol",
+        "contract": "Boosted3TokenPoolUtils",
+        "function": "_deposit",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol",
+        "contract": "TwoTokenPoolUtils",
+        "function": "_deposit",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/vaults/balancer/internal/pool/BalancerUtils.sol",
+        "contract": "BalancerUtils",
+        "function": "_joinPoolExactTokensIn",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Before accepting BPT from a normal deposit, validate the current pool price and relevant pool composition against an independent Chainlink reference, a Balancer TWAP, or another manipulation-resistant oracle in the same transaction. Derive a conservative minimum BPT amount from that reference rather than relying solely on caller-provided `minBPT`, and reject deposits when the pool price, invariant, liquidity, or reserve change exceeds configured bounds.",
+    "severity": "Medium"
+  }
+]

@@ -1,0 +1,1267 @@
+// ===== BEGIN SOURCE FILE: contracts/math/SafeInt256.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+
+import "../global/Constants.sol";
+
+library SafeInt256 {
+    int256 private constant _INT256_MIN = -2**255;
+
+    /// @dev Returns the multiplication of two signed integers, reverting on
+    /// overflow.
+
+    /// Counterpart to Solidity's `*` operator.
+
+    /// Requirements:
+
+    /// - Multiplication cannot overflow.
+
+    function mul(int256 a, int256 b) internal pure returns (int256) {
+        // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
+        // benefit is lost if 'b' is also tested.
+        // See: https://github.com/OpenZeppelin/openzeppelin-contracts/pull/522
+        if (a == 0) {
+            return 0;
+        }
+
+        require(!(a == -1 && b == _INT256_MIN)); // dev: int256 mul overflow
+
+        int256 c = a * b;
+        require(c / a == b); // dev: int256 mul overflow
+
+        return c;
+    }
+
+    /// @dev Returns the integer division of two signed integers. Reverts on
+    /// division by zero. The result is rounded towards zero.
+
+    /// Counterpart to Solidity's `/` operator. Note: this function uses a
+    /// `revert` opcode (which leaves remaining gas untouched) while Solidity
+    /// uses an invalid opcode to revert (consuming all remaining gas).
+
+    /// Requirements:
+
+    /// - The divisor cannot be zero.
+
+    function div(int256 a, int256 b) internal pure returns (int256) {
+        require(b != 0); // dev: int256 div by zero
+        require(!(b == -1 && a == _INT256_MIN)); // dev: int256 div overflow
+
+        int256 c = a / b;
+
+        return c;
+    }
+
+    function sub(int256 x, int256 y) internal pure returns (int256 z) {
+        require((z = x - y) <= x == (y >= 0));
+    }
+
+    function add(int256 x, int256 y) internal pure returns (int256 z) {
+        require((z = x + y) >= x == (y >= 0));
+    }
+
+    function neg(int256 x) internal pure returns (int256) {
+        return mul(x, -1);
+    }
+
+    function abs(int256 x) internal pure returns (int256) {
+        if (x < 0) return neg(x);
+        else return x;
+    }
+
+    function subNoNeg(int256 x, int256 y) internal pure returns (int256) {
+        int256 z = sub(x, y);
+        require(z >= 0); // dev: int256 sub to negative
+
+        return z;
+    }
+
+    /// @dev Calculates x * RATE_PRECISION / y while checking overflows
+    function divInRatePrecision(int256 x, int256 y) internal pure returns (int256) {
+        return div(mul(x, Constants.RATE_PRECISION), y);
+    }
+
+    /// @dev Calculates x * y / RATE_PRECISION while checking overflows
+    function mulInRatePrecision(int256 x, int256 y) internal pure returns (int256) {
+        return div(mul(x, y), Constants.RATE_PRECISION);
+    }
+}
+// ===== END SOURCE FILE: contracts/math/SafeInt256.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/ERC1967/ERC1967Proxy.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+import "../Proxy.sol";
+import "./ERC1967Upgrade.sol";
+
+/**
+ * @dev This contract implements an upgradeable proxy. It is upgradeable because calls are delegated to an
+ * implementation address that can be changed. This address is stored in storage in the location specified by
+ * https://eips.ethereum.org/EIPS/eip-1967[EIP1967], so that it doesn't conflict with the storage layout of the
+ * implementation behind the proxy.
+ */
+contract ERC1967Proxy is Proxy, ERC1967Upgrade {
+    /**
+     * @dev Initializes the upgradeable proxy with an initial implementation specified by `_logic`.
+     *
+     * If `_data` is nonempty, it's used as data in a delegate call to `_logic`. This will typically be an encoded
+     * function call, and allows initializating the storage of the proxy like a Solidity constructor.
+     */
+    constructor(address _logic, bytes memory _data) payable {
+        assert(_IMPLEMENTATION_SLOT == bytes32(uint256(keccak256("eip1967.proxy.implementation")) - 1));
+        _upgradeToAndCall(_logic, _data, false);
+    }
+
+    /**
+     * @dev Returns the current implementation address.
+     */
+    function _implementation() internal view virtual override returns (address impl) {
+        return ERC1967Upgrade._getImplementation();
+    }
+}
+// ===== END SOURCE FILE: contracts/proxy/ERC1967/ERC1967Proxy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/ERC1967/ERC1967Upgrade.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+import "@openzeppelin/contracts/utils/Address.sol";
+import "../utils/StorageSlot.sol";
+
+/**
+ * @dev This abstract contract provides getters and event emitting update functions for
+ * https://eips.ethereum.org/EIPS/eip-1967[EIP1967] slots.
+ *
+ * _Available since v4.1._
+ *
+ */
+abstract contract ERC1967Upgrade {
+    // This is the keccak-256 hash of "eip1967.proxy.rollback" subtracted by 1
+    bytes32 private constant _ROLLBACK_SLOT = 0x4910fdfa16fed3260ed0e7147f7cc6da11a60208b5b9406d12a635614ffd9143;
+
+    /**
+     * @dev Storage slot with the address of the current implementation.
+     * This is the keccak-256 hash of "eip1967.proxy.implementation" subtracted by 1, and is
+     * validated in the constructor.
+     */
+    bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+    /**
+     * @dev Emitted when the implementation is upgraded.
+     */
+    event Upgraded(address indexed implementation);
+
+    /**
+     * @dev Returns the current implementation address.
+     */
+    function _getImplementation() internal view returns (address) {
+        return StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value;
+    }
+
+    /**
+     * @dev Stores a new address in the EIP1967 implementation slot.
+     */
+    function _setImplementation(address newImplementation) private {
+        require(Address.isContract(newImplementation), "ERC1967: new implementation is not a contract");
+        StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value = newImplementation;
+    }
+
+    /**
+     * @dev Perform implementation upgrade
+     *
+     * Emits an {Upgraded} event.
+     */
+    function _upgradeTo(address newImplementation) internal {
+        _setImplementation(newImplementation);
+        emit Upgraded(newImplementation);
+    }
+
+    /**
+     * @dev Perform implementation upgrade with additional setup call.
+     *
+     * Emits an {Upgraded} event.
+     */
+    function _upgradeToAndCall(
+        address newImplementation,
+        bytes memory data,
+        bool forceCall
+    ) internal {
+        _upgradeTo(newImplementation);
+        if (data.length > 0 || forceCall) {
+            Address.functionDelegateCall(newImplementation, data);
+        }
+    }
+
+    /**
+     * @dev Perform implementation upgrade with security checks for UUPS proxies, and additional setup call.
+     *
+     * Emits an {Upgraded} event.
+     */
+    function _upgradeToAndCallSecure(
+        address newImplementation,
+        bytes memory data,
+        bool forceCall
+    ) internal {
+        address oldImplementation = _getImplementation();
+
+        // Initial upgrade and setup call
+        _setImplementation(newImplementation);
+        if (data.length > 0 || forceCall) {
+            Address.functionDelegateCall(newImplementation, data);
+        }
+
+        // Perform rollback test if not already in progress
+        StorageSlot.BooleanSlot storage rollbackTesting = StorageSlot.getBooleanSlot(_ROLLBACK_SLOT);
+        if (!rollbackTesting.value) {
+            // Trigger rollback using upgradeTo from the new implementation
+            rollbackTesting.value = true;
+            Address.functionDelegateCall(
+                newImplementation,
+                abi.encodeWithSignature("upgradeTo(address)", oldImplementation)
+            );
+            rollbackTesting.value = false;
+            // Check rollback was effective
+            require(oldImplementation == _getImplementation(), "ERC1967Upgrade: upgrade breaks further upgrades");
+            // Finally reset to the new implementation and log the upgrade
+            _upgradeTo(newImplementation);
+        }
+    }
+
+}
+// ===== END SOURCE FILE: contracts/proxy/ERC1967/ERC1967Upgrade.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/nProxy.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+import "./ERC1967/ERC1967Proxy.sol";
+
+contract nProxy is ERC1967Proxy {
+    constructor(
+        address _logic,
+        bytes memory _data
+    ) ERC1967Proxy(_logic, _data) {}
+
+    receive() external payable override {}
+
+    function getImplementation() external view returns (address) {
+        return _getImplementation();
+    }
+}
+// ===== END SOURCE FILE: contracts/proxy/nProxy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/Proxy.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+/**
+ * @dev This abstract contract provides a fallback function that delegates all calls to another contract using the EVM
+ * instruction `delegatecall`. We refer to the second contract as the _implementation_ behind the proxy, and it has to
+ * be specified by overriding the virtual {_implementation} function.
+ *
+ * Additionally, delegation to the implementation can be triggered manually through the {_fallback} function, or to a
+ * different contract through the {_delegate} function.
+ *
+ * The success and return data of the delegated call will be returned back to the caller of the proxy.
+ */
+abstract contract Proxy {
+    /**
+     * @dev Delegates the current call to `implementation`.
+     *
+     * This function does not return to its internal call site, it will return directly to the external caller.
+     */
+    function _delegate(address implementation) internal virtual {
+        assembly {
+            // Copy msg.data. We take full control of memory in this inline assembly
+            // block because it will not return to Solidity code. We overwrite the
+            // Solidity scratch pad at memory position 0.
+            calldatacopy(0, 0, calldatasize())
+
+            // Call the implementation.
+            // out and outsize are 0 because we don't know the size yet.
+            let result := delegatecall(gas(), implementation, 0, calldatasize(), 0, 0)
+
+            // Copy the returned data.
+            returndatacopy(0, 0, returndatasize())
+
+            switch result
+            // delegatecall returns 0 on error.
+            case 0 {
+                revert(0, returndatasize())
+            }
+            default {
+                return(0, returndatasize())
+            }
+        }
+    }
+
+    /**
+     * @dev This is a virtual function that should be overriden so it returns the address to which the fallback function
+     * and {_fallback} should delegate.
+     */
+    function _implementation() internal view virtual returns (address);
+
+    /**
+     * @dev Delegates the current call to the address returned by `_implementation()`.
+     *
+     * This function does not return to its internall call site, it will return directly to the external caller.
+     */
+    function _fallback() internal virtual {
+        _beforeFallback();
+        _delegate(_implementation());
+    }
+
+    /**
+     * @dev Fallback function that delegates calls to the address returned by `_implementation()`. Will run if no other
+     * function in the contract matches the call data.
+     */
+    fallback() external payable virtual {
+        _fallback();
+    }
+
+    /**
+     * @dev Fallback function that delegates calls to the address returned by `_implementation()`. Will run if call data
+     * is empty.
+     */
+    receive() external payable virtual {
+        _fallback();
+    }
+
+    /**
+     * @dev Hook that is called before falling back to the implementation. Can happen as part of a manual `_fallback`
+     * call, or as part of the Solidity `fallback` or `receive` functions.
+     *
+     * If overriden should call `super._beforeFallback()`.
+     */
+    function _beforeFallback() internal virtual {}
+}
+// ===== END SOURCE FILE: contracts/proxy/Proxy.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/utils/StorageSlot.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+/**
+ * @dev Library for reading and writing primitive types to specific storage slots.
+ *
+ * Storage slots are often used to avoid storage conflict when dealing with upgradeable contracts.
+ * This library helps with reading and writing to such slots without the need for inline assembly.
+ *
+ * The functions in this library return Slot structs that contain a `value` member that can be used to read or write.
+ *
+ * Example usage to set ERC1967 implementation slot:
+ * ```
+ * contract ERC1967 {
+ *     bytes32 internal constant _IMPLEMENTATION_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+ *
+ *     function _getImplementation() internal view returns (address) {
+ *         return StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value;
+ *     }
+ *
+ *     function _setImplementation(address newImplementation) internal {
+ *         require(Address.isContract(newImplementation), "ERC1967: new implementation is not a contract");
+ *         StorageSlot.getAddressSlot(_IMPLEMENTATION_SLOT).value = newImplementation;
+ *     }
+ * }
+ * ```
+ *
+ * _Available since v4.1 for `address`, `bool`, `bytes32`, and `uint256`._
+ */
+library StorageSlot {
+    struct AddressSlot {
+        address value;
+    }
+
+    struct BooleanSlot {
+        bool value;
+    }
+
+    struct Bytes32Slot {
+        bytes32 value;
+    }
+
+    struct Uint256Slot {
+        uint256 value;
+    }
+
+    /**
+     * @dev Returns an `AddressSlot` with member `value` located at `slot`.
+     */
+    function getAddressSlot(bytes32 slot) internal pure returns (AddressSlot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+
+    /**
+     * @dev Returns an `BooleanSlot` with member `value` located at `slot`.
+     */
+    function getBooleanSlot(bytes32 slot) internal pure returns (BooleanSlot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+
+    /**
+     * @dev Returns an `Bytes32Slot` with member `value` located at `slot`.
+     */
+    function getBytes32Slot(bytes32 slot) internal pure returns (Bytes32Slot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+
+    /**
+     * @dev Returns an `Uint256Slot` with member `value` located at `slot`.
+     */
+    function getUint256Slot(bytes32 slot) internal pure returns (Uint256Slot storage r) {
+        assembly {
+            r.slot := slot
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/proxy/utils/StorageSlot.sol =====
+// ===== BEGIN SOURCE FILE: contracts/proxy/utils/UUPSUpgradeable.sol =====
+// SPDX-License-Identifier: MIT
+
+pragma solidity ^0.7.0;
+
+import "../ERC1967/ERC1967Upgrade.sol";
+
+/**
+ * @dev An upgradeability mechanism designed for UUPS proxies. The functions included here can perform an upgrade of an
+ * {ERC1967Proxy}, when this contract is set as the implementation behind such a proxy.
+ *
+ * A security mechanism ensures that an upgrade does not turn off upgradeability accidentally, although this risk is
+ * reinstated if the upgrade retains upgradeability but removes the security mechanism, e.g. by replacing
+ * `UUPSUpgradeable` with a custom implementation of upgrades.
+ *
+ * The {_authorizeUpgrade} function must be overridden to include access restriction to the upgrade mechanism.
+ *
+ * _Available since v4.1._
+ */
+abstract contract UUPSUpgradeable is ERC1967Upgrade {
+    /**
+     * @dev Upgrade the implementation of the proxy to `newImplementation`.
+     *
+     * Calls {_authorizeUpgrade}.
+     *
+     * Emits an {Upgraded} event.
+     */
+    function upgradeTo(address newImplementation) external virtual {
+        _authorizeUpgrade(newImplementation);
+        _upgradeToAndCallSecure(newImplementation, bytes(""), false);
+    }
+
+    /**
+     * @dev Upgrade the implementation of the proxy to `newImplementation`, and subsequently execute the function call
+     * encoded in `data`.
+     *
+     * Calls {_authorizeUpgrade}.
+     *
+     * Emits an {Upgraded} event.
+     */
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable virtual {
+        _authorizeUpgrade(newImplementation);
+        _upgradeToAndCallSecure(newImplementation, data, true);
+    }
+
+    /**
+     * @dev Function that should revert when `msg.sender` is not authorized to upgrade the contract. Called by
+     * {upgradeTo} and {upgradeToAndCall}.
+     *
+     * Normally, this function will use an xref:access.adoc[access control] modifier such as {Ownable-onlyOwner}.
+     *
+     * ```solidity
+     * function _authorizeUpgrade(address) internal override onlyOwner {}
+     * ```
+     */
+    function _authorizeUpgrade(address newImplementation) internal virtual;
+}
+// ===== END SOURCE FILE: contracts/proxy/utils/UUPSUpgradeable.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorInterface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+interface AggregatorInterface {
+  function latestAnswer() external view returns (int256);
+  function latestTimestamp() external view returns (uint256);
+  function latestRound() external view returns (uint256);
+  function getAnswer(uint256 roundId) external view returns (int256);
+  function getTimestamp(uint256 roundId) external view returns (uint256);
+
+  event AnswerUpdated(int256 indexed current, uint256 indexed roundId, uint256 updatedAt);
+  event NewRound(uint256 indexed roundId, address indexed startedBy, uint256 startedAt);
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorV2V3Interface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+import "./AggregatorInterface.sol";
+import "./AggregatorV3Interface.sol";
+
+interface AggregatorV2V3Interface is AggregatorInterface, AggregatorV3Interface
+{
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorV2V3Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/chainlink/AggregatorV3Interface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.6.0;
+
+interface AggregatorV3Interface {
+
+  function decimals() external view returns (uint8);
+  function description() external view returns (string memory);
+  function version() external view returns (uint256);
+
+  // getRoundData and latestRoundData should both raise "No data present"
+  // if they do not have data to report, instead of returning unset values
+  // which could be misinterpreted as actual reported values.
+  function getRoundData(uint80 _roundId)
+    external
+    view
+    returns (
+      uint80 roundId,
+      int256 answer,
+      uint256 startedAt,
+      uint256 updatedAt,
+      uint80 answeredInRound
+    );
+
+  function latestRoundData()
+    external
+    view
+    returns (
+      uint80 roundId,
+      int256 answer,
+      uint256 startedAt,
+      uint256 updatedAt,
+      uint80 answeredInRound
+    );
+
+}
+// ===== END SOURCE FILE: interfaces/chainlink/AggregatorV3Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CErc20Interface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity ^0.7.0;
+
+import "./CTokenInterface.sol";
+
+interface CErc20Interface {
+
+    /*** User Interface ***/
+
+    function mint(uint mintAmount) external returns (uint);
+    function redeem(uint redeemTokens) external returns (uint);
+    function redeemUnderlying(uint redeemAmount) external returns (uint);
+    function borrow(uint borrowAmount) external returns (uint);
+    function repayBorrow(uint repayAmount) external returns (uint);
+    function repayBorrowBehalf(address borrower, uint repayAmount) external returns (uint);
+    function liquidateBorrow(address borrower, uint repayAmount, CTokenInterface cTokenCollateral) external returns (uint);
+}
+// ===== END SOURCE FILE: interfaces/compound/CErc20Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CEtherInterface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity ^0.7.0;
+
+interface CEtherInterface {
+    function mint() external payable;
+}
+// ===== END SOURCE FILE: interfaces/compound/CEtherInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/compound/CTokenInterface.sol =====
+// SPDX-License-Identifier: BSD-3-Clause
+pragma solidity ^0.7.0;
+
+interface CTokenInterface {
+
+    /*** User Interface ***/
+
+    function underlying() external view returns (address);
+    function transfer(address dst, uint amount) external returns (bool);
+    function transferFrom(address src, address dst, uint amount) external returns (bool);
+    function approve(address spender, uint amount) external returns (bool);
+    function allowance(address owner, address spender) external view returns (uint);
+    function balanceOf(address owner) external view returns (uint);
+    function balanceOfUnderlying(address owner) external returns (uint);
+    function getAccountSnapshot(address account) external view returns (uint, uint, uint, uint);
+    function borrowRatePerBlock() external view returns (uint);
+    function supplyRatePerBlock() external view returns (uint);
+    function totalBorrowsCurrent() external returns (uint);
+    function borrowBalanceCurrent(address account) external returns (uint);
+    function borrowBalanceStored(address account) external view returns (uint);
+    function exchangeRateCurrent() external returns (uint);
+    function exchangeRateStored() external view returns (uint);
+    function getCash() external view returns (uint);
+    function accrueInterest() external returns (uint);
+    function seize(address liquidator, address borrower, uint seizeTokens) external returns (uint);
+}
+// ===== END SOURCE FILE: interfaces/compound/CTokenInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/IERC1155TokenReceiver.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+
+/**
+    Note: The ERC-165 identifier for this interface is 0x4e2312e0.
+*/
+
+interface IERC1155TokenReceiver {
+    /**
+        @notice Handle the receipt of a single ERC1155 token type.
+        @dev An ERC1155-compliant smart contract MUST call this function on the token recipient contract, at the
+        end of a `safeTransferFrom` after the balance has been updated.
+        This function MUST return `bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"))`
+        (i.e. 0xf23a6e61) if it accepts the transfer.
+        This function MUST revert if it rejects the transfer.
+        Return of any other value than the prescribed keccak256 generated value MUST result in the transaction
+        being reverted by the caller.
+        @param _operator  The address which initiated the transfer (i.e. msg.sender)
+        @param _from      The address which previously owned the token
+        @param _id        The ID of the token being transferred
+        @param _value     The amount of tokens being transferred
+        @param _data      Additional data with no specified format
+        @return           `bytes4(keccak256("onERC1155Received(address,address,uint256,uint256,bytes)"))`
+    */
+    function onERC1155Received(address _operator, address _from, uint256 _id, uint256 _value, bytes calldata _data)
+        external
+        returns (bytes4);
+
+    /**
+        @notice Handle the receipt of multiple ERC1155 token types.
+        @dev An ERC1155-compliant smart contract MUST call this function on the token recipient contract, at the end
+        of a `safeBatchTransferFrom` after the balances have been updated.
+        This function MUST return
+            `bytes4(keccak256("onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)"))`
+            (i.e. 0xbc197c81) if it accepts the transfer(s).
+        This function MUST revert if it rejects the transfer(s).
+        Return of any other value than the prescribed keccak256 generated value MUST result in the transaction being
+        reverted by the caller.
+        @param _operator  The address which initiated the batch transfer (i.e. msg.sender)
+        @param _from      The address which previously owned the token
+        @param _ids       An array containing ids of each token being transferred (order and length must match
+            _values array)
+        @param _values    An array containing amounts of each token being transferred (order and length must match
+            _ids array)
+        @param _data      Additional data with no specified format
+        @return           `bytes4(keccak256("onERC1155BatchReceived(address,address,uint256[],uint256[],bytes)"))`
+    */
+    function onERC1155BatchReceived(
+        address _operator,
+        address _from,
+        uint256[] calldata _ids,
+        uint256[] calldata _values,
+        bytes calldata _data
+    ) external returns (bytes4);
+}
+// ===== END SOURCE FILE: interfaces/IERC1155TokenReceiver.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/AssetRateAdapter.sol =====
+// SPDX-License-Identifier: GPL-v3
+pragma solidity >=0.7.0;
+
+/// @notice Used as a wrapper for tokens that are interest bearing for an
+/// underlying token. Follows the cToken interface, however, can be adapted
+/// for other interest bearing tokens.
+interface AssetRateAdapter {
+    function token() external view returns (address);
+
+    function decimals() external view returns (uint8);
+
+    function description() external view returns (string memory);
+
+    function version() external view returns (uint256);
+
+    function underlying() external view returns (address);
+
+    function getExchangeRateStateful() external returns (int256);
+
+    function getExchangeRateView() external view returns (int256);
+
+    function getAnnualizedSupplyRate() external view returns (uint256);
+}
+// ===== END SOURCE FILE: interfaces/notional/AssetRateAdapter.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/CashMarketInterface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.7.0;
+
+interface CashMarketInterface {
+    function getActiveMaturities() external view returns (uint32[] memory);
+}
+// ===== END SOURCE FILE: interfaces/notional/CashMarketInterface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/INoteERC20.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity ^0.7.0;
+
+interface INoteERC20 {
+    function getPriorVotes(address account, uint256 blockNumber) external view returns (uint96);
+}
+// ===== END SOURCE FILE: interfaces/notional/INoteERC20.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/nERC1155Interface.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+pragma experimental ABIEncoderV2;
+
+import "../../contracts/global/Types.sol";
+import "@openzeppelin/contracts/introspection/IERC165.sol";
+
+interface nERC1155Interface is IERC165 {
+    event TransferSingle(
+        address indexed operator,
+        address indexed from,
+        address indexed to,
+        uint256 id,
+        uint256 value
+    );
+    event TransferBatch(
+        address indexed operator,
+        address indexed from,
+        address indexed to,
+        uint256[] ids,
+        uint256[] values
+    );
+    event ApprovalForAll(address indexed account, address indexed operator, bool approved);
+    event URI(string value, uint256 indexed id);
+
+    /// @dev Return value is overridden to be int256 here
+    function balanceOf(address account, uint256 id) external view returns (int256);
+
+    /// @dev Return value is overridden to be int256 here
+    function balanceOfBatch(address[] calldata accounts, uint256[] calldata ids)
+        external
+        view
+        returns (int256[] memory);
+
+    function setApprovalForAll(address operator, bool approved) external;
+
+    function isApprovedForAll(address account, address operator) external view returns (bool);
+
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 id,
+        uint256 amount,
+        bytes calldata data
+    ) external payable;
+
+    function safeBatchTransferFrom(
+        address from,
+        address to,
+        uint256[] calldata ids,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external;
+
+    function decodeToAssets(uint256[] calldata ids, uint256[] calldata amounts)
+        external
+        view
+        returns (PortfolioAsset[] memory);
+
+    function encodeToId(
+        uint16 currencyId,
+        uint40 maturity,
+        uint8 assetType
+    ) external pure returns (uint256 id);
+}
+// ===== END SOURCE FILE: interfaces/notional/nERC1155Interface.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalCallback.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+
+interface NotionalCallback {
+    function notionalCallback(address sender, address account, bytes calldata callbackdata) external;
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalCallback.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalGovernance.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+pragma experimental ABIEncoderV2;
+
+import "../../contracts/global/Types.sol";
+
+interface NotionalGovernance {
+    event ListCurrency(uint16 newCurrencyId);
+    event UpdateETHRate(uint16 currencyId);
+    event UpdateAssetRate(uint16 currencyId);
+    event UpdateCashGroup(uint16 currencyId);
+    event DeployNToken(uint16 currencyId, address nTokenAddress);
+    event UpdateDepositParameters(uint16 currencyId);
+    event UpdateInitializationParameters(uint16 currencyId);
+    event UpdateIncentiveEmissionRate(uint16 currencyId, uint32 newEmissionRate);
+    event UpdateTokenCollateralParameters(uint16 currencyId);
+    event UpdateGlobalTransferOperator(address operator, bool approved);
+    event UpdateAuthorizedCallbackContract(address operator, bool approved);
+    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event PauseRouterAndGuardianUpdated(address indexed pauseRouter, address indexed pauseGuardian);
+
+    function transferOwnership(address newOwner) external;
+
+    function setPauseRouterAndGuardian(address pauseRouter_, address pauseGuardian_) external;
+
+    function listCurrency(
+        TokenStorage calldata assetToken,
+        TokenStorage calldata underlyingToken,
+        address rateOracle,
+        bool mustInvert,
+        uint8 buffer,
+        uint8 haircut,
+        uint8 liquidationDiscount
+    ) external;
+
+    function enableCashGroup(
+        uint16 currencyId,
+        address assetRateOracle,
+        CashGroupSettings calldata cashGroup,
+        string calldata underlyingName,
+        string calldata underlyingSymbol
+    ) external;
+
+    function updateDepositParameters(
+        uint16 currencyId,
+        uint32[] calldata depositShares,
+        uint32[] calldata leverageThresholds
+    ) external;
+
+    function updateInitializationParameters(
+        uint16 currencyId,
+        uint32[] calldata annualizedAnchorRates,
+        uint32[] calldata proportions
+    ) external;
+
+    function updateIncentiveEmissionRate(uint16 currencyId, uint32 newEmissionRate) external;
+
+    function updateTokenCollateralParameters(
+        uint16 currencyId,
+        uint8 residualPurchaseIncentive10BPS,
+        uint8 pvHaircutPercentage,
+        uint8 residualPurchaseTimeBufferHours,
+        uint8 cashWithholdingBuffer10BPS,
+        uint8 liquidationHaircutPercentage
+    ) external;
+
+    function updateCashGroup(uint16 currencyId, CashGroupSettings calldata cashGroup) external;
+
+    function updateAssetRate(uint16 currencyId, address rateOracle) external;
+
+    function updateETHRate(
+        uint16 currencyId,
+        address rateOracle,
+        bool mustInvert,
+        uint8 buffer,
+        uint8 haircut,
+        uint8 liquidationDiscount
+    ) external;
+
+    function updateGlobalTransferOperator(address operator, bool approved) external;
+
+    function updateAuthorizedCallbackContract(address operator, bool approved) external;
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalGovernance.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalProxy.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+pragma experimental ABIEncoderV2;
+
+import "../../contracts/global/Types.sol";
+import "./nTokenERC20.sol";
+import "./nERC1155Interface.sol";
+import "./NotionalGovernance.sol";
+import "./NotionalViews.sol";
+
+interface NotionalProxy is nTokenERC20, nERC1155Interface, NotionalGovernance, NotionalViews {
+    /** User trading events */
+    event CashBalanceChange(address indexed account, uint16 currencyId, int256 netCashChange);
+    event nTokenSupplyChange(address indexed account, uint16 currencyId, int256 tokenSupplyChange);
+    event MarketsInitialized(uint16 currencyId);
+    event SweepCashIntoMarkets(uint16 currencyId, int256 cashIntoMarkets);
+    event SettledCashDebt(
+        address settledAccount,
+        uint16 currencyId,
+        int256 amountToSettleAsset,
+        int256 fCashAmount
+    );
+    event nTokenResidualPurchase(
+        uint16 currencyId,
+        uint40 maturity,
+        int256 fCashAmountToPurchase,
+        int256 netAssetCashNToken
+    );
+    event LendBorrowTrade(
+        address account,
+        uint16 currencyId,
+        uint40 maturity,
+        int256 netAssetCash,
+        int256 netfCash,
+        int256 netFee
+    );
+    event AddRemoveLiquidity(
+        address account,
+        uint16 currencyId,
+        uint40 maturity,
+        int256 netAssetCash,
+        int256 netfCash,
+        int256 netLiquidityTokens
+    );
+
+    /// @notice Emitted whenever an account context has updated
+    event AccountContextUpdate(address indexed account);
+    /// @notice Emitted when an account has assets that are settled
+    event AccountSettled(address indexed account);
+    /// @notice Emitted when an asset rate is settled
+    event SetSettlementRate(uint256 currencyId, uint256 maturity, uint128 rate);
+
+    /* Liquidation Events */
+    event LiquidateLocalCurrency(
+        address indexed liquidated,
+        address indexed liquidator,
+        uint16 localCurrencyId,
+        int256 netLocalFromLiquidator
+    );
+
+    event LiquidateCollateralCurrency(
+        address indexed liquidated,
+        address indexed liquidator,
+        uint16 localCurrencyId,
+        uint16 collateralCurrencyId,
+        int256 netLocalFromLiquidator,
+        int256 netCollateralTransfer,
+        int256 netNTokenTransfer
+    );
+
+    event LiquidatefCashEvent(
+        address indexed liquidated,
+        uint16 localCurrencyId,
+        uint16 fCashCurrency,
+        int256 netLocalFromLiquidator,
+        uint256[] fCashMaturities,
+        int256[] fCashNotionalTransfer
+    );
+
+    /** UUPS Upgradeable contract calls */
+    function upgradeTo(address newImplementation) external;
+    function upgradeToAndCall(address newImplementation, bytes memory data) external payable;
+    function getImplementation() external view returns (address);
+    function owner() external view returns (address);
+    function pauseRouter() external view returns (address);
+    function pauseGuardian() external view returns (address);
+
+    /** Initialize Markets Action */
+    function initializeMarkets(uint256 currencyId, bool isFirstInit) external;
+
+    function sweepCashIntoMarkets(uint16 currencyId) external;
+
+    /** Redeem nToken Action */
+    function nTokenRedeem(
+        address redeemer,
+        uint16 currencyId,
+        uint96 tokensToRedeem_,
+        bool sellTokenAssets
+    ) external returns (int256);
+
+    /** Account Action */
+    function enableBitmapCurrency(uint16 currencyId) external;
+
+    function settleAccount(address account) external;
+
+    function depositUnderlyingToken(
+        address account,
+        uint16 currencyId,
+        uint256 amountExternalPrecision
+    ) external payable returns (uint256);
+
+    function depositAssetToken(
+        address account,
+        uint16 currencyId,
+        uint256 amountExternalPrecision
+    ) external returns (uint256);
+
+    function withdraw(
+        uint16 currencyId,
+        uint88 amountInternalPrecision,
+        bool redeemToUnderlying
+    ) external returns (uint256);
+
+    /** Batch Action */
+    function batchBalanceAction(address account, BalanceAction[] calldata actions) external payable;
+
+    function batchBalanceAndTradeAction(address account, BalanceActionWithTrades[] calldata actions)
+        external
+        payable;
+
+    function batchBalanceAndTradeActionWithCallback(
+        address account,
+        BalanceActionWithTrades[] calldata actions,
+        bytes calldata callbackData
+    ) external payable;
+
+    /** Liquidation Action */
+    function calculateLocalCurrencyLiquidation(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint96 maxNTokenLiquidation
+    ) external returns (int256, int256);
+
+    function liquidateLocalCurrency(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint96 maxNTokenLiquidation
+    ) external returns (int256, int256);
+
+    function calculateCollateralCurrencyLiquidation(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256 collateralCurrency,
+        uint128 maxCollateralLiquidation,
+        uint96 maxNTokenLiquidation
+    )
+        external
+        returns (
+            int256,
+            int256,
+            int256
+        );
+
+    function liquidateCollateralCurrency(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256 collateralCurrency,
+        uint128 maxCollateralLiquidation,
+        uint96 maxNTokenLiquidation,
+        bool withdrawCollateral,
+        bool redeemToUnderlying
+    )
+        external
+        returns (
+            int256,
+            int256,
+            int256
+        );
+
+    function calculatefCashLocalLiquidation(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function liquidatefCashLocal(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function calculatefCashCrossCurrencyLiquidation(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256 fCashCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+
+    function liquidatefCashCrossCurrency(
+        address liquidateAccount,
+        uint256 localCurrency,
+        uint256 fCashCurrency,
+        uint256[] calldata fCashMaturities,
+        uint256[] calldata maxfCashLiquidateAmounts
+    ) external returns (int256[] memory, int256);
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalProxy.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/NotionalViews.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+pragma experimental ABIEncoderV2;
+
+import "../../contracts/global/Types.sol";
+
+interface NotionalViews {
+    function getMaxCurrencyId() external view returns (uint16);
+
+    function getCurrencyId(address tokenAddress) external view returns (uint16 currencyId);
+
+    function getCurrency(uint16 currencyId)
+        external
+        view
+        returns (Token memory assetToken, Token memory underlyingToken);
+
+    function getRateStorage(uint16 currencyId)
+        external
+        view
+        returns (ETHRateStorage memory ethRate, AssetRateStorage memory assetRate);
+
+    function getCurrencyAndRates(uint16 currencyId)
+        external
+        view
+        returns (
+            Token memory assetToken,
+            Token memory underlyingToken,
+            ETHRate memory ethRate,
+            AssetRateParameters memory assetRate
+        );
+
+    function getCashGroup(uint16 currencyId) external view returns (CashGroupSettings memory);
+
+    function getCashGroupAndAssetRate(uint16 currencyId)
+        external
+        view
+        returns (CashGroupSettings memory cashGroup, AssetRateParameters memory assetRate);
+
+    function getInitializationParameters(uint16 currencyId)
+        external
+        view
+        returns (int256[] memory annualizedAnchorRates, int256[] memory proportions);
+
+    function getDepositParameters(uint16 currencyId)
+        external
+        view
+        returns (int256[] memory depositShares, int256[] memory leverageThresholds);
+
+    function nTokenAddress(uint16 currencyId) external view returns (address);
+
+    function getOwner() external view returns (address);
+
+    function getSettlementRate(uint16 currencyId, uint40 maturity)
+        external
+        view
+        returns (AssetRateParameters memory);
+
+    function getActiveMarkets(uint16 currencyId) external view returns (MarketParameters[] memory);
+
+    function getActiveMarketsAtBlockTime(uint16 currencyId, uint32 blockTime)
+        external
+        view
+        returns (MarketParameters[] memory);
+
+    function getReserveBalance(uint16 currencyId) external view returns (int256 reserveBalance);
+
+    function getNTokenPortfolio(address tokenAddress)
+        external
+        view
+        returns (PortfolioAsset[] memory liquidityTokens, PortfolioAsset[] memory netfCashAssets);
+
+    function getNTokenAccount(address tokenAddress)
+        external
+        view
+        returns (
+            uint256 currencyId,
+            uint256 totalSupply,
+            uint256 incentiveAnnualEmissionRate,
+            uint256 lastInitializedTime,
+            bytes6 nTokenParameters,
+            int256 cashBalance,
+            uint256 integralTotalSupply,
+            uint256 lastSupplyChangeTime
+        );
+
+    function getAccount(address account)
+        external
+        view
+        returns (
+            AccountContext memory accountContext,
+            AccountBalance[] memory accountBalances,
+            PortfolioAsset[] memory portfolio
+        );
+
+    function getAccountContext(address account) external view returns (AccountContext memory);
+
+    function getAccountBalance(uint16 currencyId, address account)
+        external
+        view
+        returns (
+            int256 cashBalance,
+            int256 nTokenBalance,
+            uint256 lastClaimTime
+        );
+
+    function getAccountPortfolio(address account) external view returns (PortfolioAsset[] memory);
+
+    function getfCashNotional(
+        address account,
+        uint256 currencyId,
+        uint256 maturity
+    ) external view returns (int256);
+
+    function getAssetsBitmap(address account, uint256 currencyId) external view returns (bytes32);
+
+    function getFreeCollateral(address account) external view returns (int256, int256[] memory);
+
+    function calculateNTokensToMint(uint16 currencyId, uint88 amountToDepositExternalPrecision)
+        external
+        view
+        returns (uint256);
+
+    function getfCashAmountGivenCashAmount(
+        uint16 currencyId,
+        int88 netCashToAccount,
+        uint256 marketIndex,
+        uint256 blockTime
+    ) external view returns (int256);
+
+    function getCashAmountGivenfCashAmount(
+        uint16 currencyId,
+        int88 fCashAmount,
+        uint256 marketIndex,
+        uint256 blockTime
+    ) external view returns (int256, int256);
+
+    function nTokenGetClaimableIncentives(address account, uint256 blockTime)
+        external
+        view
+        returns (uint256);
+
+}
+// ===== END SOURCE FILE: interfaces/notional/NotionalViews.sol =====
+// ===== BEGIN SOURCE FILE: interfaces/notional/nTokenERC20.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity >0.7.0;
+pragma experimental ABIEncoderV2;
+
+interface nTokenERC20 {
+    event Transfer(address indexed from, address indexed to, uint256 amount);
+
+    event Approval(address indexed owner, address indexed spender, uint256 amount);
+
+    function nTokenTotalSupply(address nTokenAddress) external view returns (uint256);
+
+    function nTokenTransferAllowance(
+        uint16 currencyId,
+        address owner,
+        address spender
+    ) external view returns (uint256);
+
+    function nTokenBalanceOf(uint16 currencyId, address account) external view returns (uint256);
+
+    function nTokenTransferApprove(
+        uint16 currencyId,
+        address owner,
+        address spender,
+        uint256 amount
+    ) external returns (bool);
+
+    function nTokenTransfer(
+        uint16 currencyId,
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool);
+
+    function nTokenTransferFrom(
+        uint16 currencyId,
+        address spender,
+        address from,
+        address to,
+        uint256 amount
+    ) external returns (bool, uint256);
+
+    function nTokenTransferApproveAll(address spender, uint256 amount) external returns (bool);
+
+    function nTokenClaimIncentives() external returns (uint256);
+
+    function nTokenPresentValueAssetDenominated(uint16 currencyId) external view returns (int256);
+
+    function nTokenPresentValueUnderlyingDenominated(uint16 currencyId)
+        external
+        view
+        returns (int256);
+}
+// ===== END SOURCE FILE: interfaces/notional/nTokenERC20.sol =====

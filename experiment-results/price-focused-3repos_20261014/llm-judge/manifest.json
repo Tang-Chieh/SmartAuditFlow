@@ -1,0 +1,270 @@
+{
+  "benchmark_version": "v1",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "repositories": [
+    {
+      "ground_truth": [
+        {
+          "description": "CurveOracle.getPrice() retrieves the price of each underlying token in a Curve LP pool, selects the minimum price, and multiplies it by the LP token's virtual price to calculate its USD value. If the price of one or more underlying tokens is manipulated, the minimum-price calculation can be skewed and produce an incorrect USD value for the LP token. An attacker can exploit this incorrect valuation to profit at the expense of other users.",
+          "finding_id": "H-4",
+          "impact": "An attacker can manipulate the price used to value Curve LP tokens and profit at the expense of other users. Exploitation can result in significant financial losses for affected users.",
+          "mitigation": "Use TWAP prices for the Curve pool's underlying assets.",
+          "review_status": "gold_verified",
+          "title": "H-4: Potential flash loan attack vulnerability in `getPrice` function of CurveOracle",
+          "vulnerable_code": [
+            {
+              "contract": "CurveOracle",
+              "end_line": 134,
+              "file": "blueberry-core/contracts/oracle/CurveOracle.sol",
+              "function": "getPrice(address)",
+              "start_line": 122
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2023-04-blueberry"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "Multipool.getSlots() reads each underlying Uniswap V3 pool's transaction-local slot0 price. _getReserves() feeds that price into LiquidityAmounts.getAmountsForLiquidity() to value the Multipool's positions, and deposit() uses the resulting reserves to optimize deposit amounts and calculate newly minted LP tokens. Because slot0 can be moved within a transaction, an attacker can distort the reserve ratio used for share issuance without changing the Multipool's durable economic value.",
+          "finding_id": "H-3",
+          "impact": "A manipulated reserve calculation can cause deposits to mint an incorrect number of Multipool LP tokens, diluting other liquidity providers and causing them to receive fewer LP tokens or a smaller share of pool assets than intended.",
+          "mitigation": "Use a manipulation-resistant TWAP or another independently validated price for reserve and share calculations instead of raw slot0. Reject deposits when each underlying pool's current price deviates beyond a configured bound from its weighted-average reference price.",
+          "review_status": "gold_verified",
+          "title": "H-3: Usage of `slot0` is extremely easy to manipulate",
+          "vulnerable_code": [
+            {
+              "contract": "Multipool",
+              "end_line": 486,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "deposit(uint256,uint256,uint256,uint256)",
+              "snippet": "slots = getSlots(); (uint256 reserve0, uint256 reserve1, , ) = _getReserves(slots); ... lpAmount = l0 < l1 ? l0 : l1;",
+              "start_line": 433
+            },
+            {
+              "contract": "Multipool",
+              "end_line": 602,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "getSlots()",
+              "snippet": "(slots[i].currentSqrtRatioX96, slots[i].tick, , , , , ) = IUniswapV3Pool(position.poolAddress).slot0();",
+              "start_line": 589
+            },
+            {
+              "contract": "Multipool",
+              "end_line": 768,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "_getReserves(Slot0Data[])",
+              "snippet": "(uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(slots[i].currentSqrtRatioX96, ...); reserve0 += amount0; reserve1 += amount1;",
+              "start_line": 693
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Multipool.deposit() uses attacker-influenceable instantaneous Uniswap V3 spot state to price existing liquidity and determine LP issuance. deposit() calls getSlots(), which reads each trusted underlying pool's slot0().sqrtPriceX96. Those values are passed to _getReserves(), where LiquidityAmounts.getAmountsForLiquidity() derives reserve0 and reserve1 from the current spot price. _optimizeAmounts() then uses those reserves to select the token deposit ratio, and deposit() calculates lpAmount from the same spot-derived reserves before _deposit() calculates underlying liquidity using the manipulated spot price again. The path has no TWAP or independent oracle valuation, spot-to-reference deviation check, or minimum LP-output control. An attacker who temporarily moves a trusted underlying pool price can therefore cause a deposit to execute using a transient reserve composition and LP exchange rate before restoring the price.",
+          "finding_id": "SAF-001",
+          "impact": "A victim or attacker can be forced to provide an economically unfavorable token mix and receive LP tokens based on a transient price. Depending on the configured position ranges, liquidity, and manipulation direction, the distorted LP issuance can transfer value between the depositor and existing LP holders or cause the depositor to receive fewer LP tokens than expected.",
+          "mitigation": "Use a sufficiently long Uniswap V3 TWAP or an independent oracle to value existing positions and determine the deposit ratio and LP issuance. Add a spot-versus-reference deviation check with freshness and liquidity safeguards, and add a caller-supplied minLpAmount that is checked before minting. The protected valuation should be applied consistently to reserve calculation, deposit optimization, and LP issuance.",
+          "severity": "Medium",
+          "title": "Spot-price manipulation affects Multipool deposit pricing and LP issuance",
+          "vulnerable_code": [
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "deposit"
+            },
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "getSlots"
+            },
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "_getReserves"
+            }
+          ]
+        },
+        {
+          "description": "Dispatcher.withdraw() converts accrued token fees into a Multipool LP amount using spot-dependent reserves. The function calls Multipool.snapshot(), which obtains current underlying Uniswap V3 slot0() prices through getSlots() and uses them in _getReserves(). When the withdrawal amount is less than the user's tracked shares, Dispatcher.withdraw() calculates fee0 and fee1 and passes them to _estimateWithdrawalLp(). That function computes the LP amount as ((amount0 * totalSupply) / reserve0 + (amount1 * totalSupply) / reserve1) / 2. An attacker with accrued fees can temporarily move an underlying pool price so that the relevant spot-derived reserve is distorted, causing the fee entitlement to convert into an excessive LP amount. Dispatcher then reduces user.shares by that amount and calls _withdrawFee(), which burns the calculated LP amount through Multipool.withdraw() and pays the resulting assets to the caller. The withdrawal minimums are also derived from the same manipulated reserves and therefore do not provide an independent price control.",
+          "finding_id": "SAF-002",
+          "impact": "The caller can receive more pooled assets than the recorded token-denominated fee entitlement warrants while consuming an inflated amount of Dispatcher shares. The resulting excess redemption is borne by the remaining Dispatcher users through reduced pooled assets or altered share accounting. The exact gain depends on the position ranges, fee balances, liquidity, and manipulation direction.",
+          "mitigation": "Avoid converting accrued token fees into LP shares using current spot-derived reserves. Pay accrued fees directly where possible. If conversion is required, use a sufficiently long TWAP or independent oracle with freshness and maximum-deviation checks, and derive withdrawal minimums from the same protected valuation rather than from attacker-influenceable slot0-based reserves.",
+          "severity": "High",
+          "title": "Spot-price manipulation can overstate LP redemption required for Dispatcher fee claims",
+          "vulnerable_code": [
+            {
+              "contract": "Dispatcher",
+              "file": "contracts/Dispatcher.sol",
+              "function": "withdraw"
+            },
+            {
+              "contract": "Dispatcher",
+              "file": "contracts/Dispatcher.sol",
+              "function": "_estimateWithdrawalLp"
+            },
+            {
+              "contract": "Dispatcher",
+              "file": "contracts/Dispatcher.sol",
+              "function": "_withdrawFee"
+            },
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "snapshot"
+            },
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "_getReserves"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2023-06-real-wagmi"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "WooPPV2 enforces maxNotionalSwap and maxGamma independently for each swap, then writes the swap's newPrice back to WooracleV2_2. A later swap in the same transaction reads that already-moved price as its starting state. Consequently, an attacker can split a flash-loaned WOO sale into multiple individually permitted swaps, compound the WOO price downward, and then sell a small amount of quote token at the manipulated price to receive more WOO than was borrowed. For a token without a configured Chainlink reference, WooracleV2_2 treats the nonzero internal price as in-bound, so the feasibility check does not provide an independent anchor.",
+          "finding_id": "H-1",
+          "impact": "An attacker can extract the pool's base-token reserves and repay the flash loan from the proceeds, retaining the excess tokens as profit.",
+          "mitigation": "Explicitly declare that tokens without a Chainlink price feed are not supported.",
+          "review_status": "gold_verified",
+          "title": "H-1: Pool can be drained",
+          "vulnerable_code": [
+            {
+              "contract": "WooPPV2",
+              "end_line": 465,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_sellBase(address,uint256,uint256,address,address)",
+              "start_line": 420
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 511,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_sellQuote(address,uint256,uint256,address,address)",
+              "start_line": 467
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 619,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_calcQuoteAmountSellBase(address,uint256,IWooracleV2.State)",
+              "start_line": 591
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 648,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_calcBaseAmountSellQuote(address,uint256,IWooracleV2.State)",
+              "start_line": 621
+            },
+            {
+              "contract": "WooracleV2_2",
+              "end_line": 260,
+              "file": "WooPoolV2/contracts/wooracle/WooracleV2_2.sol",
+              "function": "price(address)",
+              "start_line": 243
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "WooCrossFee.currentBalance() values configured WooPP reserves using the current Wooracle price and wooPP.poolSize(base), then uses that valuation to determine ingressFee() and outgressFee(). WooPPV3 poolSize() exposes the mutable tokenInfos[token].reserve, which is changed by public swaps. Consequently, an attacker can trade against the configured WooPP, alter its reserve state, and execute a cross-chain swap while the fee curve is evaluated from the manipulated balance. The piecewise fee curve can reduce fees when the calculated balance crosses the maxPercent threshold or increase fees when it moves in the opposite direction. In deployments where WooCrossFee uses a WooPPV2/WooracleV2 pair, WooPPV2 swaps additionally persist post-trade prices through WooracleV2.postPrice(). WooCrossFee also discards the feasibility flag returned by wooracle.price(base), so a stale or deviation-violating Wooracle price may still be used in the valuation. The supplied source does not establish deployment wiring or exact profitability, but it demonstrates the attacker-influenceable reserve/oracle state to cross-chain fee path.",
+          "finding_id": "SAF-001",
+          "impact": "Cross-chain swaps may be charged reduced or zero fees, causing protocol fee-revenue loss. Other users may also be overcharged or have their fee outcome changed by short-lived reserve manipulation.",
+          "mitigation": "Do not derive fee tiers from instantaneous poolSize() and spot-price values. Use a separately maintained, time-weighted or delayed reserve valuation and a manipulation-resistant independent price source. Require the oracle feasibility result before including a token in currentBalance(), enforce freshness and deviation checks, and bound the permitted fee or valuation change per transaction and over a time interval.",
+          "severity": "Medium",
+          "title": "Cross-chain fee valuation uses manipulable instantaneous pool state",
+          "vulnerable_code": [
+            {
+              "contract": "WooCrossFee",
+              "file": "contracts/CrossChain/WooCrossFee.sol",
+              "function": "currentBalance"
+            },
+            {
+              "contract": "WooCrossFee",
+              "file": "contracts/CrossChain/WooCrossFee.sol",
+              "function": "ingressFee"
+            },
+            {
+              "contract": "WooCrossFee",
+              "file": "contracts/CrossChain/WooCrossFee.sol",
+              "function": "outgressFee"
+            },
+            {
+              "contract": "WooPPV3",
+              "file": "contracts/WooPPV3/WooPPV3.sol",
+              "function": "poolSize"
+            },
+            {
+              "contract": "WooUsdOFTCrossRouter",
+              "file": "contracts/WooPPV3/WooUsdOFTCrossRouter.sol",
+              "function": "crossSwap"
+            }
+          ]
+        },
+        {
+          "description": "WooRebateManager.claimRebate() converts a user's fixed quote-token rebate into rewardToken through WooRouterV2.swap() with minToAmount set to zero. When the configured router uses WooPPV2, a public WOOFi trade can first alter the reward-token Wooracle price: WooPPV2._sellBase() calculates a lower post-trade price for a sufficiently large reward-token sale and persists it with WooracleV2.postPrice(). The subsequent quote-to-reward redemption uses WooPPV2._sellQuote(), which reads that manipulated spot price. A rebate holder can therefore move the reward-token price downward and redeem the same quote rebate for an inflated reward-token amount. The Chainlink bound and swap limits constrain the movement but do not provide a TWAP or redemption-specific independent execution-price check. The source does not provide deployment wiring or parameters proving a particular deployment is profitable, but it shows the concrete price-manipulation path into the redemption amount.",
+          "finding_id": "SAF-002",
+          "impact": "The rebate manager may transfer more reward tokens than justified by the prevailing market value, reducing funds available for other rebate recipients.",
+          "mitigation": "Redeem rebates directly in the quote token or price reward-token redemptions using a manipulation-resistant TWAP or independent oracle. If conversion through WOOFi remains necessary, require a user-supplied minimum reward amount derived from an independent reference price and reject stale or out-of-bound execution prices.",
+          "severity": "Medium",
+          "title": "Rebate redemption can be favorably manipulated through WOOFi spot pricing",
+          "vulnerable_code": [
+            {
+              "contract": "WooRebateManager",
+              "file": "contracts/WooRebateManager.sol",
+              "function": "claimRebate"
+            },
+            {
+              "contract": "WooPPV2",
+              "file": "contracts/WooPPV2.sol",
+              "function": "_sellBase"
+            },
+            {
+              "contract": "WooPPV2",
+              "file": "contracts/WooPPV2.sol",
+              "function": "_sellQuote"
+            }
+          ]
+        },
+        {
+          "description": "WooVaultManager.distributeAllReward() swaps the accumulated quote-token reward balance into rewardToken through WooRouterV2 with minToAmount equal to zero, then distributes the returned amount among vaults. When the router is backed by WooPPV2, an attacker can trade the reward token before the distribution, causing WooPPV2._sellBase() to persist a changed Wooracle spot price. The administrator's quote-to-reward swap then executes using that manipulated price through WooPPV2._sellQuote(). Because the returned reward amount is distributed without an independent price or minimum-output check, the vaults can receive an unfavorable amount of reward tokens. The supplied source supports this path for the stated router/pool configuration; exact extraction and profitability depend on deployment parameters and transaction ordering.",
+          "finding_id": "SAF-003",
+          "impact": "Vault reward distributions may receive fewer reward tokens than warranted by the quote-token balance, transferring value away from participating vaults and potentially allowing an attacker to benefit from surrounding price-moving trades.",
+          "mitigation": "Add a minimum acceptable reward-token output or maximum execution price to distributeAllReward(), with the bound derived from a fresh independent oracle or TWAP. Prefer an oracle-priced conversion mechanism and reject execution when the WOOFi spot price deviates beyond the permitted threshold.",
+          "severity": "Medium",
+          "title": "Vault reward conversion lacks an execution-price bound",
+          "vulnerable_code": [
+            {
+              "contract": "WooVaultManager",
+              "file": "contracts/WooVaultManager.sol",
+              "function": "distributeAllReward"
+            },
+            {
+              "contract": "WooPPV2",
+              "file": "contracts/WooPPV2.sol",
+              "function": "_sellBase"
+            },
+            {
+              "contract": "WooPPV2",
+              "file": "contracts/WooPPV2.sol",
+              "function": "_sellQuote"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2024-03-woofi-swap"
+    }
+  ]
+}

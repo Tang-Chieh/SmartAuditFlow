@@ -1,0 +1,398 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2021-07-spartan",
+  "source_repo_dir": "2021-07-spartan",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "e2555aab44d9760fdd640df9095b7235b70f035e",
+  "actual_git_head": "e2555aab44d9760fdd640df9095b7235b70f035e",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 29,
+  "excluded_solidity_file_count": 0,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 37052,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 37052,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/BondVault.sol",
+          "sha256": "e1dea9568a67338bc516790c7ab689a205839c7a0fd63a018319264275b18c57",
+          "source_bytes_utf8": 8339,
+          "source_line_count": 162,
+          "imports": [
+            "./interfaces/iBEP20.sol",
+            "./interfaces/iDAO.sol",
+            "./interfaces/iBASE.sol",
+            "./interfaces/iUTILS.sol",
+            "./interfaces/iROUTER.sol",
+            "./interfaces/iPOOL.sol",
+            "./interfaces/iPOOLFACTORY.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 163
+        },
+        {
+          "file": "contracts/Dao.sol",
+          "sha256": "f0399c55ae811639adab24c666ca5f90a3fb80d2e8f490f93e3735ee3d656abc",
+          "source_bytes_utf8": 35199,
+          "source_line_count": 724,
+          "imports": [
+            "./interfaces/iUTILS.sol",
+            "./interfaces/iRESERVE.sol",
+            "./interfaces/iDAOVAULT.sol",
+            "./interfaces/iROUTER.sol",
+            "./interfaces/iBONDVAULT.sol",
+            "./interfaces/iBASE.sol",
+            "./interfaces/iBEP20.sol",
+            "./interfaces/iPOOLFACTORY.sol",
+            "./interfaces/iSYNTHFACTORY.sol",
+            "./interfaces/iSYNTHVAULT.sol"
+          ],
+          "bundle_marker_line": 165,
+          "bundle_source_start_line": 166,
+          "bundle_source_end_line": 889
+        },
+        {
+          "file": "contracts/DaoVault.sol",
+          "sha256": "e08d1eeab6482dbcdda1f89963166d30ba11ebec8feee961fea8ac3aa6ed65ca",
+          "source_bytes_utf8": 4770,
+          "source_line_count": 95,
+          "imports": [
+            "./interfaces/iBEP20.sol",
+            "./interfaces/iDAO.sol",
+            "./interfaces/iBASE.sol",
+            "./interfaces/iPOOL.sol",
+            "./interfaces/iUTILS.sol",
+            "./interfaces/iROUTER.sol",
+            "./interfaces/iRESERVE.sol"
+          ],
+          "bundle_marker_line": 891,
+          "bundle_source_start_line": 892,
+          "bundle_source_end_line": 986
+        },
+        {
+          "file": "contracts/interfaces/iBASE.sol",
+          "sha256": "d08a8b5e03f208a3f479f6957f842890cc5ef44d9f3dfe55d87e6220cca1de92",
+          "source_bytes_utf8": 437,
+          "source_line_count": 12,
+          "imports": [
+            "./iDAO.sol"
+          ],
+          "bundle_marker_line": 988,
+          "bundle_source_start_line": 989,
+          "bundle_source_end_line": 1000
+        },
+        {
+          "file": "contracts/interfaces/iBASEv1.sol",
+          "sha256": "99fde3ef0d400a1015a38d6701634e682c43ffe7a213602fb3a241a07c4cd553",
+          "source_bytes_utf8": 148,
+          "source_line_count": 5,
+          "imports": [],
+          "bundle_marker_line": 1002,
+          "bundle_source_start_line": 1003,
+          "bundle_source_end_line": 1007
+        },
+        {
+          "file": "contracts/interfaces/iBEP20.sol",
+          "sha256": "8ddc16ee53cc9d7bd2a3f107f29fa91789e6be4fac0fe0ad71e4674d1343476f",
+          "source_bytes_utf8": 858,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 1009,
+          "bundle_source_start_line": 1010,
+          "bundle_source_end_line": 1025
+        },
+        {
+          "file": "contracts/interfaces/iBEP677.sol",
+          "sha256": "9f3286b0b7c724504250fe0dad6a794ca8d94e379eb2cc11b0f91be3e1b6c6d4",
+          "source_bytes_utf8": 284,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 1027,
+          "bundle_source_start_line": 1028,
+          "bundle_source_end_line": 1034
+        },
+        {
+          "file": "contracts/interfaces/iBONDVAULT.sol",
+          "sha256": "aa16907eed7ca728ed3a1d4dcb88485b7380aa84d1d6e571cb0965be896cb5ee",
+          "source_bytes_utf8": 452,
+          "source_line_count": 9,
+          "imports": [],
+          "bundle_marker_line": 1036,
+          "bundle_source_start_line": 1037,
+          "bundle_source_end_line": 1045
+        },
+        {
+          "file": "contracts/interfaces/iDAO.sol",
+          "sha256": "4789d4eb4b8383b830f23c3c3f4320a07d4243ff2fe63d032deb1a2f5d64d08b",
+          "source_bytes_utf8": 668,
+          "source_line_count": 14,
+          "imports": [],
+          "bundle_marker_line": 1047,
+          "bundle_source_start_line": 1048,
+          "bundle_source_end_line": 1061
+        },
+        {
+          "file": "contracts/interfaces/iDAOVAULT.sol",
+          "sha256": "98641ed875b69e50b786d7a3e69c52c03d1a20d473a72984b2287bd17e12d922",
+          "source_bytes_utf8": 318,
+          "source_line_count": 8,
+          "imports": [],
+          "bundle_marker_line": 1063,
+          "bundle_source_start_line": 1064,
+          "bundle_source_end_line": 1071
+        },
+        {
+          "file": "contracts/interfaces/iPOOL.sol",
+          "sha256": "3468e4fb3c335699a7198655d63eee2f7f9c9b9b7c6eb3b17737d59b9552dd89",
+          "source_bytes_utf8": 589,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 1073,
+          "bundle_source_start_line": 1074,
+          "bundle_source_end_line": 1086
+        },
+        {
+          "file": "contracts/interfaces/iPOOLFACTORY.sol",
+          "sha256": "bf72800e44ed9c16cad93a4401757fee85f22c36236a29351d1a422b37312886",
+          "source_bytes_utf8": 733,
+          "source_line_count": 15,
+          "imports": [],
+          "bundle_marker_line": 1088,
+          "bundle_source_start_line": 1089,
+          "bundle_source_end_line": 1103
+        },
+        {
+          "file": "contracts/interfaces/iRESERVE.sol",
+          "sha256": "d50f0508df0fdb4a91de2d83e45fec6b9b95d1909c4cbd09ee73c19896de7024",
+          "source_bytes_utf8": 185,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1105,
+          "bundle_source_start_line": 1106,
+          "bundle_source_end_line": 1111
+        },
+        {
+          "file": "contracts/interfaces/iROUTER.sol",
+          "sha256": "1bc97b6e97446d1dcde297f89e05acf55bae99926d1fe04bfbbcc6964fcb1d13",
+          "source_bytes_utf8": 665,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 1113,
+          "bundle_source_start_line": 1114,
+          "bundle_source_end_line": 1126
+        },
+        {
+          "file": "contracts/interfaces/iSYNTH.sol",
+          "sha256": "5d66f0a3a397adb233905d601c808ef1c50fe3af6720b809db239cf0b834550c",
+          "source_bytes_utf8": 406,
+          "source_line_count": 10,
+          "imports": [],
+          "bundle_marker_line": 1128,
+          "bundle_source_start_line": 1129,
+          "bundle_source_end_line": 1138
+        },
+        {
+          "file": "contracts/interfaces/iSYNTHFACTORY.sol",
+          "sha256": "d847ffdfb1a60e22a267ad3619fd5ece593300c5dc64ab293aef9c917f84b7fd",
+          "source_bytes_utf8": 213,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 1140,
+          "bundle_source_start_line": 1141,
+          "bundle_source_end_line": 1146
+        },
+        {
+          "file": "contracts/interfaces/iSYNTHVAULT.sol",
+          "sha256": "e1ee7e4d453cb3d43a65824c086edb064d4e414a44065f49298136dbe147c66b",
+          "source_bytes_utf8": 87,
+          "source_line_count": 5,
+          "imports": [],
+          "bundle_marker_line": 1148,
+          "bundle_source_start_line": 1149,
+          "bundle_source_end_line": 1153
+        },
+        {
+          "file": "contracts/interfaces/iUTILS.sol",
+          "sha256": "27df2dc7b5b5f989019bb1dea57a61677da08acaf002403e160b8827672f1500",
+          "source_bytes_utf8": 1351,
+          "source_line_count": 20,
+          "imports": [],
+          "bundle_marker_line": 1155,
+          "bundle_source_start_line": 1156,
+          "bundle_source_end_line": 1175
+        },
+        {
+          "file": "contracts/interfaces/iWBNB.sol",
+          "sha256": "4984078c776edc3dfc95cb204aac8a7a28a3558e00feed77928d5bc902f853d0",
+          "source_bytes_utf8": 122,
+          "source_line_count": 5,
+          "imports": [],
+          "bundle_marker_line": 1177,
+          "bundle_source_start_line": 1178,
+          "bundle_source_end_line": 1182
+        },
+        {
+          "file": "contracts/outside-scope/FallenSpartans.sol",
+          "sha256": "62bb3fa948d0c6603d32cb2ad155a0cbdd24fa97d7c9ba442ae89e97d32bf9e4",
+          "source_bytes_utf8": 1756,
+          "source_line_count": 58,
+          "imports": [
+            "./iBEP20.sol",
+            "./iDAO.sol",
+            "./iBASE.sol"
+          ],
+          "bundle_marker_line": 1184,
+          "bundle_source_start_line": 1185,
+          "bundle_source_end_line": 1242
+        },
+        {
+          "file": "contracts/outside-scope/Reserve.sol",
+          "sha256": "4b04d93b541dde6312653de94d12d0b775a1a12993d74105b46af1d38ce182a1",
+          "source_bytes_utf8": 1758,
+          "source_line_count": 56,
+          "imports": [
+            "./iBEP20.sol",
+            "./iBASE.sol",
+            "./iDAO.sol"
+          ],
+          "bundle_marker_line": 1244,
+          "bundle_source_start_line": 1245,
+          "bundle_source_end_line": 1300
+        },
+        {
+          "file": "contracts/outside-scope/Sparta.sol",
+          "sha256": "a930bdcb91170e8792ebcb2ea4c4657cf09005143e95cdd1aa343f424401ce43",
+          "source_bytes_utf8": 10243,
+          "source_line_count": 252,
+          "imports": [
+            "./iBEP20.sol",
+            "./iDAO.sol",
+            "./iBASEv1.sol",
+            "./iUTILS.sol",
+            "./iBEP677.sol"
+          ],
+          "bundle_marker_line": 1302,
+          "bundle_source_start_line": 1303,
+          "bundle_source_end_line": 1554
+        },
+        {
+          "file": "contracts/Pool.sol",
+          "sha256": "8439d190203668238744e8975a07b503f59de664a114ede30f9c2ae21b7818aa",
+          "source_bytes_utf8": 17216,
+          "source_line_count": 364,
+          "imports": [
+            "./interfaces/iBEP20.sol",
+            "./interfaces/iUTILS.sol",
+            "./interfaces/iDAO.sol",
+            "./interfaces/iBASE.sol",
+            "./interfaces/iDAOVAULT.sol",
+            "./interfaces/iROUTER.sol",
+            "./interfaces/iSYNTH.sol",
+            "./interfaces/iSYNTHFACTORY.sol",
+            "./interfaces/iBEP677.sol"
+          ],
+          "bundle_marker_line": 1556,
+          "bundle_source_start_line": 1557,
+          "bundle_source_end_line": 1920
+        },
+        {
+          "file": "contracts/poolFactory.sol",
+          "sha256": "2d10d85f7df6d6ae461bb021f9060bc2f207318da98c89514bb654549fc6895e",
+          "source_bytes_utf8": 6149,
+          "source_line_count": 150,
+          "imports": [
+            "./interfaces/iDAO.sol",
+            "./Pool.sol"
+          ],
+          "bundle_marker_line": 1922,
+          "bundle_source_start_line": 1923,
+          "bundle_source_end_line": 2072
+        },
+        {
+          "file": "contracts/Router.sol",
+          "sha256": "6903d2f4d99fd36cd3498bdff24481a4710b98ef18aefdaa179dbb322dd5c8f2",
+          "source_bytes_utf8": 17996,
+          "source_line_count": 356,
+          "imports": [
+            "./Pool.sol",
+            "./interfaces/iRESERVE.sol",
+            "./interfaces/iPOOLFACTORY.sol",
+            "./interfaces/iWBNB.sol"
+          ],
+          "bundle_marker_line": 2074,
+          "bundle_source_start_line": 2075,
+          "bundle_source_end_line": 2430
+        },
+        {
+          "file": "contracts/Synth.sol",
+          "sha256": "51f1be911b6493d64d99e9a2303bccc7c1dfadaacb3e7977c86045728f5b0156",
+          "source_bytes_utf8": 9678,
+          "source_line_count": 228,
+          "imports": [
+            "./Pool.sol",
+            "./interfaces/iPOOLFACTORY.sol"
+          ],
+          "bundle_marker_line": 2432,
+          "bundle_source_start_line": 2433,
+          "bundle_source_end_line": 2660
+        },
+        {
+          "file": "contracts/synthFactory.sol",
+          "sha256": "494009fb77d5778d7ecf27b66f5f7475466cdc9ee6eb7236d4e4aa35fe15e3a3",
+          "source_bytes_utf8": 2702,
+          "source_line_count": 76,
+          "imports": [
+            "./Synth.sol"
+          ],
+          "bundle_marker_line": 2662,
+          "bundle_source_start_line": 2663,
+          "bundle_source_end_line": 2738
+        },
+        {
+          "file": "contracts/synthVault.sol",
+          "sha256": "91aa1728937bb06cfa131d7198c66d3409be7b422143402bc08a731293a8a97c",
+          "source_bytes_utf8": 12590,
+          "source_line_count": 256,
+          "imports": [
+            "./interfaces/iBEP20.sol",
+            "./interfaces/iDAO.sol",
+            "./interfaces/iBASE.sol",
+            "./interfaces/iPOOL.sol",
+            "./interfaces/iSYNTH.sol",
+            "./interfaces/iUTILS.sol",
+            "./interfaces/iRESERVE.sol",
+            "./interfaces/iSYNTHFACTORY.sol",
+            "./interfaces/iPOOLFACTORY.sol"
+          ],
+          "bundle_marker_line": 2740,
+          "bundle_source_start_line": 2741,
+          "bundle_source_end_line": 2996
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "sha256": "b5c51c5ca83aee3315f4f97035f33918a9cf1ff80024ea045ade3cb3f551cbdd",
+          "source_bytes_utf8": 8611,
+          "source_line_count": 217,
+          "imports": [
+            "./interfaces/iBASE.sol",
+            "./interfaces/iPOOLFACTORY.sol",
+            "./interfaces/iPOOL.sol",
+            "./interfaces/iSYNTH.sol",
+            "./interfaces/iBEP20.sol"
+          ],
+          "bundle_marker_line": 2998,
+          "bundle_source_start_line": 2999,
+          "bundle_source_end_line": 3215
+        }
+      ]
+    }
+  ],
+  "excluded_files": []
+}

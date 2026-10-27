@@ -1,0 +1,8 @@
+{
+  "repo_id": "2022-11-paraspace",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": []
+}

@@ -1,0 +1,4681 @@
+// ===== BEGIN SOURCE FILE: src/access/Ownable2Step.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { Ownable2Step as OZOwnable2Step } from "openzeppelin-contracts/access/Ownable2Step.sol";
+
+abstract contract Ownable2Step is OZOwnable2Step {
+    function renounceOwnership() public view override onlyOwner {
+        revert("cannot renounce ownership");
+    }
+}
+// ===== END SOURCE FILE: src/access/Ownable2Step.sol =====
+// ===== BEGIN SOURCE FILE: src/beacon/FrxBeaconChainBacking.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IERC20Metadata } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+import { IBeaconChainBacking } from "src/interfaces/beacon/IBeaconChainBacking.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+import { Errors } from "src/utils/Errors.sol";
+import { Roles } from "src/libs/Roles.sol";
+
+contract FrxBeaconChainBacking is SystemComponent, SecurityBase, IBeaconChainBacking {
+    address public immutable token;
+    uint96 public immutable decimalPad;
+
+    Ratio public currentRatio;
+
+    struct Ratio {
+        uint208 ratio;
+        uint48 timestamp;
+    }
+
+    event RatioUpdated(uint208 ratio, uint208 totalAssets, uint208 totalLiabilities, uint48 timestamp);
+
+    constructor(
+        ISystemRegistry _systemRegistry,
+        address _token
+    ) SystemComponent(_systemRegistry) SecurityBase(address(_systemRegistry.accessController())) {
+        Errors.verifyNotZero(_token, "_token");
+        // slither-disable-next-line missing-zero-check
+        token = _token;
+        decimalPad = uint96(10 ** IERC20Metadata(token).decimals());
+    }
+
+    /// @inheritdoc IBeaconChainBacking
+    function update(
+        uint208 totalAssets,
+        uint208 totalLiabilities,
+        uint48 queriedTimestamp
+    ) public hasRole(Roles.LSD_BACKING_UPDATER) {
+        Errors.verifyNotZero(totalAssets, "totalAssets");
+        Errors.verifyNotZero(totalLiabilities, "totalLiabilities");
+
+        if (queriedTimestamp < currentRatio.timestamp) {
+            revert Errors.InvalidParam("queriedTimestamp");
+        }
+        uint208 ratio = totalAssets * decimalPad / totalLiabilities;
+        currentRatio = Ratio(ratio, queriedTimestamp);
+
+        emit RatioUpdated(ratio, totalAssets, totalLiabilities, queriedTimestamp);
+    }
+
+    /// @inheritdoc IBeaconChainBacking
+    function current() external view returns (uint208 ratio, uint48 queriedTimestamp) {
+        ratio = currentRatio.ratio;
+        queriedTimestamp = currentRatio.timestamp;
+    }
+}
+// ===== END SOURCE FILE: src/beacon/FrxBeaconChainBacking.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/BalancerBeethovenAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import { IVault } from "src/interfaces/external/balancer/IVault.sol";
+import { IBalancerPool } from "src/interfaces/external/balancer/IBalancerPool.sol";
+import { IBalancerComposableStablePool } from "src/interfaces/external/balancer/IBalancerComposableStablePool.sol";
+import { LibAdapter } from "src/libs/LibAdapter.sol";
+import { BalancerUtilities } from "src/libs/BalancerUtilities.sol";
+import { Errors } from "src/utils/Errors.sol";
+
+library BalancerBeethovenAdapter {
+    event DeployLiquidity(
+        uint256[] amountsDeposited,
+        address[] tokens,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress,
+        bytes32 poolId
+    );
+
+    event WithdrawLiquidity(
+        uint256[] amountsWithdrawn,
+        address[] tokens,
+        // 0 - lpBurnAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress,
+        bytes32 poolId
+    );
+
+    error TokenPoolAssetMismatch();
+    error ArraysLengthMismatch();
+    error BalanceMustIncrease();
+    error NoNonZeroAmountProvided();
+    error InvalidBalanceChange();
+
+    enum JoinKind {
+        INIT,
+        EXACT_TOKENS_IN_FOR_BPT_OUT,
+        TOKEN_IN_FOR_EXACT_BPT_OUT,
+        ALL_TOKENS_IN_FOR_EXACT_BPT_OUT,
+        ADD_TOKEN
+    }
+    enum ExitKind {
+        EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
+        EXACT_BPT_IN_FOR_TOKENS_OUT,
+        BPT_IN_FOR_EXACT_TOKENS_OUT,
+        REMOVE_TOKEN
+    }
+
+    enum ExitKindComposable {
+        EXACT_BPT_IN_FOR_ONE_TOKEN_OUT,
+        BPT_IN_FOR_EXACT_TOKENS_OUT,
+        EXACT_BPT_IN_FOR_ALL_TOKENS_OUT
+    }
+    /**
+     * @param pool address of Balancer Pool
+     * @param bptAmount uint256 pool token amount expected back
+     * @param tokens IERC20[] of tokens to be withdrawn from pool
+     * @param amountsOut uint256[] min amount of tokens expected on withdrawal
+     * @param userData bytes data, used for info about kind of pool exit
+     */
+
+    struct WithdrawParams {
+        address pool;
+        uint256 bptAmount;
+        address[] tokens;
+        uint256[] amountsOut;
+        bytes userData;
+    }
+
+    /**
+     * @notice Deploy liquidity to Balancer or Beethoven pool
+     * @dev Calls into external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param vault Balancer Vault contract
+     * @param pool Balancer or Beethoven Pool to deploy liquidity to
+     * @param tokens Addresses of tokens to deploy. Should match pool tokens
+     * @param exactTokenAmounts Array of exact amounts of tokens to be deployed
+     * @param minLpMintAmount Min amount of LP tokens to mint on deposit
+     */
+    function addLiquidity(
+        IVault vault,
+        address pool,
+        address[] calldata tokens,
+        uint256[] calldata exactTokenAmounts,
+        uint256 minLpMintAmount
+    ) public {
+        uint256 nTokens = tokens.length;
+        if (nTokens == 0 || nTokens != exactTokenAmounts.length) {
+            revert ArraysLengthMismatch();
+        }
+        Errors.verifyNotZero(address(vault), "vault");
+        Errors.verifyNotZero(pool, "pool");
+        Errors.verifyNotZero(minLpMintAmount, "minLpMintAmount");
+
+        uint256[] memory assetBalancesBefore = new uint256[](nTokens);
+        bytes32 poolId = IBalancerPool(pool).getPoolId();
+
+        // verify that we're passing correct pool tokens
+        _ensureTokenOrderAndApprovals(vault, exactTokenAmounts, tokens, poolId, assetBalancesBefore);
+
+        // record BPT balances before deposit 0 - balance before; 1 - balance after
+        uint256[] memory bptBalances = new uint256[](2);
+        bptBalances[0] = IBalancerPool(pool).balanceOf(address(this));
+
+        vault.joinPool(
+            poolId,
+            address(this), // sender
+            address(this), // recipient of BPT token
+            _getJoinPoolRequest(pool, tokens, exactTokenAmounts, minLpMintAmount)
+        );
+
+        // make sure we received bpt
+        bptBalances[1] = IBalancerPool(pool).balanceOf(address(this));
+        if (bptBalances[1] < bptBalances[0] + minLpMintAmount) {
+            revert BalanceMustIncrease();
+        }
+        // make sure we spent exactly how much we wanted
+        for (uint256 i = 0; i < nTokens; ++i) {
+            //slither-disable-next-line calls-loop
+            uint256 currentBalance = IERC20(tokens[i]).balanceOf(address(this));
+
+            if (currentBalance != assetBalancesBefore[i] - exactTokenAmounts[i]) {
+                // For composable pools it might be a case that we deposit 0 LP tokens and our LP balance increases
+                if (address(tokens[i]) != address(pool)) {
+                    revert InvalidBalanceChange();
+                }
+            }
+        }
+
+        _emitDeploy(exactTokenAmounts, tokens, bptBalances, pool, poolId);
+    }
+
+    /**
+     * @notice Withdraw liquidity from Balancer or Beethoven pool
+     * @dev Calls into external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param vault Balancer Vault contract
+     * @param pool Balancer or Beethoven Pool to withdrawn liquidity from
+     * @param tokens Addresses of tokens to withdraw. Should match pool tokens
+     * @param exactAmountsOut Array of exact amounts of tokens to be withdrawn from pool
+     * @param maxLpBurnAmount Max amount of LP tokens to burn in the withdrawal
+     */
+    function removeLiquidity(
+        IVault vault,
+        address pool,
+        address[] calldata tokens,
+        uint256[] calldata exactAmountsOut,
+        uint256 maxLpBurnAmount
+    ) public returns (uint256[] memory actualAmounts) {
+        bytes memory userData;
+        if (BalancerUtilities.isComposablePool(pool)) {
+            userData = abi.encode(ExitKindComposable.EXACT_BPT_IN_FOR_ALL_TOKENS_OUT, maxLpBurnAmount);
+        } else {
+            userData = abi.encode(ExitKind.BPT_IN_FOR_EXACT_TOKENS_OUT, exactAmountsOut, maxLpBurnAmount);
+        }
+
+        bool hasNonZeroAmount = false;
+        uint256 nTokens = exactAmountsOut.length;
+        for (uint256 i = 0; i < nTokens; ++i) {
+            if (exactAmountsOut[i] != 0) {
+                hasNonZeroAmount = true;
+                break;
+            }
+        }
+        if (!hasNonZeroAmount) {
+            revert NoNonZeroAmountProvided();
+        }
+
+        actualAmounts = _withdraw(
+            vault,
+            WithdrawParams({
+                pool: pool,
+                bptAmount: maxLpBurnAmount,
+                tokens: tokens,
+                amountsOut: exactAmountsOut,
+                userData: userData
+            })
+        );
+    }
+
+    /**
+     * @notice Withdraw liquidity from Balancer V2 pool (specifying exact LP tokens to burn)
+     * @dev Calls into external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param vault Balancer Vault contract
+     * @param pool Balancer or Beethoven Pool to liquidity withdrawn from
+     * @param exactLpBurnAmount Amount of LP tokens to burn in the withdrawal
+     * @param minAmountsOut Array of minimum amounts of tokens to be withdrawn from pool
+     */
+    function removeLiquidityImbalance(
+        IVault vault,
+        address pool,
+        uint256 exactLpBurnAmount,
+        address[] memory tokens,
+        uint256[] memory minAmountsOut
+    ) public returns (uint256[] memory withdrawnAmounts) {
+        bytes memory userData = abi.encode(ExitKind.EXACT_BPT_IN_FOR_TOKENS_OUT, exactLpBurnAmount);
+
+        withdrawnAmounts = _withdraw(
+            vault,
+            WithdrawParams({
+                pool: pool,
+                bptAmount: exactLpBurnAmount,
+                tokens: tokens,
+                amountsOut: minAmountsOut,
+                userData: userData
+            })
+        );
+    }
+
+    /**
+     * @notice Withdraw liquidity from Balancer V2 pool (specifying exact LP tokens to burn)
+     * @dev Calls into external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param vault Balancer Vault contract
+     * @param pool Balancer or Beethoven Pool to liquidity withdrawn from
+     * @param exactLpBurnAmount Amount of LP tokens to burn in the withdrawal
+     * @param minAmountsOut Array of minimum amounts of tokens to be withdrawn from pool
+     * @param exitTokenIndex Index of token to withdraw in
+     */
+    function removeLiquidityComposableImbalance(
+        IVault vault,
+        address pool,
+        uint256 exactLpBurnAmount,
+        address[] memory tokens,
+        uint256[] calldata minAmountsOut,
+        uint256 exitTokenIndex
+    ) external returns (uint256[] memory withdrawnAmounts) {
+        bytes memory userData =
+            abi.encode(ExitKindComposable.EXACT_BPT_IN_FOR_ONE_TOKEN_OUT, exactLpBurnAmount, exitTokenIndex);
+
+        withdrawnAmounts = _withdraw(
+            vault,
+            WithdrawParams({
+                pool: pool,
+                bptAmount: exactLpBurnAmount,
+                tokens: tokens,
+                amountsOut: minAmountsOut,
+                userData: userData
+            })
+        );
+    }
+
+    /**
+     * @dev This is a helper function to avoid stack-too-deep-errors
+     */
+    function _emitDeploy(
+        uint256[] calldata exactTokenAmounts,
+        address[] calldata tokens,
+        uint256[] memory bptBalances,
+        address pool,
+        bytes32 poolId
+    ) private {
+        emit DeployLiquidity(
+            exactTokenAmounts,
+            tokens,
+            [bptBalances[1] - bptBalances[0], bptBalances[1], IERC20(pool).totalSupply()],
+            pool,
+            poolId
+        );
+    }
+
+    /// @dev Helper method to avoid stack-too-deep-errors
+    function _withdraw(IVault vault, WithdrawParams memory params) private returns (uint256[] memory amountsOut) {
+        //slither-disable-start reentrancy-events
+
+        address pool = params.pool;
+        IBalancerPool poolInterface = IBalancerPool(pool);
+
+        Errors.verifyNotZero(address(vault), "vault");
+        Errors.verifyNotZero(pool, "pool");
+        Errors.verifyNotZero(params.bptAmount, "params.bptAmount");
+
+        amountsOut = params.amountsOut;
+        address[] memory tokens = params.tokens;
+
+        uint256 nTokens = tokens.length;
+        // slither-disable-next-line incorrect-equality
+        if (nTokens == 0 || nTokens != amountsOut.length) {
+            revert ArraysLengthMismatch();
+        }
+
+        bytes32 poolId = poolInterface.getPoolId();
+        // Partial return values are intentionally ignored. This call provides the most efficient way to get the data.
+        // slither-disable-next-line unused-return
+        (IERC20[] memory poolTokens,,) = vault.getPoolTokens(poolId);
+
+        if (poolTokens.length != nTokens) {
+            revert ArraysLengthMismatch();
+        }
+
+        _verifyPoolTokensMatch(tokens, poolTokens);
+
+        // Record balance before withdraw
+        uint256 bptBalanceBefore = poolInterface.balanceOf(address(this));
+
+        uint256[] memory assetBalancesBefore = new uint256[](nTokens);
+        for (uint256 i = 0; i < nTokens; ++i) {
+            assetBalancesBefore[i] = poolTokens[i].balanceOf(address(this));
+        }
+
+        // As we're exiting the pool we need to make an ExitPoolRequest instead
+        IVault.ExitPoolRequest memory request = IVault.ExitPoolRequest({
+            assets: BalancerUtilities._convertERC20sToAddresses(poolTokens),
+            minAmountsOut: amountsOut,
+            userData: params.userData,
+            toInternalBalance: false
+        });
+        vault.exitPool(
+            poolId,
+            address(this), // sender,
+            payable(address(this)), // recipient,
+            request
+        );
+
+        // Make sure we burned BPT, and assets were received
+        uint256 bptBalanceAfter = poolInterface.balanceOf(address(this));
+        if (bptBalanceAfter >= bptBalanceBefore) {
+            revert InvalidBalanceChange();
+        }
+
+        for (uint256 i = 0; i < nTokens; ++i) {
+            uint256 assetBalanceBefore = assetBalancesBefore[i];
+
+            IERC20 currentToken = poolTokens[i];
+            if (address(currentToken) != pool) {
+                uint256 currentBalance = currentToken.balanceOf(address(this));
+
+                if (currentBalance < assetBalanceBefore + amountsOut[i]) {
+                    revert BalanceMustIncrease();
+                }
+                // Get actual amount returned for event, reuse amountsOut array
+                amountsOut[i] = currentBalance - assetBalanceBefore;
+            }
+        }
+        emit WithdrawLiquidity(
+            amountsOut,
+            tokens,
+            [bptBalanceBefore - bptBalanceAfter, bptBalanceAfter, poolInterface.totalSupply()],
+            pool,
+            poolId
+        );
+        //slither-disable-end reentrancy-events
+    }
+
+    // run through tokens and make sure it matches the pool's assets
+    function _verifyPoolTokensMatch(address[] memory tokens, IERC20[] memory poolTokens) private pure {
+        uint256 nTokens = tokens.length;
+        for (uint256 i = 0; i < nTokens; ++i) {
+            IERC20 currentToken = IERC20(tokens[i]);
+            if (currentToken != poolTokens[i]) {
+                revert TokenPoolAssetMismatch();
+            }
+        }
+    }
+
+    /**
+     * @notice Validate that given tokens are relying to the given pool and approve spend
+     * @dev Separate function to avoid stack-too-deep errors
+     * and combine gas-costly loop operations into single loop
+     * @param amounts Amounts of corresponding tokens to approve
+     * @param poolId Balancer or Beethoven Pool ID
+     * @param assetBalancesBefore Array to record initial token balances
+     */
+    function _ensureTokenOrderAndApprovals(
+        IVault vault,
+        uint256[] calldata amounts,
+        address[] memory tokens,
+        bytes32 poolId,
+        uint256[] memory assetBalancesBefore
+    ) private {
+        // (two part verification: total number checked here, and individual match check below)
+
+        // Partial return values are intentionally ignored. This call provides the most efficient way to get the data.
+        // slither-disable-next-line unused-return
+        (IERC20[] memory poolAssets,,) = vault.getPoolTokens(poolId);
+
+        uint256 nTokens = amounts.length;
+
+        if (poolAssets.length != nTokens) {
+            revert ArraysLengthMismatch();
+        }
+
+        // run through tokens and make sure we have approvals
+        // for at least one non-zero amount (and correct token order)
+        bool hasNonZeroAmount = false;
+        for (uint256 i = 0; i < nTokens; ++i) {
+            uint256 currentAmount = amounts[i];
+            IERC20 currentToken = IERC20(tokens[i]);
+
+            // make sure asset is supported (and matches the pool's assets)
+            if (currentToken != poolAssets[i]) {
+                revert TokenPoolAssetMismatch();
+            }
+            // record previous balance for this asset
+            assetBalancesBefore[i] = currentToken.balanceOf(address(this));
+
+            // grant spending approval to balancer's Vault
+            if (currentAmount != 0) {
+                hasNonZeroAmount = true;
+                LibAdapter._approve(currentToken, address(vault), currentAmount);
+            }
+        }
+        if (!hasNonZeroAmount) {
+            revert NoNonZeroAmountProvided();
+        }
+    }
+
+    /**
+     * @notice Generate request for Balancer's Vault to join the pool
+     * @dev Separate function to avoid stack-too-deep errors
+     * @param tokens Tokens to be deposited into pool
+     * @param amounts Amounts of corresponding tokens to deposit
+     * @param poolAmountOut Expected amount of LP tokens to be minted on deposit
+     */
+    function _getJoinPoolRequest(
+        address pool,
+        address[] memory tokens,
+        uint256[] calldata amounts,
+        uint256 poolAmountOut
+    ) private view returns (IVault.JoinPoolRequest memory joinRequest) {
+        uint256[] memory amountsUser;
+
+        if (BalancerUtilities.isComposablePool(pool)) {
+            uint256 nTokens = tokens.length;
+            uint256 uix = 0;
+            uint256 bptIndex = IBalancerComposableStablePool(pool).getBptIndex();
+            amountsUser = new uint256[](nTokens - 1);
+            for (uint256 i = 0; i < nTokens; i++) {
+                if (i != bptIndex) {
+                    amountsUser[uix] = amounts[i];
+                    uix++;
+                }
+            }
+        } else {
+            amountsUser = amounts;
+        }
+
+        joinRequest = IVault.JoinPoolRequest({
+            assets: tokens,
+            maxAmountsIn: amounts, // maxAmountsIn,
+            userData: abi.encode(
+                IVault.JoinKind.EXACT_TOKENS_IN_FOR_BPT_OUT,
+                amountsUser, //maxAmountsIn,
+                poolAmountOut
+                ),
+            fromInternalBalance: false
+        });
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/BalancerBeethovenAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/CurveV2FactoryCryptoAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Address } from "openzeppelin-contracts/utils/Address.sol";
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import { IPoolAdapter } from "src/interfaces/destinations/IPoolAdapter.sol";
+import { ICryptoSwapPool, IPool } from "src/interfaces/external/curve/ICryptoSwapPool.sol";
+import { IWETH9 } from "src/interfaces/utils/IWETH9.sol";
+import { LibAdapter } from "src/libs/LibAdapter.sol";
+import { Errors } from "src/utils/Errors.sol";
+
+//slither-disable-start similar-names
+library CurveV2FactoryCryptoAdapter {
+    event DeployLiquidity(
+        uint256[] amountsDeposited,
+        address[] tokens,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress
+    );
+
+    event WithdrawLiquidity(
+        uint256[] amountsWithdrawn,
+        address[] tokens,
+        // 0 - lpBurnAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress
+    );
+
+    /**
+     * @notice Deploy liquidity to Curve pool
+     *  @dev Calls to external contract
+     *  @dev We trust sender to send a true Curve poolAddress.
+     *       If it's not the case it will fail in the remove_liquidity_one_coin part
+     *  @param amounts Amounts of coin to deploy
+     *  @param minLpMintAmount Amount of LP tokens to mint on deposit
+     *  @param poolAddress Curve pool address
+     *  @param lpTokenAddress LP token of the pool to track
+     *  @param weth WETH address on the operating chain
+     *  @param useEth A flag to whether use ETH or WETH for deployment
+     */
+    function addLiquidity(
+        uint256[] calldata amounts,
+        uint256 minLpMintAmount,
+        address poolAddress,
+        address lpTokenAddress,
+        IWETH9 weth,
+        bool useEth
+    ) public {
+        //slither-disable-start reentrancy-events
+        _validateAmounts(amounts);
+        Errors.verifyNotZero(minLpMintAmount, "minLpMintAmount");
+        Errors.verifyNotZero(poolAddress, "poolAddress");
+        Errors.verifyNotZero(lpTokenAddress, "lpTokenAddress");
+        Errors.verifyNotZero(address(weth), "weth");
+
+        uint256 nTokens = amounts.length;
+        address[] memory tokens = new address[](nTokens);
+        uint256[] memory coinsBalancesBefore = new uint256[](nTokens);
+        for (uint256 i = 0; i < nTokens; ++i) {
+            uint256 amount = amounts[i];
+            address coin = ICryptoSwapPool(poolAddress).coins(i);
+            tokens[i] = coin;
+            if (amount > 0 && coin != LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER) {
+                LibAdapter._approve(IERC20(coin), poolAddress, amount);
+            }
+            coinsBalancesBefore[i] = coin == LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER
+                ? address(this).balance
+                : IERC20(coin).balanceOf(address(this));
+        }
+
+        uint256 deployed = _runDeposit(amounts, minLpMintAmount, poolAddress, useEth);
+
+        IERC20 lpToken = IERC20(lpTokenAddress);
+
+        _updateWethAddress(tokens, address(weth));
+
+        emit DeployLiquidity(
+            _compareCoinsBalances(coinsBalancesBefore, _getCoinsBalances(tokens, weth, useEth), amounts, true),
+            tokens,
+            [deployed, lpToken.balanceOf(address(this)), lpToken.totalSupply()],
+            poolAddress
+        );
+        //slither-disable-end reentrancy-events
+    }
+
+    /**
+     * @notice Withdraw liquidity from Curve pool
+     *  @dev Calls to external contract
+     *  @dev We trust sender to send a true Curve poolAddress.
+     *       If it's not the case it will fail in the remove_liquidity_one_coin part
+     *  @param amounts Minimum amounts of coin to receive
+     *  @param maxLpBurnAmount Amount of LP tokens to burn in the withdrawal
+     *  @param poolAddress Curve pool address
+     *  @param lpTokenAddress LP token of the pool to burn
+     *  @param weth WETH address on the operating chain
+     *  @return tokens Addresses of the withdrawn tokens
+     *  @return actualAmounts Amounts of the withdrawn tokens
+     */
+    function removeLiquidity(
+        uint256[] memory amounts,
+        uint256 maxLpBurnAmount,
+        address poolAddress,
+        address lpTokenAddress,
+        IWETH9 weth
+    ) public returns (address[] memory tokens, uint256[] memory actualAmounts) {
+        //slither-disable-start reentrancy-events
+        if (amounts.length > 4) {
+            revert Errors.InvalidParam("amounts");
+        }
+        Errors.verifyNotZero(maxLpBurnAmount, "maxLpBurnAmount");
+        Errors.verifyNotZero(poolAddress, "poolAddress");
+        Errors.verifyNotZero(lpTokenAddress, "lpTokenAddress");
+        Errors.verifyNotZero(address(weth), "weth");
+
+        uint256[] memory coinsBalancesBefore = new uint256[](amounts.length);
+        tokens = new address[](amounts.length);
+        uint256 ethIndex = 999;
+        for (uint256 i = 0; i < amounts.length; ++i) {
+            address coin = IPool(poolAddress).coins(i);
+            tokens[i] = coin;
+
+            if (coin == LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER) {
+                coinsBalancesBefore[i] = address(this).balance;
+                ethIndex = i;
+            } else {
+                tokens[i] = coin;
+                coinsBalancesBefore[i] = IERC20(coin).balanceOf(address(this));
+            }
+        }
+        uint256 lpTokenBalanceBefore = IERC20(lpTokenAddress).balanceOf(address(this));
+
+        _runWithdrawal(poolAddress, amounts, maxLpBurnAmount);
+
+        uint256 lpTokenBalanceAfter = IERC20(lpTokenAddress).balanceOf(address(this));
+        uint256 lpTokenAmount = lpTokenBalanceBefore - lpTokenBalanceAfter;
+        if (lpTokenAmount > maxLpBurnAmount) {
+            revert LibAdapter.LpTokenAmountMismatch();
+        }
+        actualAmounts = _compareCoinsBalances(
+            coinsBalancesBefore, _getCoinsBalances(tokens, weth, ethIndex != 999 ? true : false), amounts, false
+        );
+
+        if (ethIndex != 999) {
+            // Wrapping up received ETH as system operates with WETH
+            // slither-disable-next-line arbitrary-send-eth
+            weth.deposit{ value: actualAmounts[ethIndex] }();
+        }
+
+        _updateWethAddress(tokens, address(weth));
+
+        emit WithdrawLiquidity(
+            actualAmounts,
+            tokens,
+            [lpTokenAmount, lpTokenBalanceAfter, IERC20(lpTokenAddress).totalSupply()],
+            poolAddress
+        );
+        //slither-disable-end reentrancy-events
+    }
+
+    /**
+     * @dev This is a helper function to replace Curve's Registry pointer
+     * to ETH with WETH address to be compatible with the rest of the system
+     */
+    function _updateWethAddress(address[] memory tokens, address weth) private pure {
+        for (uint256 i = 0; i < tokens.length; ++i) {
+            if (tokens[i] == LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER) {
+                tokens[i] = weth;
+            }
+        }
+    }
+
+    /// @dev Validate to have at least one `amount` > 0 provided and `amounts` is <=4
+    function _validateAmounts(uint256[] memory amounts) internal pure {
+        uint256 nTokens = amounts.length;
+        if (nTokens > 4) {
+            revert Errors.InvalidParam("amounts");
+        }
+        bool nonZeroAmountPresent = false;
+        for (uint256 i = 0; i < nTokens; ++i) {
+            if (amounts[i] != 0) {
+                nonZeroAmountPresent = true;
+                break;
+            }
+        }
+        if (!nonZeroAmountPresent) revert LibAdapter.NoNonZeroAmountProvided();
+    }
+
+    /// @dev Gets balances of pool's ERC-20 tokens or ETH
+    function _getCoinsBalances(
+        address[] memory tokens,
+        IWETH9 weth,
+        bool useEth
+    ) private view returns (uint256[] memory coinsBalances) {
+        uint256 nTokens = tokens.length;
+        coinsBalances = new uint256[](nTokens);
+
+        for (uint256 i = 0; i < nTokens; ++i) {
+            address coin = tokens[i];
+            if (coin == LibAdapter.CURVE_REGISTRY_ETH_ADDRESS_POINTER) {
+                coinsBalances[i] = useEth ? address(this).balance : weth.balanceOf(address(this));
+            } else {
+                coinsBalances[i] = IERC20(coin).balanceOf(address(this));
+            }
+        }
+    }
+
+    /// @dev Validate to have a valid balance change
+    function _compareCoinsBalances(
+        uint256[] memory balancesBefore,
+        uint256[] memory balancesAfter,
+        uint256[] memory amounts,
+        bool isLiqDeployment
+    ) private pure returns (uint256[] memory balanceChange) {
+        uint256 nTokens = amounts.length;
+        balanceChange = new uint256[](nTokens);
+
+        for (uint256 i = 0; i < nTokens; ++i) {
+            uint256 balanceDiff =
+                isLiqDeployment ? balancesBefore[i] - balancesAfter[i] : balancesAfter[i] - balancesBefore[i];
+
+            if (balanceDiff < amounts[i]) {
+                revert LibAdapter.InvalidBalanceChange();
+            }
+            balanceChange[i] = balanceDiff;
+        }
+    }
+
+    function _runDeposit(
+        uint256[] memory amounts,
+        uint256 minLpMintAmount,
+        address poolAddress,
+        bool useEth
+    ) private returns (uint256 deployed) {
+        uint256 nTokens = amounts.length;
+        ICryptoSwapPool pool = ICryptoSwapPool(poolAddress);
+        if (useEth) {
+            // slither-disable-start arbitrary-send-eth
+            if (nTokens == 2) {
+                uint256[2] memory staticParamArray = [amounts[0], amounts[1]];
+                deployed = pool.add_liquidity{ value: amounts[0] }(staticParamArray, minLpMintAmount);
+            } else if (nTokens == 3) {
+                uint256[3] memory staticParamArray = [amounts[0], amounts[1], amounts[2]];
+                deployed = pool.add_liquidity{ value: amounts[0] }(staticParamArray, minLpMintAmount);
+            } else if (nTokens == 4) {
+                uint256[4] memory staticParamArray = [amounts[0], amounts[1], amounts[2], amounts[3]];
+                deployed = pool.add_liquidity{ value: amounts[0] }(staticParamArray, minLpMintAmount);
+            }
+            // slither-disable-end arbitrary-send-eth
+        } else {
+            if (nTokens == 2) {
+                uint256[2] memory staticParamArray = [amounts[0], amounts[1]];
+                deployed = pool.add_liquidity(staticParamArray, minLpMintAmount);
+            } else if (nTokens == 3) {
+                uint256[3] memory staticParamArray = [amounts[0], amounts[1], amounts[2]];
+                deployed = pool.add_liquidity(staticParamArray, minLpMintAmount);
+            } else if (nTokens == 4) {
+                uint256[4] memory staticParamArray = [amounts[0], amounts[1], amounts[2], amounts[3]];
+                deployed = pool.add_liquidity(staticParamArray, minLpMintAmount);
+            }
+        }
+        if (deployed < minLpMintAmount) {
+            revert LibAdapter.MinLpAmountNotReached();
+        }
+    }
+
+    function _runWithdrawal(address poolAddress, uint256[] memory amounts, uint256 maxLpBurnAmount) private {
+        uint256 nTokens = amounts.length;
+        ICryptoSwapPool pool = ICryptoSwapPool(poolAddress);
+        if (nTokens == 2) {
+            uint256[2] memory staticParamArray = [amounts[0], amounts[1]];
+            pool.remove_liquidity(maxLpBurnAmount, staticParamArray);
+        } else if (nTokens == 3) {
+            uint256[3] memory staticParamArray = [amounts[0], amounts[1], amounts[2]];
+            pool.remove_liquidity(maxLpBurnAmount, staticParamArray);
+        } else if (nTokens == 4) {
+            uint256[4] memory staticParamArray = [amounts[0], amounts[1], amounts[2], amounts[3]];
+            pool.remove_liquidity(maxLpBurnAmount, staticParamArray);
+        }
+    }
+
+    //slither-disable-end similar-names
+}
+// ===== END SOURCE FILE: src/destinations/adapters/CurveV2FactoryCryptoAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/MaverickAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { IERC721Receiver } from "openzeppelin-contracts/token/ERC721/ERC721.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IPoolAdapter } from "../../interfaces/destinations/IPoolAdapter.sol";
+import { IPool } from "../../interfaces/external/maverick/IPool.sol";
+import { IPosition } from "../../interfaces/external/maverick/IPosition.sol";
+import { IRouter } from "../../interfaces/external/maverick/IRouter.sol";
+import { LibAdapter } from "../../libs/LibAdapter.sol";
+
+//slither-disable-start similar-names
+library MaverickAdapter {
+    event DeployLiquidity(
+        uint256[2] amountsDeposited,
+        address[2] tokens,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress,
+        uint256 receivingTokenId,
+        uint256[] deployedBinIds
+    );
+
+    event WithdrawLiquidity(
+        uint256[2] amountsWithdrawn,
+        address[2] tokens,
+        // 0 - lpBurnAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address poolAddress,
+        uint256 receivingTokenId,
+        uint256[] deployedBinIds
+    );
+
+    error MustBeMoreThanZero();
+    error ArraysLengthMismatch();
+    error MinLpAmountNotReached();
+    error LpTokenAmountMismatch();
+    error NoNonZeroAmountProvided();
+    error InvalidBalanceChange();
+
+    struct MaverickDeploymentExtraParams {
+        address poolAddress;
+        uint256 tokenId;
+        uint256 deadline;
+        IPool.AddLiquidityParams[] maverickParams;
+    }
+
+    struct MaverickWithdrawalExtraParams {
+        address poolAddress;
+        uint256 tokenId;
+        uint256 deadline;
+        IPool.RemoveLiquidityParams[] maverickParams;
+    }
+
+    /**
+     * @notice Deploys liquidity to Maverick and receives a Position NFT from Maverick
+     * @dev Calls to external contract. Should be guarded with
+     * non-reentrant flags in a used contract. Caller should implement onERC721Received
+     * function to receive Maverick Position NFT on deposit
+     * @param router Maverick Router contract
+     * @param amounts quantity of tokens to deposit
+     * @param minLpMintAmount min amount of LP tokens to mint on deposit
+     * @param extraParams encoded `MaverickDeploymentExtraParams`
+     */
+    function addLiquidity(
+        IRouter router,
+        uint256[] calldata amounts,
+        uint256 minLpMintAmount,
+        bytes calldata extraParams
+    ) external {
+        if (minLpMintAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length != 2) revert ArraysLengthMismatch();
+        if (amounts[0] == 0 && amounts[1] == 0) revert NoNonZeroAmountProvided();
+
+        (MaverickDeploymentExtraParams memory maverickExtraParams) =
+            abi.decode(extraParams, (MaverickDeploymentExtraParams));
+
+        _approveTokens(router, maverickExtraParams);
+
+        (uint256 receivingTokenId, uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) =
+        router.addLiquidityToPool(
+            IPool(maverickExtraParams.poolAddress),
+            maverickExtraParams.tokenId,
+            maverickExtraParams.maverickParams,
+            amounts[0],
+            amounts[1],
+            maverickExtraParams.deadline
+        );
+
+        // Collect deployed bins data
+        (
+            uint256 binslpAmountSummary,
+            uint256 binslpBalanceSummary,
+            uint256 binsLpTotalSupplySummary,
+            uint256[] memory deployedBinIds
+        ) = _collectBinSummary(binDeltas, IPool(maverickExtraParams.poolAddress), maverickExtraParams.tokenId);
+
+        if (binslpAmountSummary < minLpMintAmount) revert MinLpAmountNotReached();
+        if (tokenAAmount < amounts[0]) revert InvalidBalanceChange();
+        if (tokenBAmount < amounts[1]) revert InvalidBalanceChange();
+
+        emit DeployLiquidity(
+            [tokenAAmount, tokenBAmount],
+            [
+                address(IPool(maverickExtraParams.poolAddress).tokenA()),
+                address(IPool(maverickExtraParams.poolAddress).tokenB())
+            ],
+            [binslpAmountSummary, binslpBalanceSummary, binsLpTotalSupplySummary],
+            maverickExtraParams.poolAddress,
+            receivingTokenId,
+            deployedBinIds
+        );
+    }
+
+    /**
+     * @notice Withdraws liquidity from Maverick
+     * @dev Calls to external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param router Maverick Router contract
+     * @param amounts quantity of tokens to withdraw
+     * @param maxLpBurnAmount max amount of LP tokens to burn for withdrawal
+     * @param extraParams encoded `MaverickWithdrawalExtraParams`
+     */
+    function removeLiquidity(
+        IRouter router,
+        uint256[] calldata amounts,
+        uint256 maxLpBurnAmount,
+        bytes calldata extraParams
+    ) external returns (uint256[] memory actualAmounts) {
+        //slither-disable-start reentrancy-events
+        if (maxLpBurnAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length != 2) revert ArraysLengthMismatch();
+        if (amounts[0] == 0 && amounts[1] == 0) revert NoNonZeroAmountProvided();
+
+        (MaverickWithdrawalExtraParams memory maverickExtraParams) =
+            abi.decode(extraParams, (MaverickWithdrawalExtraParams));
+
+        router.position().approve(address(router), maverickExtraParams.tokenId);
+
+        (uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) =
+            _runWithdrawal(router, amounts, maverickExtraParams);
+
+        // Collect deployed bins data
+        (
+            uint256 binslpAmountSummary,
+            uint256 binslpBalanceSummary,
+            uint256 binsLpTotalSupplySummary,
+            uint256[] memory deployedBinIds
+        ) = _collectBinSummary(binDeltas, IPool(maverickExtraParams.poolAddress), maverickExtraParams.tokenId);
+
+        if (binslpAmountSummary > maxLpBurnAmount) revert LpTokenAmountMismatch();
+        if (tokenAAmount < amounts[0]) revert InvalidBalanceChange();
+        if (tokenBAmount < amounts[1]) revert InvalidBalanceChange();
+
+        actualAmounts = new uint256[](2);
+        actualAmounts[0] = tokenAAmount;
+        actualAmounts[1] = tokenBAmount;
+
+        emit WithdrawLiquidity(
+            [tokenAAmount, tokenBAmount],
+            [
+                address(IPool(maverickExtraParams.poolAddress).tokenA()),
+                address(IPool(maverickExtraParams.poolAddress).tokenB())
+            ],
+            [binslpAmountSummary, binslpBalanceSummary, binsLpTotalSupplySummary],
+            maverickExtraParams.poolAddress,
+            maverickExtraParams.tokenId,
+            deployedBinIds
+        );
+        //slither-disable-end reentrancy-events
+    }
+
+    /**
+     * @notice Encodes the provided parameters into a byte array
+     * @dev This function helps in building extraParams with dynamic values when using the Solver SDK
+     * @param poolAddress The address of the pool
+     * @param tokenId The ID of the token
+     * @param deadline The deadline for the operation
+     * @param maverickParams An array of AddLiquidityParams parameters
+     * @return The encoded parameters as a byte array
+     */
+    function buildExtraParams(
+        address poolAddress,
+        uint256 tokenId,
+        uint256 deadline,
+        IPool.AddLiquidityParams[] memory maverickParams
+    ) external pure returns (bytes memory) {
+        return abi.encode(MaverickDeploymentExtraParams(poolAddress, tokenId, deadline, maverickParams));
+    }
+
+    /**
+     * @notice Creates a new AddLiquidityParams structure
+     * @dev This function helps in building extraParams with dynamic values when using the Solver SDK
+     * @param kind The kind of the parameter
+     * @param pos The position of the parameter
+     * @param isDelta Boolean flag indicating if it's a delta
+     * @param deltaA The delta A value
+     * @param deltaB The delta B value
+     * @return A new AddLiquidityParams structure
+     */
+    function buildMaverickParams(
+        uint8 kind,
+        int32 pos,
+        bool isDelta,
+        uint128 deltaA,
+        uint128 deltaB
+    ) external pure returns (IPool.AddLiquidityParams memory) {
+        return IPool.AddLiquidityParams(kind, pos, isDelta, deltaA, deltaB);
+    }
+
+    ///@dev Adoiding stack-too-deep-errors
+    function _runWithdrawal(
+        IRouter router,
+        uint256[] calldata amounts,
+        MaverickWithdrawalExtraParams memory maverickExtraParams
+    ) private returns (uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas) {
+        (tokenAAmount, tokenBAmount, binDeltas) = router.removeLiquidity(
+            IPool(maverickExtraParams.poolAddress),
+            address(this),
+            maverickExtraParams.tokenId,
+            maverickExtraParams.maverickParams,
+            amounts[0],
+            amounts[1],
+            maverickExtraParams.deadline
+        );
+    }
+
+    function _approveTokens(IRouter router, MaverickDeploymentExtraParams memory maverickExtraParams) private {
+        IPool.AddLiquidityParams[] memory maverickParams = maverickExtraParams.maverickParams;
+
+        uint256[] memory approvalSummary = new uint256[](2);
+        for (uint256 i = 0; i < maverickParams.length; ++i) {
+            approvalSummary[0] += maverickParams[i].deltaA;
+            approvalSummary[1] += maverickParams[i].deltaB;
+        }
+        LibAdapter._approve(IPool(maverickExtraParams.poolAddress).tokenA(), address(router), approvalSummary[0]);
+        LibAdapter._approve(IPool(maverickExtraParams.poolAddress).tokenB(), address(router), approvalSummary[1]);
+    }
+
+    function _collectBinSummary(
+        IPool.BinDelta[] memory binDeltas,
+        IPool pool,
+        uint256 tokenId
+    )
+        private
+        view
+        returns (
+            uint256 binslpAmountSummary,
+            uint256 binslpBalanceSummary,
+            uint256 binsLpTotalSupplySummary,
+            uint256[] memory affectedBinIds
+        )
+    {
+        affectedBinIds = new uint256[](binDeltas.length);
+        for (uint256 i = 0; i < binDeltas.length; ++i) {
+            IPool.BinDelta memory bin = binDeltas[i];
+            affectedBinIds[i] = bin.binId;
+            binslpAmountSummary += bin.deltaLpBalance;
+            binslpBalanceSummary += pool.balanceOf(tokenId, bin.binId);
+            binsLpTotalSupplySummary += pool.getBin(bin.binId).totalSupply;
+        }
+    }
+}
+//slither-disable-end similar-names
+// ===== END SOURCE FILE: src/destinations/adapters/MaverickAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/AuraRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { ConvexRewards } from "src/destinations/adapters/rewards/ConvexRewardsAdapter.sol";
+
+/**
+ * @title AuraAdapter
+ * @dev This contract implements an adapter for interacting with Aura's reward system.
+ * We're using a Convex Adapter as Aura uses the Convex interfaces for LPs staking.
+ */
+//slither-disable-next-line missing-inheritance
+library AuraRewards {
+    /// @notice Claim rewards for Aura staked LP tokens
+    /// @param gauge the reward contract in Aura
+    /// @param defaultToken the reward token always provided. AURA for Aura
+    /// @param sendTo the destination of the rewarded tokens
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(
+        address gauge,
+        address defaultToken,
+        address sendTo
+    ) public returns (uint256[] memory amounts, address[] memory tokens) {
+        (amounts, tokens) = ConvexRewards.claimRewards(gauge, defaultToken, sendTo);
+    }
+
+    /// @notice Claim rewards for Aura staked LP tokens
+    /// @param gauge the reward contract in Aura
+    /// @param defaultToken the reward token always provided. AURA for Aura
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(
+        address gauge,
+        address defaultToken
+    ) public returns (uint256[] memory amounts, address[] memory tokens) {
+        (amounts, tokens) = ConvexRewards.claimRewards(gauge, defaultToken, address(this));
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/AuraRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/BeethovenRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IRewardsOnlyGauge } from "../../../interfaces/external/beethoven/IRewardsOnlyGauge.sol";
+import { IChildChainStreamer } from "../../../interfaces/external/beethoven/IChildChainStreamer.sol";
+import { IChildChainGaugeRewardHelper } from "../../../interfaces/external/beethoven/IChildChainGaugeRewardHelper.sol";
+import { IClaimableRewardsAdapter } from "../../../interfaces/destinations/IClaimableRewardsAdapter.sol";
+
+contract BeethovenRewardsAdapter is IClaimableRewardsAdapter, ReentrancyGuard {
+    // slither-disable-start naming-convention
+    // solhint-disable-next-line var-name-mixedcase
+    IChildChainGaugeRewardHelper public immutable GAUGE_REWARD_HELPER;
+    // slither-disable-end naming-convention
+
+    constructor(IChildChainGaugeRewardHelper gaugeRewardHelper) {
+        if (address(gaugeRewardHelper) == address(0)) revert TokenAddressZero();
+        GAUGE_REWARD_HELPER = gaugeRewardHelper;
+    }
+
+    /**
+     * @param gauge The gauge to claim rewards from
+     */
+    function claimRewards(address gauge) public nonReentrant returns (uint256[] memory, IERC20[] memory) {
+        if (gauge == address(0)) revert TokenAddressZero();
+
+        address account = address(this);
+
+        IRewardsOnlyGauge gaugeContract = IRewardsOnlyGauge(gauge);
+
+        IChildChainStreamer streamer = gaugeContract.reward_contract();
+        uint256 count = streamer.reward_count();
+
+        uint256[] memory balancesBefore = new uint256[](count);
+        IERC20[] memory rewardTokens = new IERC20[](count);
+        uint256[] memory amountsClaimed = new uint256[](count);
+
+        // get balances before
+        for (uint256 i = 0; i < count; ++i) {
+            IERC20 token = streamer.reward_tokens(i);
+            rewardTokens[i] = token;
+            balancesBefore[i] = token.balanceOf(account);
+        }
+
+        // claim rewards
+        GAUGE_REWARD_HELPER.claimRewards(gaugeContract, account);
+
+        // get balances after and calculate amounts claimed
+        for (uint256 i = 0; i < count; ++i) {
+            uint256 balance = rewardTokens[i].balanceOf(account);
+
+            uint256 claimed = balance - balancesBefore[i];
+            amountsClaimed[i] = claimed;
+        }
+
+        emit RewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/BeethovenRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/CamelotRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { INFTPool } from "../../../interfaces/external/camelot/INFTPool.sol";
+import { INFTHandler } from "../../../interfaces/external/camelot/INFTHandler.sol";
+import { IClaimableRewardsAdapter } from "../../../interfaces/destinations/IClaimableRewardsAdapter.sol";
+
+contract CamelotRewardsAdapter is IClaimableRewardsAdapter, INFTHandler, ReentrancyGuard {
+    error WrongOperator(address expected, address actual);
+    error WrongTo(address expected, address actual);
+
+    event OnNFTHarvest(address operator, address to, uint256 tokenId, uint256 grailAmount, uint256 xGrailAmount);
+
+    // slither-disable-start similar-names
+    IERC20 public immutable grailToken;
+    IERC20 public immutable xGrailToken;
+    // slither-disable-end similar-names
+
+    constructor(IERC20 _grailToken, IERC20 _xGrailToken) {
+        if (address(_grailToken) == address(0)) revert TokenAddressZero();
+        if (address(_xGrailToken) == address(0)) revert TokenAddressZero();
+
+        grailToken = _grailToken;
+        xGrailToken = _xGrailToken;
+    }
+
+    /**
+     * @param nftPoolAddress The NFT pool to claim rewards from
+     */
+    function claimRewards(address nftPoolAddress) public nonReentrant returns (uint256[] memory, IERC20[] memory) {
+        if (nftPoolAddress == address(0)) revert TokenAddressZero();
+
+        address account = address(this);
+
+        INFTPool nftPool = INFTPool(nftPoolAddress);
+
+        uint256 grailTokenBalanceBefore = grailToken.balanceOf(account);
+        uint256 xGrailTokenBalanceBefore = xGrailToken.balanceOf(account);
+
+        // get the length of positions NFTs
+        uint256 length = nftPool.balanceOf(account);
+
+        // harvest all positions
+        for (uint256 i = 0; i < length; ++i) {
+            uint256 tokenId = nftPool.tokenOfOwnerByIndex(account, i);
+            nftPool.harvestPosition(tokenId);
+        }
+
+        uint256 grailTokenBalanceAfter = grailToken.balanceOf(account);
+        uint256 xGrailTokenBalanceAfter = xGrailToken.balanceOf(account);
+
+        IERC20[] memory rewardTokens = new IERC20[](2);
+        uint256[] memory amountsClaimed = new uint256[](2);
+
+        rewardTokens[0] = grailToken;
+        amountsClaimed[0] = grailTokenBalanceAfter - grailTokenBalanceBefore;
+        rewardTokens[1] = xGrailToken;
+        amountsClaimed[1] = xGrailTokenBalanceAfter - xGrailTokenBalanceBefore;
+
+        emit RewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+
+    /**
+     * @notice This function is required by Camelot NFTPool if the msg.sender is a contract, to confirm whether it is
+     * able to handle reward harvesting.
+     */
+    function onNFTHarvest(
+        address operator,
+        address to,
+        uint256 tokenId,
+        uint256 grailAmount,
+        uint256 xGrailAmount
+    ) external returns (bool) {
+        if (operator != address(this)) revert WrongOperator(address(this), operator);
+
+        // prevent for harvesting to other address
+        if (to != address(this)) revert WrongTo(address(this), to);
+
+        emit OnNFTHarvest(operator, to, tokenId, grailAmount, xGrailAmount);
+        return true;
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/CamelotRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/ConvexArbitrumRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IConvexRewardPool, RewardType } from "src/interfaces/external/convex/IConvexRewardPool.sol";
+import { IClaimableRewardsAdapter } from "src/interfaces/destinations/IClaimableRewardsAdapter.sol";
+
+contract ConvexArbitrumRewardsAdapter is IClaimableRewardsAdapter, ReentrancyGuard {
+    /**
+     * @param gauge The gauge to claim rewards from
+     */
+    function claimRewards(address gauge) public nonReentrant returns (uint256[] memory, IERC20[] memory) {
+        if (gauge == address(0)) revert TokenAddressZero();
+
+        address account = address(this);
+
+        IConvexRewardPool rewardPool = IConvexRewardPool(gauge);
+        uint256 rewardsLength = rewardPool.rewardLength();
+
+        uint256[] memory balancesBefore = new uint256[](rewardsLength);
+        uint256[] memory amountsClaimed = new uint256[](rewardsLength);
+        IERC20[] memory rewardTokens = new IERC20[](rewardsLength);
+
+        // get balances before
+        for (uint256 i = 0; i < rewardsLength; ++i) {
+            RewardType memory rewardType = rewardPool.rewards(i);
+            IERC20 token = IERC20(rewardType.reward_token);
+            rewardTokens[i] = token;
+            balancesBefore[i] = token.balanceOf(account);
+        }
+        // TODO: Check if it mints CVX by default
+
+        // claim rewards
+        rewardPool.getReward(account);
+
+        // get balances after and calculate amounts claimed
+        for (uint256 i = 0; i < rewardsLength; ++i) {
+            uint256 balance = rewardTokens[i].balanceOf(account);
+            amountsClaimed[i] = balance - balancesBefore[i];
+        }
+
+        emit RewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/ConvexArbitrumRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/ConvexRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { RewardAdapter } from "src/destinations/adapters/rewards/RewardAdapter.sol";
+import { IBaseRewardPool } from "src/interfaces/external/convex/IBaseRewardPool.sol";
+import { IClaimableRewardsAdapter } from "src/interfaces/destinations/IClaimableRewardsAdapter.sol";
+
+//slither-disable-next-line missing-inheritance
+library ConvexRewards {
+    using SafeERC20 for IERC20;
+
+    /// @notice Claim rewards for Convex staked LP tokens
+    /// @param gauge the reward contract in Convex
+    /// @param defaultToken the reward token always provided. CVX for Convex
+    /// @param sendTo the destination of the rewarded tokens
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(
+        address gauge,
+        address defaultToken,
+        address sendTo
+    ) public returns (uint256[] memory amounts, address[] memory tokens) {
+        return _claimRewards(gauge, defaultToken, sendTo);
+    }
+
+    /// @notice Claim rewards for Convex staked LP tokens
+    /// @param gauge the reward contract in Convex
+    /// @param defaultToken the reward token always provided. CVX for Convex
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(
+        address gauge,
+        address defaultToken
+    ) public returns (uint256[] memory amounts, address[] memory tokens) {
+        return _claimRewards(gauge, defaultToken, address(this));
+    }
+
+    /// @notice Claim rewards for Convex staked LP tokens
+    /// @dev tokens are ordered as: extras, crv/bal, default (cvx/aura)
+    /// @param gauge the reward contract in Convex
+    /// @param defaultToken the reward token always provided. CVX for Convex
+    /// @param sendTo the destination of the rewarded tokens
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function _claimRewards(
+        address gauge,
+        address defaultToken,
+        address sendTo
+    ) internal returns (uint256[] memory amounts, address[] memory tokens) {
+        Errors.verifyNotZero(gauge, "gauge");
+
+        address account = address(this);
+
+        IBaseRewardPool rewardPool = IBaseRewardPool(gauge);
+        uint256 extraRewardsLength = rewardPool.extraRewardsLength();
+        uint256 totalLength = extraRewardsLength + (defaultToken != address(0) ? 2 : 1);
+
+        uint256[] memory balancesBefore = new uint256[](totalLength);
+        uint256[] memory amountsClaimed = new uint256[](totalLength);
+        address[] memory rewardTokens = new address[](totalLength);
+
+        // add pool rewards tokens and extra rewards tokens to rewardTokens array
+        IERC20 rewardToken = rewardPool.rewardToken();
+        rewardTokens[extraRewardsLength] = address(rewardToken);
+        if (extraRewardsLength > 0) {
+            for (uint256 i = 0; i < extraRewardsLength; ++i) {
+                address extraReward = rewardPool.extraRewards(i);
+                rewardTokens[i] = address(IBaseRewardPool(extraReward).rewardToken());
+            }
+        }
+        if (defaultToken != address(0)) {
+            rewardTokens[totalLength - 1] = defaultToken;
+        }
+
+        // get balances before
+        for (uint256 i = 0; i < totalLength; ++i) {
+            // Using the totalSupply check to represent stash tokens. They sometimes
+            // stand in as the rewardToken but they don't have a "balanceOf()"
+            if (IERC20(rewardTokens[i]).totalSupply() > 0) {
+                balancesBefore[i] = IERC20(rewardTokens[i]).balanceOf(account);
+            }
+        }
+
+        // claim rewards
+        bool result = rewardPool.getReward(account, true);
+        if (!result) {
+            revert RewardAdapter.ClaimRewardsFailed();
+        }
+
+        // get balances after and calculate amounts claimed
+        for (uint256 i = 0; i < totalLength; ++i) {
+            uint256 balance = 0;
+            // Same check for "stash tokens"
+            if (IERC20(rewardTokens[i]).totalSupply() > 0) {
+                balance = IERC20(rewardTokens[i]).balanceOf(account);
+            }
+
+            amountsClaimed[i] = balance - balancesBefore[i];
+
+            if (sendTo != address(this) && amountsClaimed[i] > 0) {
+                IERC20(rewardTokens[i]).safeTransfer(sendTo, amountsClaimed[i]);
+            }
+        }
+
+        RewardAdapter.emitRewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/ConvexRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/CurveRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { ILiquidityGaugeV2 } from "../../../interfaces/external/curve/ILiquidityGaugeV2.sol";
+import { IClaimableRewardsAdapter } from "../../../interfaces/destinations/IClaimableRewardsAdapter.sol";
+
+contract CurveRewardsAdapter is IClaimableRewardsAdapter, ReentrancyGuard {
+    // solhint-disable-next-line var-name-mixedcase
+    uint256 private constant MAX_REWARDS = 8;
+
+    /**
+     * @param gauge The gauge to claim rewards from
+     */
+    function claimRewards(address gauge) public nonReentrant returns (uint256[] memory, IERC20[] memory) {
+        if (gauge == address(0)) revert TokenAddressZero();
+
+        address account = address(this);
+
+        ILiquidityGaugeV2 rewardPool = ILiquidityGaugeV2(gauge);
+
+        IERC20[] memory tempRewardTokens = new IERC20[](MAX_REWARDS);
+        uint256 rewardsLength = 0;
+
+        // Curve Pool don't have a method to get the reward tokens length
+        // so we need to iterate until we get a zero address.
+        // All Curve pools have MAX_REWARDS set to 8
+        // https://etherscan.deth.net/address/0x182b723a58739a9c974cfdb385ceadb237453c28
+        for (uint256 i = 0; i < MAX_REWARDS; ++i) {
+            address rewardToken = rewardPool.reward_tokens(i);
+            if (rewardToken == address(0)) {
+                break;
+            }
+            tempRewardTokens[i] = IERC20(rewardToken);
+            ++rewardsLength;
+        }
+
+        // resize the tokens array to the correct size
+        IERC20[] memory rewardTokens = new IERC20[](rewardsLength);
+        for (uint256 i = 0; i < rewardsLength; ++i) {
+            rewardTokens[i] = tempRewardTokens[i];
+        }
+
+        uint256[] memory balancesBefore = new uint256[](rewardsLength);
+        uint256[] memory amountsClaimed = new uint256[](rewardsLength);
+
+        // get balances before
+        for (uint256 i = 0; i < rewardsLength; ++i) {
+            balancesBefore[i] = rewardTokens[i].balanceOf(account);
+        }
+
+        // claim rewards
+        rewardPool.claim_rewards(account);
+
+        // get balances after and calculate amounts claimed
+        for (uint256 i = 0; i < rewardsLength; ++i) {
+            uint256 balance = rewardTokens[i].balanceOf(account);
+
+            amountsClaimed[i] = balance - balancesBefore[i];
+        }
+
+        emit RewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/CurveRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/MaverickRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { IReward } from "src/interfaces/external/maverick/IReward.sol";
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { SafeERC20 } from "openzeppelin-contracts/token/ERC20/utils/SafeERC20.sol";
+import { RewardAdapter } from "src/destinations/adapters/rewards/RewardAdapter.sol";
+
+//slither-disable-next-line missing-inheritance
+library MaverickRewardsAdapter {
+    using SafeERC20 for IERC20;
+
+    /// @notice Claim rewards for Maverick Boosted Position LP tokens staked in their rewarder
+    /// @param rewarder the Maverick rewarder contract
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(address rewarder) public returns (uint256[] memory, address[] memory) {
+        return _claimRewards(rewarder, address(this));
+    }
+
+    /// @notice Claim rewards for Maverick Boosted Position LP tokens staked in their rewarder
+    /// @param rewarder the Maverick rewarder contract
+    /// @param sendTo the destination of the rewarded tokens
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function claimRewards(address rewarder, address sendTo) public returns (uint256[] memory, address[] memory) {
+        return _claimRewards(rewarder, sendTo);
+    }
+
+    /// @notice Claim rewards for Maverick Boosted Position LP tokens staked in their rewarder
+    /// @param rewarder the Maverick rewarder contract
+    /// @param sendTo the destination of the rewarded tokens
+    /// @return amounts the amount of each token that was claimed
+    /// @return tokens the tokens that were claimed
+    function _claimRewards(address rewarder, address sendTo) internal returns (uint256[] memory, address[] memory) {
+        Errors.verifyNotZero(rewarder, "rewarder");
+        address account = address(this);
+
+        IReward reward = IReward(rewarder);
+
+        // Fetching the earned rewards information
+        IReward.EarnedInfo[] memory earnedInfos = reward.earned(account);
+        uint256 length = earnedInfos.length;
+
+        address[] memory rewardTokens = new address[](length);
+        uint256[] memory amountsClaimed = new uint256[](length);
+
+        // Iterating over each reward info, if earned is not zero, reward is claimed
+        for (uint256 i = 0; i < length; ++i) {
+            IReward.EarnedInfo memory earnedInfo = earnedInfos[i];
+            IERC20 rewardToken = IERC20(earnedInfo.rewardToken);
+            rewardTokens[i] = address(rewardToken);
+
+            if (earnedInfo.earned == 0) {
+                amountsClaimed[i] = 0;
+                continue;
+            }
+
+            // Fetching the current balance before claiming the reward
+            uint256 balanceBefore = rewardToken.balanceOf(sendTo);
+
+            // Claiming the reward
+            // slither-disable-next-line unused-return
+            reward.getReward(sendTo, uint8(i));
+
+            // Calculating the claimed amount by comparing the balance after claiming the reward
+            amountsClaimed[i] = rewardToken.balanceOf(sendTo) - balanceBefore;
+        }
+
+        RewardAdapter.emitRewardsClaimed(rewardTokens, amountsClaimed);
+
+        return (amountsClaimed, rewardTokens);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/MaverickRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/RewardAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+/// @title Common functionality for reward adapter libraries
+library RewardAdapter {
+    error ClaimRewardsFailed();
+
+    event RewardsClaimed(address[] tokens, uint256[] amounts);
+
+    /// @notice Emit RewardsClaimed(address[],uint256[]) event common to all reward claim libraries
+    /// @param tokens reward token addresses claimed
+    /// @param amounts amounts of each token claimed
+    function emitRewardsClaimed(address[] memory tokens, uint256[] memory amounts) internal {
+        emit RewardsClaimed(tokens, amounts);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/RewardAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/rewards/VelodromeRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IClaimableRewardsAdapter } from "../../../interfaces/destinations/IClaimableRewardsAdapter.sol";
+import { IVoter } from "../../../interfaces/external/velodrome/IVoter.sol";
+import { IVotingEscrow } from "../../../interfaces/external/velodrome/IVotingEscrow.sol";
+import { IGauge } from "../../../interfaces/external/velodrome/IGauge.sol";
+import { IBaseBribe } from "../../../interfaces/external/velodrome/IBaseBribe.sol";
+import { IWrappedExternalBribeFactory } from "../../../interfaces/external/velodrome/IWrappedExternalBribeFactory.sol";
+import { IRewardsDistributor } from "../../../interfaces/external/velodrome/IRewardsDistributor.sol";
+
+/**
+ * @title VelodromeRewardsAdapter
+ * @dev This contract implements an adapter for interacting with Velodrome Finance's reward system.
+ * The Velodrome Finance platform offers four types of rewards:
+ *  - Emissions:  rewards distributed to liquidity providers based on their share of the liquidity pool.
+ *      - _claimEmissions() is used to claim these rewards.
+ *  - Fees: rewards distributed to users who interact with the platform through trades or other actions.
+ *      - _claimFees() is used to claim these rewards.
+ *  - Bribes: rewards distributed to users who vote in governance proposals.
+ *      - _claimBribes() is used to claim these rewards.
+ *  - Rebases: rewards distributed to users who hold a particular token during a rebase event.
+ *      - _rebase() is used to claim these rewards.
+ *      - 🚨This contract does not use rebases yet.🚨
+ */
+contract VelodromeRewardsAdapter is IClaimableRewardsAdapter, ReentrancyGuard {
+    enum ClaimType {
+        Bribes,
+        Fees
+    }
+
+    error InvalidClaimType();
+
+    // solhint-disable-next-line var-name-mixedcase
+    IVoter public immutable VOTER;
+    // solhint-disable-next-line var-name-mixedcase
+    IWrappedExternalBribeFactory public immutable WRAPPED_BRIBE_FACTORY;
+    // solhint-disable-next-line var-name-mixedcase
+    IVotingEscrow public immutable VOTING_ESCROW;
+    // solhint-disable-next-line var-name-mixedcase
+    IRewardsDistributor public immutable REWARDS_DISTRIBUTOR;
+
+    constructor(address voter, address wrappedBribeFactory, address votingEscrow, address rewardsDistributor) {
+        if (voter == address(0)) revert TokenAddressZero();
+        if (wrappedBribeFactory == address(0)) revert TokenAddressZero();
+        if (votingEscrow == address(0)) revert TokenAddressZero();
+        if (rewardsDistributor == address(0)) revert TokenAddressZero();
+
+        VOTER = IVoter(voter);
+        WRAPPED_BRIBE_FACTORY = IWrappedExternalBribeFactory(wrappedBribeFactory);
+        VOTING_ESCROW = IVotingEscrow(votingEscrow);
+        REWARDS_DISTRIBUTOR = IRewardsDistributor(rewardsDistributor);
+    }
+
+    /**
+     * @param pool The pool to claim rewards from
+     */
+    function claimRewards(address pool) public nonReentrant returns (uint256[] memory, IERC20[] memory) {
+        address gaugeAddress = VOTER.gauges(pool);
+
+        uint256[] memory tokensIds = _getAccountTokenIds(_getContractAddress());
+
+        (uint256[] memory amountsFees, IERC20[] memory feesTokens) = _claimFees(gaugeAddress, tokensIds);
+
+        (uint256[] memory amountsBribes, IERC20[] memory bribesTokens) = _claimBribes(gaugeAddress, tokensIds);
+
+        (uint256[] memory amountsEmissions, IERC20[] memory emissionsTokens) = _claimEmissions(gaugeAddress);
+
+        (uint256[] memory amountsMerged, IERC20[] memory rewardTokensMerged) =
+            _mergeArrays(feesTokens, amountsFees, bribesTokens, amountsBribes);
+
+        (uint256[] memory amountsClaimed, IERC20[] memory rewardTokens) =
+            _mergeArrays(rewardTokensMerged, amountsMerged, emissionsTokens, amountsEmissions);
+
+        emit RewardsClaimed(rewardTokens, amountsClaimed);
+        return (amountsClaimed, rewardTokens);
+    }
+
+    function _claimEmissions(address gaugeAddress)
+        private
+        returns (uint256[] memory amountsClaimed, IERC20[] memory rewards)
+    {
+        IGauge gauge = IGauge(gaugeAddress);
+        address[] memory gaugeRewards = _getGaugeRewards(gauge);
+
+        uint256 count = gaugeRewards.length;
+        uint256[] memory balancesBefore = new uint256[](count);
+        amountsClaimed = new uint256[](count);
+        rewards = new IERC20[](count);
+
+        for (uint256 i = 0; i < count; ++i) {
+            IERC20 reward = IERC20(gaugeRewards[i]);
+            rewards[i] = reward;
+            balancesBefore[i] = reward.balanceOf(_getContractAddress());
+        }
+
+        gauge.getReward(_getContractAddress(), gaugeRewards);
+
+        for (uint256 i = 0; i < count; ++i) {
+            uint256 balanceAfter = rewards[i].balanceOf(_getContractAddress());
+            amountsClaimed[i] = balanceAfter - balancesBefore[i];
+        }
+
+        return (amountsClaimed, rewards);
+    }
+
+    function _claimFees(
+        address gaugeAddress,
+        uint256[] memory tokensIds
+    ) private returns (uint256[] memory amountsClaimed, IERC20[] memory rewards) {
+        address internalBribes = VOTER.internal_bribes(gaugeAddress);
+        return _claimBribesOrFees(internalBribes, tokensIds, ClaimType.Fees);
+    }
+
+    function _claimBribes(
+        address gaugeAddress,
+        uint256[] memory tokensIds
+    ) private returns (uint256[] memory amountsClaimed, IERC20[] memory rewards) {
+        address externalBribes = VOTER.external_bribes(gaugeAddress);
+
+        address wrappedBribe = WRAPPED_BRIBE_FACTORY.oldBribeToNew(externalBribes);
+
+        if (wrappedBribe != address(0)) {
+            externalBribes = wrappedBribe;
+        }
+        return _claimBribesOrFees(externalBribes, tokensIds, ClaimType.Bribes);
+    }
+
+    function _claimBribesOrFees(
+        address bribe,
+        uint256[] memory tokensIds,
+        ClaimType claimType
+    ) private returns (uint256[] memory amountsClaimed, IERC20[] memory rewardTokens) {
+        address[] memory rewards = _getBribeRewards(bribe);
+        uint256 count = rewards.length;
+        uint256[] memory balancesBefore = new uint256[](count);
+        rewardTokens = new IERC20[](count);
+        amountsClaimed = new uint256[](count);
+
+        for (uint256 i = 0; i < count; ++i) {
+            IERC20 reward = IERC20(rewards[i]);
+            rewardTokens[i] = IERC20(reward);
+            balancesBefore[i] = reward.balanceOf(_getContractAddress());
+        }
+
+        address[] memory fees = addressToArray(bribe);
+        address[][] memory tokens = arrayToMatrix(rewards);
+
+        uint256 tokensIdsLength = tokensIds.length;
+        for (uint256 i = 0; i < tokensIdsLength; ++i) {
+            uint256 tokenId = tokensIds[i];
+            if (claimType == ClaimType.Bribes) {
+                VOTER.claimBribes(fees, tokens, tokenId);
+            } else if (claimType == ClaimType.Fees) {
+                VOTER.claimFees(fees, tokens, tokenId);
+            } else {
+                revert InvalidClaimType();
+            }
+        }
+
+        for (uint256 i = 0; i < count; ++i) {
+            IERC20 reward = rewardTokens[i];
+            uint256 balanceAfter = reward.balanceOf(_getContractAddress());
+            amountsClaimed[i] = balanceAfter - balancesBefore[i];
+        }
+    }
+
+    // @dev This function is used to claim rewards yet as it not only claims rewards but also stack the tokens
+    // slither-disable-next-line dead-code
+    function _rebase(uint256[] memory tokensIds) private {
+        bool success = REWARDS_DISTRIBUTOR.claim_many(tokensIds);
+        if (!success) {
+            revert ClaimRewardsFailed();
+        }
+    }
+
+    function _getGaugeRewards(IGauge gauge) private view returns (address[] memory rewards) {
+        uint256 length = gauge.rewardsListLength();
+
+        rewards = new address[](length);
+
+        for (uint256 i = 0; i < length; ++i) {
+            address reward = gauge.rewards(i);
+            rewards[i] = reward;
+        }
+
+        return rewards;
+    }
+
+    function _getAccountTokenIds(address account) private view returns (uint256[] memory tokensIds) {
+        uint256 balance = VOTING_ESCROW.balanceOf(_getContractAddress());
+        tokensIds = new uint256[](balance);
+
+        for (uint256 i = 0; i < balance; ++i) {
+            uint256 tokenId = VOTING_ESCROW.tokenOfOwnerByIndex(account, i);
+            tokensIds[i] = tokenId;
+        }
+    }
+
+    function _getBribeRewards(address bribe) private view returns (address[] memory rewards) {
+        IBaseBribe internalBribe = IBaseBribe(bribe);
+
+        uint256 rewardsListLength = internalBribe.rewardsListLength();
+        rewards = new address[](rewardsListLength);
+
+        for (uint256 i = 0; i < rewardsListLength; ++i) {
+            address reward = internalBribe.rewards(i);
+            rewards[i] = reward;
+        }
+        return rewards;
+    }
+
+    /// @dev Converts an array to a matrix of length one for use with the Voter interface claimFees and claimBribes
+    /// functions
+    function arrayToMatrix(address[] memory rewards) private pure returns (address[][] memory result) {
+        result = new address[][](1);
+        result[0] = rewards;
+    }
+
+    /// @dev Converts an address to an array of length one for use with the Voter interface claimFees and claimBribes
+    // functions
+    function addressToArray(address adr) private pure returns (address[] memory result) {
+        result = new address[](1);
+        result[0] = adr;
+    }
+
+    function _mergeArrays(
+        IERC20[] memory addressesA,
+        uint256[] memory valuesA,
+        IERC20[] memory addressesB,
+        uint256[] memory valuesB
+    ) private pure returns (uint256[] memory amountsClaimed, IERC20[] memory rewardTokens) {
+        IERC20[] memory tempAddresses = new IERC20[](addressesA.length + addressesB.length);
+
+        uint256 toRemoveCount = 0;
+
+        IERC20[] memory mergedAddresses = _concatenateAddressesArrays(addressesA, addressesB);
+        uint256[] memory mergedValues = _concatenateUint256Arrays(valuesA, valuesB);
+
+        uint256 length = mergedAddresses.length;
+        for (uint256 i = 0; i < length; ++i) {
+            IERC20 currentAddress = mergedAddresses[i];
+
+            if (_isInArray(tempAddresses, currentAddress)) {
+                ++toRemoveCount;
+                continue;
+            }
+            tempAddresses[i] = currentAddress;
+
+            for (uint256 j = i + 1; j < mergedAddresses.length; ++j) {
+                if (mergedAddresses[j] == currentAddress) {
+                    mergedValues[i] += mergedValues[j];
+                }
+            }
+        }
+
+        uint256 mergedLength = mergedAddresses.length;
+
+        uint256 newLength = mergedLength - toRemoveCount;
+        rewardTokens = new IERC20[](newLength);
+        amountsClaimed = new uint256[](newLength);
+
+        uint256 k = 0;
+        for (uint256 i = 0; i < mergedLength; ++i) {
+            if (address(tempAddresses[i]) == address(0)) {
+                continue;
+            } else {
+                rewardTokens[k] = IERC20(tempAddresses[i]);
+                amountsClaimed[k] = mergedValues[i];
+                ++k;
+            }
+        }
+    }
+
+    function _concatenateUint256Arrays(
+        uint256[] memory arr1,
+        uint256[] memory arr2
+    ) private pure returns (uint256[] memory) {
+        uint256 len1 = arr1.length;
+        uint256 len2 = arr2.length;
+        uint256[] memory result = new uint256[](len1 + len2);
+
+        for (uint256 i = 0; i < len1; ++i) {
+            result[i] = arr1[i];
+        }
+
+        for (uint256 i = 0; i < len2; ++i) {
+            result[len1 + i] = arr2[i];
+        }
+
+        return result;
+    }
+
+    function _concatenateAddressesArrays(
+        IERC20[] memory arr1,
+        IERC20[] memory arr2
+    ) private pure returns (IERC20[] memory) {
+        uint256 len1 = arr1.length;
+        uint256 len2 = arr2.length;
+        IERC20[] memory result = new IERC20[](len1 + len2);
+
+        for (uint256 i = 0; i < len1; ++i) {
+            result[i] = arr1[i];
+        }
+
+        for (uint256 i = 0; i < len2; ++i) {
+            result[len1 + i] = arr2[i];
+        }
+
+        return result;
+    }
+
+    function _isInArray(IERC20[] memory elements, IERC20 element) private pure returns (bool) {
+        uint256 length = elements.length;
+        for (uint256 i = 0; i < length; ++i) {
+            if (elements[i] == element) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function _getContractAddress() private view returns (address) {
+        // slither-disable-next-line var-read-using-this
+        return this.getContractAddress();
+    }
+
+    /**
+     * @dev This function adds an extra STATICCALL, but it is very helpful for testing purposes.
+     *  The function can be easily mocked to impersonate user calls
+     */
+    function getContractAddress() public view returns (address) {
+        return address(this);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/rewards/VelodromeRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/staking/AuraAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { ConvexStaking } from "./ConvexAdapter.sol";
+import { IConvexBooster } from "src/interfaces/external/convex/IConvexBooster.sol";
+
+/**
+ * @title AuraAdapter
+ * @dev This contract implements an adapter for interacting with Aura's reward system.
+ * We're using a Convex Adapter as Aura uses the Convex interfaces for LPs staking.
+ */
+library AuraStaking {
+    /**
+     * @notice Deposits and stakes Curve LP tokens to Convex
+     * @dev Calls to external contract
+     * @param booster Convex Booster address
+     * @param lpToken Curve LP token to deposit
+     * @param staking Convex reward contract associated with the Curve LP token
+     * @param poolId Convex poolId for the associated Curve LP token
+     * @param amount Quantity of Curve LP token to deposit and stake
+     */
+    function depositAndStake(
+        IConvexBooster booster,
+        address lpToken,
+        address staking,
+        uint256 poolId,
+        uint256 amount
+    ) public {
+        ConvexStaking.depositAndStake(booster, lpToken, staking, poolId, amount);
+    }
+
+    /**
+     * @notice Withdraws a Curve LP token from Convex
+     * @dev Does not claim available rewards
+     * @dev Calls to external contract
+     * @param lpToken Curve LP token to withdraw
+     * @param staking Convex reward contract associated with the Curve LP token
+     * @param amount Quantity of Curve LP token to withdraw
+     */
+    function withdrawStake(address lpToken, address staking, uint256 amount) public {
+        ConvexStaking.withdrawStake(lpToken, staking, amount);
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/staking/AuraAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/staking/ConvexAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import { IBaseRewardPool } from "src/interfaces/external/convex/IBaseRewardPool.sol";
+import { IConvexBooster } from "src/interfaces/external/convex/IConvexBooster.sol";
+import { LibAdapter } from "src/libs/LibAdapter.sol";
+
+library ConvexStaking {
+    event DeployLiquidity(address lpToken, address staking, uint256 poolId, uint256 amount);
+    event WithdrawLiquidity(address lpToken, address staking, uint256 amount);
+
+    error withdrawStakeFailed();
+    error DepositAndStakeFailed();
+    error PoolIdLpTokenMismatch();
+    error PoolIdStakingMismatch();
+
+    error MustBeMoreThanZero();
+    error ArraysLengthMismatch();
+    error BalanceMustIncrease();
+    error MinLpAmountNotReached();
+    error LpTokenAmountMismatch();
+    error NoNonZeroAmountProvided();
+    error InvalidBalanceChange();
+    error InvalidAddress(address);
+
+    /**
+     * @notice Deposits and stakes Curve LP tokens to Convex
+     * @dev Calls to external contract
+     * @param booster Convex Booster address
+     * @param lpToken Curve LP token to deposit
+     * @param staking Convex reward contract associated with the Curve LP token
+     * @param poolId Convex poolId for the associated Curve LP token
+     * @param amount Quantity of Curve LP token to deposit and stake
+     */
+    function depositAndStake(
+        IConvexBooster booster,
+        address lpToken,
+        address staking,
+        uint256 poolId,
+        uint256 amount
+    ) public {
+        if (address(booster) == address(0)) revert InvalidAddress(address(booster));
+        if (lpToken == address(0)) revert InvalidAddress(address(lpToken));
+        if (staking == address(0)) revert InvalidAddress(address(staking));
+        if (amount == 0) revert MustBeMoreThanZero();
+
+        emit DeployLiquidity(lpToken, staking, poolId, amount);
+
+        _validatePoolInfo(booster, poolId, lpToken, staking);
+
+        LibAdapter._approve(IERC20(lpToken), address(booster), amount);
+
+        IBaseRewardPool rewards = IBaseRewardPool(staking);
+        uint256 rewardsBeforeBalance = rewards.balanceOf(address(this));
+
+        _runDeposit(booster, poolId, amount);
+
+        if (rewards.balanceOf(address(this)) - rewardsBeforeBalance != amount) {
+            revert BalanceMustIncrease();
+        }
+    }
+
+    /**
+     * @notice Withdraws a Curve LP token from Convex
+     * @dev Does not claim available rewards
+     * @dev Calls to external contract
+     * @param lpToken Curve LP token to withdraw
+     * @param staking Convex reward contract associated with the Curve LP token
+     * @param amount Quantity of Curve LP token to withdraw
+     */
+    function withdrawStake(address lpToken, address staking, uint256 amount) public {
+        // slither-disable-start incorrect-equality
+        if (lpToken == address(0)) revert InvalidAddress(lpToken);
+        if (staking == address(0)) revert InvalidAddress(staking);
+        if (amount == 0) revert MustBeMoreThanZero();
+        // slither-disable-end incorrect-equality
+
+        IERC20 lpTokenErc = IERC20(lpToken);
+        uint256 beforeLpBalance = lpTokenErc.balanceOf(address(this));
+
+        IBaseRewardPool rewards = IBaseRewardPool(staking);
+
+        emit WithdrawLiquidity(lpToken, staking, amount);
+
+        bool success = rewards.withdrawAndUnwrap(amount, false);
+        if (!success) revert withdrawStakeFailed();
+
+        uint256 updatedLpBalance = lpTokenErc.balanceOf(address(this));
+        if (updatedLpBalance - beforeLpBalance != amount) {
+            revert BalanceMustIncrease();
+        }
+    }
+
+    /// @dev Separate function to avoid stack-too-deep errors
+    function _runDeposit(IConvexBooster booster, uint256 poolId, uint256 amount) private {
+        bool success = booster.deposit(poolId, amount, true);
+        if (!success) revert DepositAndStakeFailed();
+    }
+
+    /// @dev Separate function to avoid stack-too-deep errors
+    function _validatePoolInfo(IConvexBooster booster, uint256 poolId, address lpToken, address staking) private view {
+        // Partial return values are intentionally ignored. This call provides the most efficient way to get the data.
+        // slither-disable-next-line unused-return
+        (address poolLpToken,,, address crvRewards,,) = booster.poolInfo(poolId);
+        if (lpToken != poolLpToken) revert PoolIdLpTokenMismatch();
+        if (staking != crvRewards) revert PoolIdStakingMismatch();
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/staking/ConvexAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/staking/MaverickStakingAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import { IReward } from "src/interfaces/external/maverick/IReward.sol";
+import { LibAdapter } from "src/libs/LibAdapter.sol";
+import { Errors } from "src/utils/Errors.sol";
+
+library MaverickStakingAdapter {
+    event DeployLiquidity(
+        address stakingToken,
+        // 0 - lpStakeAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address rewarder
+    );
+
+    event WithdrawLiquidity(
+        address stakingToken,
+        // 0 - lpUnstakeAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address rewarder
+    );
+
+    error InvalidBalanceChange();
+
+    /**
+     * @notice Stakes tokens from Maverick Reward contract
+     * @dev Calls to external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param rewarder Maverick Reward contract
+     * @param amount quantity of staking token to deposit
+     */
+    function stakeLPs(IReward rewarder, uint256 amount) public {
+        //slither-disable-start reentrancy-events
+        Errors.verifyNotZero(address(rewarder), "rewarder");
+        Errors.verifyNotZero(amount, "amount");
+
+        uint256 lpTokensBefore = rewarder.balanceOf(address(this));
+
+        address stakingToken = rewarder.stakingToken();
+        LibAdapter._approve(IERC20(stakingToken), address(rewarder), amount);
+        rewarder.stake(amount, address(this));
+
+        uint256 lpTokensAfter = rewarder.balanceOf(address(this));
+        if (lpTokensAfter - lpTokensBefore != amount) revert InvalidBalanceChange();
+
+        emit DeployLiquidity(
+            stakingToken, [amount, lpTokensAfter, IERC20(stakingToken).totalSupply()], address(rewarder)
+        );
+        //slither-disable-end reentrancy-events
+    }
+
+    /**
+     * @notice Unstakes tokens from Maverick Reward contract
+     * @dev Calls to external contract. Should be guarded with
+     * non-reentrant flags in a used contract
+     * @param rewarder Maverick Reward contract
+     * @param amount quantity of staking token to deposit
+     */
+    function unstakeLPs(IReward rewarder, uint256 amount) public {
+        //slither-disable-start reentrancy-events
+        Errors.verifyNotZero(address(rewarder), "rewarder");
+        Errors.verifyNotZero(amount, "amount");
+
+        uint256 lpTokensBefore = rewarder.balanceOf(address(this));
+
+        address stakingToken = rewarder.stakingToken();
+        rewarder.unstake(amount, address(this));
+
+        uint256 lpTokensAfter = rewarder.balanceOf(address(this));
+        if (lpTokensBefore - lpTokensAfter != amount) revert InvalidBalanceChange();
+
+        emit WithdrawLiquidity(
+            stakingToken, [amount, lpTokensAfter, IERC20(stakingToken).totalSupply()], address(rewarder)
+        );
+        //slither-disable-end reentrancy-events
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/staking/MaverickStakingAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/staking/VelodromeStakingAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IStakingAdapter } from "../../../interfaces/destinations/IStakingAdapter.sol";
+import { IVoter } from "../../../interfaces/external/velodrome/IVoter.sol";
+import { IVotingEscrow } from "../../../interfaces/external/velodrome/IVotingEscrow.sol";
+import { IGauge } from "../../../interfaces/external/velodrome/IGauge.sol";
+import { IBaseBribe } from "../../../interfaces/external/velodrome/IBaseBribe.sol";
+import { IWrappedExternalBribeFactory } from "../../../interfaces/external/velodrome/IWrappedExternalBribeFactory.sol";
+import { IRewardsDistributor } from "../../../interfaces/external/velodrome/IRewardsDistributor.sol";
+import { IPair } from "../../../interfaces/external/velodrome/IPair.sol";
+import { LibAdapter } from "../../../libs/LibAdapter.sol";
+
+contract VelodromeStakingAdapter is IStakingAdapter, ReentrancyGuard {
+    event DeployLiquidity(
+        uint256[] amountsDeposited,
+        uint256[] tokensIds,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address pool,
+        address gaugeAddress,
+        address staking
+    );
+
+    event WithdrawLiquidity(
+        uint256[] amountsWithdrawn,
+        uint256[] tokensIds,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address pool,
+        address gaugeAddress,
+        address staking
+    );
+
+    IVoter public immutable voter;
+
+    constructor(address _voter) {
+        if (_voter == address(0)) revert InvalidAddress(_voter);
+        voter = IVoter(_voter);
+    }
+
+    /**
+     * @notice Stakes tokens to Velodrome
+     * @dev Calls to external contract
+     * @param amounts amounts of corresponding tokenIds to add
+     * @param tokenIds ids for the associated LP tokens
+     * @param minLpMintAmount min amount to reach in result of staking (for all tokens in summary)
+     * @param pool corresponding pool of the deposited tokens
+     */
+    function stakeLPs(
+        uint256[] calldata amounts,
+        uint256[] calldata tokenIds,
+        uint256 minLpMintAmount,
+        address pool
+    ) public nonReentrant {
+        if (minLpMintAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length == 0 || amounts.length != tokenIds.length) revert ArraysLengthMismatch();
+        if (pool == address(0)) revert InvalidAddress(pool);
+
+        address gaugeAddress = voter.gauges(pool);
+        IGauge gauge = IGauge(gaugeAddress);
+
+        uint256 lpTokensBefore = gauge.balanceOf(address(this));
+        for (uint256 i = 0; i < amounts.length; ++i) {
+            LibAdapter._approve(IERC20(gauge.stake()), address(gauge), amounts[i]);
+            gauge.deposit(amounts[i], tokenIds[i]);
+        }
+        uint256 lpTokensAfter = gauge.balanceOf(address(this));
+        uint256 lpTokenAmount = lpTokensAfter - lpTokensBefore;
+        if (lpTokenAmount < minLpMintAmount) revert MinLpAmountNotReached();
+
+        emit DeployLiquidity(
+            amounts,
+            tokenIds,
+            [lpTokenAmount, lpTokensAfter, gauge.totalSupply()],
+            pool,
+            address(gauge),
+            address(gauge.stake())
+        );
+    }
+
+    /**
+     * @notice Unstakes tokens from Velodrome
+     * @dev Calls to external contract
+     * @param amounts amounts of corresponding tokenIds to add
+     * @param tokenIds ids for the associated LP tokens
+     * @param maxLpBurnAmount max amount to burn in result of unstaking (for all tokens in summary)
+     * @param pool corresponding pool of the deposited tokens
+     */
+    function unstakeLPs(
+        uint256[] calldata amounts,
+        uint256[] calldata tokenIds,
+        uint256 maxLpBurnAmount,
+        address pool
+    ) public nonReentrant {
+        if (maxLpBurnAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length == 0 || amounts.length != tokenIds.length) revert ArraysLengthMismatch();
+        if (pool == address(0)) revert InvalidAddress(pool);
+
+        address gaugeAddress = voter.gauges(pool);
+        IGauge gauge = IGauge(gaugeAddress);
+
+        uint256 lpTokensBefore = gauge.balanceOf(address(this));
+
+        for (uint256 i = 0; i < amounts.length; ++i) {
+            gauge.withdrawToken(amounts[i], tokenIds[i]);
+        }
+
+        uint256 lpTokensAfter = gauge.balanceOf(address(this));
+
+        uint256 lpTokenAmount = lpTokensBefore - lpTokensAfter;
+        if (lpTokenAmount > maxLpBurnAmount) revert LpTokenAmountMismatch();
+
+        emit WithdrawLiquidity(
+            amounts,
+            tokenIds,
+            [lpTokenAmount, lpTokensAfter, gauge.totalSupply()],
+            pool,
+            address(gauge),
+            address(gauge.stake())
+        );
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/staking/VelodromeStakingAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/adapters/VelodromeAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { ReentrancyGuard } from "openzeppelin-contracts/security/ReentrancyGuard.sol";
+
+import { IPoolAdapter } from "../../interfaces/destinations/IPoolAdapter.sol";
+import { IRouter } from "../../interfaces/external/velodrome/IRouter.sol";
+import { IVotingEscrow } from "../../interfaces/external/velodrome/IVotingEscrow.sol";
+import { IGauge } from "../../interfaces/external/velodrome/IGauge.sol";
+import { IBaseBribe } from "../../interfaces/external/velodrome/IBaseBribe.sol";
+import { IWrappedExternalBribeFactory } from "../../interfaces/external/velodrome/IWrappedExternalBribeFactory.sol";
+import { IRewardsDistributor } from "../../interfaces/external/velodrome/IRewardsDistributor.sol";
+import { IPair } from "../../interfaces/external/velodrome/IPair.sol";
+import { LibAdapter } from "../../libs/LibAdapter.sol";
+
+contract VelodromeAdapter is IPoolAdapter, ReentrancyGuard {
+    event DeployLiquidity(
+        uint256[2] amountsDeposited,
+        address[2] tokens,
+        // 0 - lpMintAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address pairAddress
+    );
+
+    event WithdrawLiquidity(
+        uint256[2] amountsWithdrawn,
+        address[2] tokens,
+        // 0 - lpBurnAmount
+        // 1 - lpShare
+        // 2 - lpTotalSupply
+        uint256[3] lpAmounts,
+        address pairAddress
+    );
+
+    struct VelodromeExtraParams {
+        address tokenA;
+        address tokenB;
+        bool stable;
+        uint256 amountAMin;
+        uint256 amountBMin;
+        uint256 deadline;
+    }
+
+    IRouter public immutable router;
+
+    constructor(address _router) {
+        if (_router == address(0)) revert InvalidAddress(_router);
+        router = IRouter(_router);
+    }
+
+    function addLiquidity(
+        uint256[] calldata amounts,
+        uint256 minLpMintAmount,
+        bytes calldata extraParams
+    ) public nonReentrant {
+        if (minLpMintAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length != 2) revert ArraysLengthMismatch();
+        if (amounts[0] == 0 && amounts[1] == 0) revert NoNonZeroAmountProvided();
+
+        (VelodromeExtraParams memory velodromeExtraParams) = abi.decode(extraParams, (VelodromeExtraParams));
+
+        LibAdapter._approve(IERC20(velodromeExtraParams.tokenA), address(router), amounts[0]);
+        LibAdapter._approve(IERC20(velodromeExtraParams.tokenB), address(router), amounts[1]);
+
+        (uint256 amountA, uint256 amountB, uint256 liquidity) = router.addLiquidity(
+            velodromeExtraParams.tokenA,
+            velodromeExtraParams.tokenB,
+            velodromeExtraParams.stable,
+            amounts[0],
+            amounts[1],
+            velodromeExtraParams.amountAMin,
+            velodromeExtraParams.amountBMin,
+            address(this),
+            velodromeExtraParams.deadline
+        );
+
+        if (liquidity < minLpMintAmount) revert MinLpAmountNotReached();
+        if (amountA > amounts[0]) revert InvalidBalanceChange();
+        if (amountB > amounts[1]) revert InvalidBalanceChange();
+
+        IPair pair = _getPair(velodromeExtraParams);
+
+        emit DeployLiquidity(
+            [amountA, amountB],
+            [velodromeExtraParams.tokenA, velodromeExtraParams.tokenB],
+            [liquidity, pair.balanceOf(address(this)), pair.totalSupply()],
+            address(pair)
+        );
+    }
+
+    function removeLiquidity(
+        uint256[] calldata amounts,
+        uint256 maxLpBurnAmount,
+        bytes calldata extraParams
+    ) external nonReentrant returns (uint256[] memory actualAmounts) {
+        if (maxLpBurnAmount == 0) revert MustBeMoreThanZero();
+        if (amounts.length != 2) revert ArraysLengthMismatch();
+        if (amounts[0] == 0 && amounts[1] == 0) revert NoNonZeroAmountProvided();
+
+        (VelodromeExtraParams memory velodromeExtraParams) = abi.decode(extraParams, (VelodromeExtraParams));
+
+        IPair pair = _getPair(velodromeExtraParams);
+
+        LibAdapter._approve(pair, address(router), maxLpBurnAmount);
+
+        uint256 lpTokensBefore = pair.balanceOf(address(this));
+
+        (uint256 amountA, uint256 amountB) = _runWithdrawal(amounts, maxLpBurnAmount, velodromeExtraParams);
+        uint256 lpTokensAfter = pair.balanceOf(address(this));
+
+        uint256 lpTokenAmount = lpTokensBefore - lpTokensAfter;
+        if (lpTokenAmount > maxLpBurnAmount) {
+            revert LpTokenAmountMismatch();
+        }
+        if (amountA < amounts[0]) revert InvalidBalanceChange();
+        if (amountB < amounts[1]) revert InvalidBalanceChange();
+
+        actualAmounts = new uint256[](2);
+        actualAmounts[0] = amountA;
+        actualAmounts[1] = amountB;
+
+        emit WithdrawLiquidity(
+            [amountA, amountB],
+            [velodromeExtraParams.tokenA, velodromeExtraParams.tokenB],
+            [lpTokenAmount, lpTokensAfter, pair.totalSupply()],
+            address(pair)
+        );
+    }
+
+    function _runWithdrawal(
+        uint256[] calldata amounts,
+        uint256 maxLpBurnAmount,
+        VelodromeExtraParams memory params
+    ) private returns (uint256 amountA, uint256 amountB) {
+        (amountA, amountB) = router.removeLiquidity(
+            params.tokenA,
+            params.tokenB,
+            params.stable,
+            maxLpBurnAmount,
+            amounts[0],
+            amounts[1],
+            address(this),
+            params.deadline
+        );
+    }
+
+    function _getPair(VelodromeExtraParams memory params) private view returns (IPair pair) {
+        pair = IPair(router.pairFor(params.tokenA, params.tokenB, params.stable));
+    }
+}
+// ===== END SOURCE FILE: src/destinations/adapters/VelodromeAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/destinations/DestinationRegistry.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { Errors } from "src/utils/Errors.sol";
+import { SystemComponent } from "src/SystemComponent.sol";
+import { SecurityBase } from "src/security/SecurityBase.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+import { IDestinationAdapter } from "src/interfaces/destinations/IDestinationAdapter.sol";
+import { IDestinationRegistry } from "src/interfaces/destinations/IDestinationRegistry.sol";
+
+contract DestinationRegistry is SystemComponent, SecurityBase, IDestinationRegistry {
+    mapping(bytes32 => IDestinationAdapter) public destinations;
+    mapping(bytes32 => bool) public allowedTypes;
+
+    constructor(ISystemRegistry _systemRegistry)
+        SystemComponent(_systemRegistry)
+        SecurityBase(address(_systemRegistry.accessController()))
+    { }
+
+    function register(bytes32[] calldata destinationTypes, address[] calldata targets) public override onlyOwner {
+        Errors.verifyArrayLengths(destinationTypes.length, targets.length, "types+targets");
+        for (uint256 i = 0; i < destinationTypes.length; ++i) {
+            bytes32 destination = destinationTypes[i];
+            if (!isWhitelistedDestination(destination)) {
+                revert NotAllowedDestination();
+            }
+            address target = targets[i];
+            Errors.verifyNotZero(target, "target");
+
+            if (address(destinations[destination]) != address(0)) {
+                revert DestinationAlreadySet();
+            }
+            destinations[destination] = IDestinationAdapter(target);
+        }
+        emit Register(destinationTypes, targets);
+    }
+
+    function replace(bytes32[] calldata destinationTypes, address[] calldata targets) public override onlyOwner {
+        Errors.verifyArrayLengths(destinationTypes.length, targets.length, "types+targets");
+        for (uint256 i = 0; i < destinationTypes.length; ++i) {
+            address target = targets[i];
+            Errors.verifyNotZero(target, "target");
+
+            bytes32 destination = destinationTypes[i];
+            IDestinationAdapter existingDestination = destinations[destination];
+            Errors.verifyNotZero(address(existingDestination), "existingDestination");
+
+            if (address(existingDestination) == target) {
+                revert DestinationAlreadySet();
+            }
+            destinations[destination] = IDestinationAdapter(target);
+        }
+        emit Replace(destinationTypes, targets);
+    }
+
+    function unregister(bytes32[] calldata destinationTypes) public override onlyOwner {
+        for (uint256 i = 0; i < destinationTypes.length; ++i) {
+            bytes32 destination = destinationTypes[i];
+            Errors.verifyNotZero(address(destinations[destination]), "destAddress");
+            //slither-disable-next-line costly-loop
+            delete destinations[destination];
+        }
+        emit Unregister(destinationTypes);
+    }
+
+    function getAdapter(bytes32 destinationType) public view override returns (IDestinationAdapter target) {
+        target = destinations[destinationType];
+        Errors.verifyNotZero(address(target), "target");
+    }
+
+    function addToWhitelist(bytes32[] calldata destinationTypes) external override onlyOwner {
+        for (uint256 i = 0; i < destinationTypes.length; ++i) {
+            if (allowedTypes[destinationTypes[i]]) {
+                revert DestinationAlreadySet();
+            }
+            allowedTypes[destinationTypes[i]] = true;
+        }
+        emit Whitelist(destinationTypes);
+    }
+
+    function removeFromWhitelist(bytes32[] calldata destinationTypes) external override onlyOwner {
+        for (uint256 i = 0; i < destinationTypes.length; ++i) {
+            bytes32 destination = destinationTypes[i];
+            if (!allowedTypes[destination]) {
+                revert Errors.ItemNotFound();
+            }
+            if (address(destinations[destination]) != address(0)) {
+                // cannot remove from whitelist already registered type – must unregister first
+                revert DestinationAlreadySet();
+            }
+            //slither-disable-next-line costly-loop
+            delete allowedTypes[destination];
+        }
+        emit RemoveFromWhitelist(destinationTypes);
+    }
+
+    function isWhitelistedDestination(bytes32 destinationType) public view override returns (bool) {
+        return allowedTypes[destinationType];
+    }
+}
+// ===== END SOURCE FILE: src/destinations/DestinationRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/beacon/IBeaconChainBacking.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+/**
+ * Most LSD tokens report the amount of funds they have staked on the Beacon Chain back to Mainnet periodically.
+ * FrxETH does not. This value is needed for various calculations and so we will run a backend service to keep this
+ * value up to date. This contract should track this value and the last time it was set.
+ */
+interface IBeaconChainBacking {
+    /**
+     * @notice Saves the most recent ratio and it's timestamp into the contract storage
+     * @dev Calculates `ratio` with `totalAssets * decimalPad / totalLiabilities` formula
+     * @param totalAssets Amount of protocol's funds
+     * @param totalLiabilities Amount of protocol's liability funds
+     * @param queriedTimestamp Time-point when the value is actual
+     */
+    function update(uint208 totalAssets, uint208 totalLiabilities, uint48 queriedTimestamp) external;
+
+    /**
+     * @notice Returns the most recent ratio and it's timestamp
+     * @return ratio Amount of funds staked on the Beacon Chain
+     * @return queriedTimestamp Last time the `ratio` was set
+     */
+    function current() external view returns (uint208 ratio, uint48 queriedTimestamp);
+}
+// ===== END SOURCE FILE: src/interfaces/beacon/IBeaconChainBacking.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/destinations/IClaimableRewardsAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { IDestinationAdapter } from "./IDestinationAdapter.sol";
+
+/**
+ * @dev This interface is intended to be used with contracts that are meant to be delegate called.
+ * Contracts that inherit from this interface should not have any state variables.
+ */
+interface IClaimableRewardsAdapter is IDestinationAdapter {
+    error ClaimRewardsFailed();
+    error TokenAddressZero();
+
+    /**
+     * @dev Emitted when rewards are claimed.
+     * @param rewardTokens The tokens received as rewards.
+     * @param amountsClaimed The amounts of each token claimed.
+     */
+    event RewardsClaimed(IERC20[] rewardTokens, uint256[] amountsClaimed);
+
+    /**
+     * @notice Claim rewards for a given token and account
+     * @param gauge The address of the token to claim rewards for
+     * @return amountsClaimed The amounts of rewards claimed
+     * @return tokens The tokens that rewards were claimed for
+     */
+    function claimRewards(address gauge) external returns (uint256[] memory, IERC20[] memory);
+}
+// ===== END SOURCE FILE: src/interfaces/destinations/IClaimableRewardsAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/destinations/IDestinationAdapter.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+/**
+ * @title IDestinationAdapter
+ * @dev This is a super-interface to unify different types of adapters to be registered in Destination Registry.
+ *      Specific interface type is defined by extending from this interface.
+ */
+interface IDestinationAdapter {
+    error MustBeMoreThanZero();
+    error ArraysLengthMismatch();
+    error BalanceMustIncrease();
+    error MinLpAmountNotReached();
+    error LpTokenAmountMismatch();
+    error NoNonZeroAmountProvided();
+    error InvalidBalanceChange();
+    error InvalidAddress(address);
+}
+// ===== END SOURCE FILE: src/interfaces/destinations/IDestinationAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/destinations/IDestinationRegistry.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IDestinationAdapter } from "./IDestinationAdapter.sol";
+
+interface IDestinationRegistry {
+    event Register(bytes32[] indexed destinationTypes, address[] indexed targets);
+    event Replace(bytes32[] indexed destinationTypes, address[] indexed targets);
+    event Unregister(bytes32[] indexed destinationTypes);
+
+    event Whitelist(bytes32[] indexed destinationTypes);
+    event RemoveFromWhitelist(bytes32[] indexed destinationTypes);
+
+    error InvalidAddress(address addr);
+    error NotAllowedDestination();
+    error DestinationAlreadySet();
+
+    /**
+     * @notice Adds a new addresses of the given destination types
+     * @dev Fails if trying to overwrite previous value of the same destination type
+     * @param destinationTypes Ones from the destination type whitelist
+     * @param targets addresses of the deployed DestinationAdapters, cannot be 0
+     */
+    function register(bytes32[] calldata destinationTypes, address[] calldata targets) external;
+
+    /**
+     * @notice Replaces an addresses of the given destination types
+     * @dev Fails if given destination type was not set previously
+     * @param destinationTypes Ones from the destination type whitelist
+     * @param targets addresses of the deployed DestinationAdapters, cannot be 0
+     */
+    function replace(bytes32[] calldata destinationTypes, address[] calldata targets) external;
+
+    /**
+     * @notice Removes an addresses of the given pre-registered destination types
+     * @param destinationTypes Ones from the destination types whitelist
+     */
+    function unregister(bytes32[] calldata destinationTypes) external;
+
+    /**
+     * @notice Gives an address of the given destination type
+     * @dev Should revert on missing destination
+     * @param destination One from the destination type whitelist
+     */
+    function getAdapter(bytes32 destination) external returns (IDestinationAdapter);
+
+    /**
+     * @notice Adds given destination types to the whitelist
+     * @param destinationTypes Types to whitelist
+     */
+    function addToWhitelist(bytes32[] calldata destinationTypes) external;
+
+    /**
+     * @notice Removes given pre-whitelisted destination types
+     * @param destinationTypes Ones from the destination type whitelist
+     */
+    function removeFromWhitelist(bytes32[] calldata destinationTypes) external;
+
+    /**
+     * @notice Checks if the given destination type is whitelisted
+     * @param destinationType Type to verify
+     */
+    function isWhitelistedDestination(bytes32 destinationType) external view returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/destinations/IDestinationRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/destinations/IPoolAdapter.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IDestinationAdapter } from "./IDestinationAdapter.sol";
+
+/**
+ * @title IPoolAdapter
+ * @dev This is an interface to mark adapters as ones that are dedicated for liquidity deployment/withdrawal
+ *      to/from pools of a different protocols and to be registered in Destination Registry.
+ *      It shares unified functions to implement with basic params and `extraParams`
+ *      which can contain protocol or pool-specific params.
+ */
+interface IPoolAdapter is IDestinationAdapter {
+    /**
+     * @notice Deploy liquidity to the associated destination
+     * @dev Calls into external contract
+     * @param amounts Amounts of corresponding tokens to deploy
+     * @param minLpMintAmount Min amount of LP tokens to mint in the deployment
+     * @param extraParams Encoded params that are specific to the given destination
+     */
+    function addLiquidity(uint256[] calldata amounts, uint256 minLpMintAmount, bytes calldata extraParams) external;
+
+    /**
+     * @notice Withdraw liquidity from the associated destination
+     * @dev Calls into external contract
+     * @param amounts Amounts of corresponding tokens to withdraw
+     * @param maxLpBurnAmount Max amount of LP tokens to burn in the withdrawal
+     * @param extraParams Encoded params that are specific to the given destination
+     * @return actualAmounts Amounts of tokens that were actually withdrawn
+     */
+    function removeLiquidity(
+        uint256[] calldata amounts,
+        uint256 maxLpBurnAmount,
+        bytes calldata extraParams
+    ) external returns (uint256[] memory actualAmounts);
+}
+// ===== END SOURCE FILE: src/interfaces/destinations/IPoolAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/destinations/IStakingAdapter.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2023 Tokemak Foundation. All rights reserved.
+pragma solidity 0.8.17;
+
+import { IDestinationAdapter } from "./IDestinationAdapter.sol";
+
+/**
+ * @title IStakingAdapter
+ * @dev This is an interface to mark adapters as ones that are dedicated for LPs staking and to be registered in
+ *      Destination Registry. It doesn't contain any functions as staking interfaces usually are protocol-specific.
+ */
+interface IStakingAdapter is IDestinationAdapter { }
+// ===== END SOURCE FILE: src/interfaces/destinations/IStakingAdapter.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IAsset.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+pragma solidity 0.8.17;
+
+/**
+ * @dev This is an empty interface used to represent either ERC20-conforming token contracts or ETH (using the zero
+ * address sentinel value). We're just relying on the fact that `interface` can be used to declare new address-like
+ * types.
+ *
+ * This concept is unrelated to a Pool's Asset Managers.
+ */
+interface IAsset {
+// solhint-disable-previous-line no-empty-blocks
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IAsset.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IBalancerComposableStablePool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+interface IBalancerComposableStablePool {
+    function getActualSupply() external view returns (uint256);
+
+    function getBptIndex() external view returns (uint256);
+
+    function getPoolId() external view returns (bytes32);
+
+    function getRate() external view returns (uint256);
+
+    function getTokenRate(IERC20 token) external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IBalancerComposableStablePool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IBalancerMetaStablePool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IRateProvider } from "src/interfaces/external/balancer/IRateProvider.sol";
+
+interface IBalancerMetaStablePool {
+    function getPoolId() external view returns (bytes32);
+
+    function getRate() external view returns (uint256);
+
+    function getLastInvariant() external view returns (uint256);
+
+    function getLatest(uint8 x) external view returns (uint256);
+
+    function totalSupply() external view returns (uint256);
+
+    function getSwapFeePercentage() external view returns (uint256);
+
+    function getRateProviders() external view returns (IRateProvider[] memory);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IBalancerMetaStablePool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IBalancerPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20Metadata, IERC20 } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+interface IBalancerPool is IERC20Metadata {
+    /// @notice returns total supply of Balancer pool
+    function totalSupply() external view returns (uint256);
+
+    /**
+     * @notice gets Balancer poolId
+     * @return bytes32 poolId
+     */
+    function getPoolId() external view returns (bytes32);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IBalancerPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IBasePool.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+pragma solidity 0.8.17;
+
+interface IBasePool {
+    /// @notice Returns the pool ID
+    function getPoolId() external view returns (bytes32);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IBasePool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IProtocolFeesCollector.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface IProtocolFeesCollector {
+    function getSwapFeePercentage() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IProtocolFeesCollector.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IRateProvider.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+pragma solidity 0.8.17;
+
+interface IRateProvider {
+    function getRate() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IRateProvider.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/balancer/IVault.sol =====
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import { IProtocolFeesCollector } from "src/interfaces/external/balancer/IProtocolFeesCollector.sol";
+
+/**
+ * @dev Full external interface for the Vault core contract - no external or public methods exist in the contract that
+ * don't override one of these declarations.
+ */
+interface IVault {
+    // Pools
+    //
+    // There are three specialization settings for Pools, which allow for cheaper swaps at the cost of reduced
+    // functionality:
+    //
+    //  - General: no specialization, suited for all Pools. IGeneralPool is used for swap request callbacks, passing the
+    // balance of all tokens in the Pool. These Pools have the largest swap costs (because of the extra storage reads),
+    // which increase with the number of registered tokens.
+    //
+    //  - Minimal Swap Info: IMinimalSwapInfoPool is used instead of IGeneralPool, which saves gas by only passing the
+    // balance of the two tokens involved in the swap. This is suitable for some pricing algorithms, like the weighted
+    // constant product one popularized by Balancer V1. Swap costs are smaller compared to general Pools, and are
+    // independent of the number of registered tokens.
+    //
+    //  - Two Token: only allows two tokens to be registered. This achieves the lowest possible swap gas cost. Like
+    // minimal swap info Pools, these are called via IMinimalSwapInfoPool.
+
+    enum PoolSpecialization {
+        GENERAL,
+        MINIMAL_SWAP_INFO,
+        TWO_TOKEN
+    }
+
+    enum JoinKind {
+        INIT,
+        EXACT_TOKENS_IN_FOR_BPT_OUT,
+        TOKEN_IN_FOR_EXACT_BPT_OUT,
+        ALL_TOKENS_IN_FOR_EXACT_BPT_OUT
+    }
+
+    /**
+     * @dev Data for `manageUserBalance` operations, which include the possibility for ETH to be sent and received
+     *  without manual WETH wrapping or unwrapping.
+     */
+    struct UserBalanceOp {
+        UserBalanceOpKind kind;
+        address asset;
+        uint256 amount;
+        address sender;
+        address payable recipient;
+    }
+
+    // There are four possible operations in `manageUserBalance`:
+    //
+    // - DEPOSIT_INTERNAL
+    // Increases the Internal Balance of the `recipient` account by transferring tokens from the corresponding
+    // `sender`. The sender must have allowed the Vault to use their tokens via `IERC20.approve()`.
+    //
+    // ETH can be used by passing the ETH sentinel value as the asset and forwarding ETH in the call: it will be wrapped
+    // and deposited as WETH. Any ETH amount remaining will be sent back to the caller (not the sender, which is
+    // relevant for relayers).
+    //
+    // Emits an `InternalBalanceChanged` event.
+    //
+    //
+    // - WITHDRAW_INTERNAL
+    // Decreases the Internal Balance of the `sender` account by transferring tokens to the `recipient`.
+    //
+    // ETH can be used by passing the ETH sentinel value as the asset. This will deduct WETH instead, unwrap it and send
+    // it to the recipient as ETH.
+    //
+    // Emits an `InternalBalanceChanged` event.
+    //
+    //
+    // - TRANSFER_INTERNAL
+    // Transfers tokens from the Internal Balance of the `sender` account to the Internal Balance of `recipient`.
+    //
+    // Reverts if the ETH sentinel value is passed.
+    //
+    // Emits an `InternalBalanceChanged` event.
+    //
+    //
+    // - TRANSFER_EXTERNAL
+    // Transfers tokens from `sender` to `recipient`, using the Vault's ERC20 allowance. This is typically used by
+    // relayers, as it lets them reuse a user's Vault allowance.
+    //
+    // Reverts if the ETH sentinel value is passed.
+    //
+    // Emits an `ExternalBalanceTransfer` event.
+
+    enum UserBalanceOpKind {
+        DEPOSIT_INTERNAL,
+        WITHDRAW_INTERNAL,
+        TRANSFER_INTERNAL,
+        TRANSFER_EXTERNAL
+    }
+
+    /**
+     * @dev Performs a set of user balance operations, which involve Internal Balance (deposit, withdraw or transfer)
+     * and plain ERC20 transfers using the Vault's allowance. This last feature is particularly useful for relayers, as
+     * it lets integrators reuse a user's Vault allowance.
+     *
+     * For each operation, if the caller is not `sender`, it must be an authorized relayer for them.
+     */
+    function manageUserBalance(UserBalanceOp[] memory ops) external payable;
+
+    /**
+     * @dev Returns a Pool's contract address and specialization setting.
+     */
+    function getPool(bytes32 poolId) external view returns (address, PoolSpecialization);
+
+    /**
+     * @dev Returns a Pool's registered tokens, the total balance for each, and the latest block when *any* of
+     * the tokens' `balances` changed.
+     *
+     * The order of the `tokens` array is the same order that will be used in `joinPool`, `exitPool`, as well as in all
+     * Pool hooks (where applicable). Calls to `registerTokens` and `deregisterTokens` may change this order.
+     *
+     * If a Pool only registers tokens once, and these are sorted in ascending order, they will be stored in the same
+     * order as passed to `registerTokens`.
+     *
+     * Total balances include both tokens held by the Vault and those withdrawn by the Pool's Asset Managers. These are
+     * the amounts used by joins, exits and swaps. For a detailed breakdown of token balances, use `getPoolTokenInfo`
+     * instead.
+     */
+    function getPoolTokens(bytes32 poolId)
+        external
+        view
+        returns (IERC20[] memory tokens, uint256[] memory balances, uint256 lastChangeBlock);
+
+    /**
+     * @dev Returns detailed information for a Pool's registered token.
+     *
+     * `cash` is the number of tokens the Vault currently holds for the Pool. `managed` is the number of tokens
+     * withdrawn and held outside the Vault by the Pool's token Asset Manager. The Pool's total balance for `token`
+     * equals the sum of `cash` and `managed`.
+     *
+     * Internally, `cash` and `managed` are stored using 112 bits. No action can ever cause a Pool's token `cash`,
+     * `managed` or `total` balance to be greater than 2^112 - 1.
+     *
+     * `lastChangeBlock` is the number of the block in which `token`'s total balance was last modified (via either a
+     * join, exit, swap, or Asset Manager update). This value is useful to avoid so-called 'sandwich attacks', for
+     * example when developing price oracles. A change of zero (e.g. caused by a swap with amount zero) is considered a
+     * change for this purpose, and will update `lastChangeBlock`.
+     *
+     * `assetManager` is the Pool's token Asset Manager.
+     */
+    function getPoolTokenInfo(
+        bytes32 poolId,
+        IERC20 token
+    ) external view returns (uint256 cash, uint256 managed, uint256 lastChangeBlock, address assetManager);
+
+    /**
+     * @dev Called by users to join a Pool, which transfers tokens from `sender` into the Pool's balance. This will
+     * trigger custom Pool behavior, which will typically grant something in return to `recipient` - often tokenized
+     * Pool shares.
+     *
+     * If the caller is not `sender`, it must be an authorized relayer for them.
+     *
+     * The `assets` and `maxAmountsIn` arrays must have the same length, and each entry indicates the maximum amount
+     * to send for each asset. The amounts to send are decided by the Pool and not the Vault: it just enforces
+     * these maximums.
+     *
+     * If joining a Pool that holds WETH, it is possible to send ETH directly: the Vault will do the wrapping. To enable
+     * this mechanism, the IAsset sentinel value (the zero address) must be passed in the `assets` array instead of the
+     * WETH address. Note that it is not possible to combine ETH and WETH in the same join. Any excess ETH will be sent
+     * back to the caller (not the sender, which is important for relayers).
+     *
+     * `assets` must have the same length and order as the array returned by `getPoolTokens`. This prevents issues when
+     * interacting with Pools that register and deregister tokens frequently. If sending ETH however, the array must be
+     * sorted *before* replacing the WETH address with the ETH sentinel value (the zero address), which means the final
+     * `assets` array might not be sorted. Pools with no registered tokens cannot be joined.
+     *
+     * If `fromInternalBalance` is true, the caller's Internal Balance will be preferred: ERC20 transfers will only
+     * be made for the difference between the requested amount and Internal Balance (if any). Note that ETH cannot be
+     * withdrawn from Internal Balance: attempting to do so will trigger a revert.
+     *
+     * This causes the Vault to call the `IBasePool.onJoinPool` hook on the Pool's contract, where Pools implement
+     * their own custom logic. This typically requires additional information from the user (such as the expected number
+     * of Pool shares). This can be encoded in the `userData` argument, which is ignored by the Vault and passed
+     * directly to the Pool's contract, as is `recipient`.
+     *
+     * Emits a `PoolBalanceChanged` event.
+     */
+    function joinPool(
+        bytes32 poolId,
+        address sender,
+        address recipient,
+        JoinPoolRequest memory request
+    ) external payable;
+
+    struct JoinPoolRequest {
+        address[] assets;
+        uint256[] maxAmountsIn;
+        bytes userData;
+        bool fromInternalBalance;
+    }
+
+    /**
+     * @dev Called by users to exit a Pool, which transfers tokens from the Pool's balance to `recipient`. This will
+     * trigger custom Pool behavior, which will typically ask for something in return from `sender` - often tokenized
+     * Pool shares. The amount of tokens that can be withdrawn is limited by the Pool's `cash` balance (see
+     * `getPoolTokenInfo`).
+     *
+     * If the caller is not `sender`, it must be an authorized relayer for them.
+     *
+     * The `tokens` and `minAmountsOut` arrays must have the same length, and each entry in these indicates the minimum
+     * token amount to receive for each token contract. The amounts to send are decided by the Pool and not the Vault:
+     * it just enforces these minimums.
+     *
+     * If exiting a Pool that holds WETH, it is possible to receive ETH directly: the Vault will do the unwrapping. To
+     * enable this mechanism, the IAsset sentinel value (the zero address) must be passed in the `assets` array instead
+     * of the WETH address. Note that it is not possible to combine ETH and WETH in the same exit.
+     *
+     * `assets` must have the same length and order as the array returned by `getPoolTokens`. This prevents issues when
+     * interacting with Pools that register and deregister tokens frequently. If receiving ETH however, the array must
+     * be sorted *before* replacing the WETH address with the ETH sentinel value (the zero address), which means the
+     * final `assets` array might not be sorted. Pools with no registered tokens cannot be exited.
+     *
+     * If `toInternalBalance` is true, the tokens will be deposited to `recipient`'s Internal Balance. Otherwise,
+     * an ERC20 transfer will be performed. Note that ETH cannot be deposited to Internal Balance: attempting to
+     * do so will trigger a revert.
+     *
+     * `minAmountsOut` is the minimum amount of tokens the user expects to get out of the Pool, for each token in the
+     * `tokens` array. This array must match the Pool's registered tokens.
+     *
+     * This causes the Vault to call the `IBasePool.onExitPool` hook on the Pool's contract, where Pools implement
+     * their own custom logic. This typically requires additional information from the user (such as the expected number
+     * of Pool shares to return). This can be encoded in the `userData` argument, which is ignored by the Vault and
+     * passed directly to the Pool's contract.
+     *
+     * Emits a `PoolBalanceChanged` event.
+     */
+    function exitPool(
+        bytes32 poolId,
+        address sender,
+        address payable recipient,
+        ExitPoolRequest memory request
+    ) external;
+
+    struct ExitPoolRequest {
+        address[] assets;
+        uint256[] minAmountsOut;
+        bytes userData;
+        bool toInternalBalance;
+    }
+
+    /**
+     * @dev Data for each individual swap executed by `batchSwap`. The asset in and out fields are indexes into the
+     * `assets` array passed to that function, and ETH assets are converted to WETH.
+     *
+     * If `amount` is zero, the multihop mechanism is used to determine the actual amount based on the amount in/out
+     * from the previous swap, depending on the swap kind.
+     *
+     * The `userData` field is ignored by the Vault, but forwarded to the Pool in the `onSwap` hook, and may be
+     * used to extend swap behavior.
+     */
+    struct BatchSwapStep {
+        bytes32 poolId;
+        uint256 assetInIndex;
+        uint256 assetOutIndex;
+        uint256 amount;
+        bytes userData;
+    }
+
+    /**
+     * @dev Emitted for each individual swap performed by `swap` or `batchSwap`.
+     */
+    event Swap(
+        bytes32 indexed poolId, IERC20 indexed tokenIn, IERC20 indexed tokenOut, uint256 amountIn, uint256 amountOut
+    );
+
+    // Swaps
+    //
+    // Users can swap tokens with Pools by calling the `swap` and `batchSwap` functions. To do this,
+    // they need not trust Pool contracts in any way: all security checks are made by the Vault. They must however be
+    // aware of the Pools' pricing algorithms in order to estimate the prices Pools will quote.
+    //
+    // The `swap` function executes a single swap, while `batchSwap` can perform multiple swaps in sequence.
+    // In each individual swap, tokens of one kind are sent from the sender to the Pool (this is the 'token in'),
+    // and tokens of another kind are sent from the Pool to the recipient in exchange (this is the 'token out').
+    // More complex swaps, such as one token in to multiple tokens out can be achieved by batching together
+    // individual swaps.
+    //
+    // There are two swap kinds:
+    //  - 'given in' swaps, where the amount of tokens in (sent to the Pool) is known, and the Pool determines (via the
+    // `onSwap` hook) the amount of tokens out (to send to the recipient).
+    //  - 'given out' swaps, where the amount of tokens out (received from the Pool) is known, and the Pool determines
+    // (via the `onSwap` hook) the amount of tokens in (to receive from the sender).
+    //
+    // Additionally, it is possible to chain swaps using a placeholder input amount, which the Vault replaces with
+    // the calculated output of the previous swap. If the previous swap was 'given in', this will be the calculated
+    // tokenOut amount. If the previous swap was 'given out', it will use the calculated tokenIn amount. These extended
+    // swaps are known as 'multihop' swaps, since they 'hop' through a number of intermediate tokens before arriving at
+    // the final intended token.
+    //
+    // In all cases, tokens are only transferred in and out of the Vault (or withdrawn from and deposited into Internal
+    // Balance) after all individual swaps have been completed, and the net token balance change computed. This makes
+    // certain swap patterns, such as multihops, or swaps that interact with the same token pair in multiple Pools, cost
+    // much less gas than they would otherwise.
+    //
+    // It also means that under certain conditions it is possible to perform arbitrage by swapping with multiple
+    // Pools in a way that results in net token movement out of the Vault (profit), with no tokens being sent in (only
+    // updating the Pool's internal accounting).
+    //
+    // To protect users from front-running or the market changing rapidly, they supply a list of 'limits' for each token
+    // involved in the swap, where either the maximum number of tokens to send (by passing a positive value) or the
+    // minimum amount of tokens to receive (by passing a negative value) is specified.
+    //
+    // Additionally, a 'deadline' timestamp can also be provided, forcing the swap to fail if it occurs after
+    // this point in time (e.g. if the transaction failed to be included in a block promptly).
+    //
+    // If interacting with Pools that hold WETH, it is possible to both send and receive ETH directly: the Vault will do
+    // the wrapping and unwrapping. To enable this mechanism, the IAsset sentinel value (the zero address) must be
+    // passed in the `assets` array instead of the WETH address. Note that it is possible to combine ETH and WETH in the
+    // same swap. Any excess ETH will be sent back to the caller (not the sender, which is relevant for relayers).
+    //
+    // Finally, Internal Balance can be used when either sending or receiving tokens.
+
+    enum SwapKind {
+        GIVEN_IN,
+        GIVEN_OUT
+    }
+
+    /**
+     * @dev Performs a swap with a single Pool.
+     *
+     * If the swap is 'given in' (the number of tokens to send to the Pool is known), it returns the amount of tokens
+     * taken from the Pool, which must be greater than or equal to `limit`.
+     *
+     * If the swap is 'given out' (the number of tokens to take from the Pool is known), it returns the amount of tokens
+     * sent to the Pool, which must be less than or equal to `limit`.
+     *
+     * Internal Balance usage and the recipient are determined by the `funds` struct.
+     *
+     * Emits a `Swap` event.
+     */
+    function swap(
+        SingleSwap memory singleSwap,
+        FundManagement memory funds,
+        uint256 limit,
+        uint256 deadline
+    ) external payable returns (uint256);
+
+    /**
+     * @dev Data for a single swap executed by `swap`. `amount` is either `amountIn` or `amountOut` depending on
+     * the `kind` value.
+     *
+     * `assetIn` and `assetOut` are either token addresses, or the IAsset sentinel value for ETH (the zero address).
+     * Note that Pools never interact with ETH directly: it will be wrapped to or unwrapped from WETH by the Vault.
+     *
+     * The `userData` field is ignored by the Vault, but forwarded to the Pool in the `onSwap` hook, and may be
+     * used to extend swap behavior.
+     */
+    struct SingleSwap {
+        bytes32 poolId;
+        SwapKind kind;
+        address assetIn;
+        address assetOut;
+        uint256 amount;
+        bytes userData;
+    }
+
+    /**
+     * @dev All tokens in a swap are either sent from the `sender` account to the Vault, or from the Vault to the
+     * `recipient` account.
+     *
+     * If the caller is not `sender`, it must be an authorized relayer for them.
+     *
+     * If `fromInternalBalance` is true, the `sender`'s Internal Balance will be preferred, performing an ERC20
+     * transfer for the difference between the requested amount and the User's Internal Balance (if any). The `sender`
+     * must have allowed the Vault to use their tokens via `IERC20.approve()`. This matches the behavior of
+     * `joinPool`.
+     *
+     * If `toInternalBalance` is true, tokens will be deposited to `recipient`'s internal balance instead of
+     * transferred. This matches the behavior of `exitPool`.
+     *
+     * Note that ETH cannot be deposited to or withdrawn from Internal Balance: attempting to do so will trigger a
+     * revert.
+     */
+    struct FundManagement {
+        address sender;
+        bool fromInternalBalance;
+        address payable recipient;
+        bool toInternalBalance;
+    }
+
+    function getProtocolFeesCollector() external view returns (IProtocolFeesCollector);
+}
+// ===== END SOURCE FILE: src/interfaces/external/balancer/IVault.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/beethoven/IChildChainGaugeRewardHelper.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IRewardsOnlyGauge } from "./IRewardsOnlyGauge.sol";
+
+//  solhint-disable max-line-length
+/**
+ * @dev based on the following abi
+ * https://github.com/beethovenxfi/beets-frontend/blob/064f86d5d326f6fc4db13a320b923565a4fcfbfb/lib/abi/ChildChainGaugeRewardHelper.json
+ */
+interface IChildChainGaugeRewardHelper {
+    /// @notice Claim rewards from a gauge
+    function claimRewards(IRewardsOnlyGauge gauge, address user) external;
+}
+// ===== END SOURCE FILE: src/interfaces/external/beethoven/IChildChainGaugeRewardHelper.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/beethoven/IChildChainStreamer.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+// solhint-disable func-name-mixedcase
+// slither-disable-start naming-convention
+
+/**
+ * @title Child-Chain Streamer
+ * @author Curve.Fi
+ * @notice Evenly streams one or more reward tokens to a single recipient
+ */
+
+interface IChildChainStreamer {
+    /// @notice The count of reward tokens
+    function reward_count() external view returns (uint256);
+
+    /// @notice The address of the reward token at a given index
+    function reward_tokens(uint256 index) external view returns (IERC20);
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/beethoven/IChildChainStreamer.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/beethoven/IRewardsOnlyGauge.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IChildChainStreamer } from "./IChildChainStreamer.sol";
+
+// solhint-disable func-name-mixedcase
+// slither-disable-start naming-convention
+interface IRewardsOnlyGauge {
+    /// @notice The address of the reward token
+    function reward_contract() external view returns (IChildChainStreamer);
+
+    function claimable_reward(address _addr, address _token) external view returns (uint256);
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/beethoven/IRewardsOnlyGauge.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/camelot/ICamelotPair.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface ICamelotPair {
+    /// @notice Gets reserves of Camelot pool.
+    // slither-disable-start similar-names
+    function getReserves()
+        external
+        view
+        returns (uint112 _reserve0, uint112 _reserve1, uint16 _token0FeePercent, uint16 _token1FeePercent);
+    // slither-disable-end similar-names
+}
+// ===== END SOURCE FILE: src/interfaces/external/camelot/ICamelotPair.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/camelot/INFTHandler.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface INFTHandler {
+    function onNFTHarvest(
+        address operator,
+        address to,
+        uint256 tokenId,
+        uint256 grailAmount,
+        uint256 xGrailAmount
+    ) external returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/external/camelot/INFTHandler.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/camelot/INFTPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC721Enumerable } from "openzeppelin-contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+
+interface INFTPool is IERC721Enumerable {
+    function exists(uint256 tokenId) external view returns (bool);
+    function hasDeposits() external view returns (bool);
+    function getPoolInfo()
+        external
+        view
+        returns (
+            address lpToken,
+            address grailToken,
+            address sbtToken,
+            uint256 lastRewardTime,
+            uint256 accRewardsPerShare,
+            uint256 lpSupply,
+            uint256 lpSupplyWithMultiplier,
+            uint256 allocPoint
+        );
+    function getStakingPosition(uint256 tokenId)
+        external
+        view
+        returns (
+            uint256 amount,
+            uint256 amountWithMultiplier,
+            uint256 startLockTime,
+            uint256 lockDuration,
+            uint256 lockMultiplier,
+            uint256 rewardDebt,
+            uint256 boostPoints,
+            uint256 totalMultiplier
+        );
+
+    function boost(uint256 userAddress, uint256 amount) external;
+    function unboost(uint256 userAddress, uint256 amount) external;
+
+    /**
+     * @dev Harvest from a staking position
+     *
+     * Can only be called by spNFT's owner or approved address
+     */
+    function harvestPosition(uint256 tokenId) external;
+
+    /**
+     * @dev Harvest from a staking position to "to" address
+     *
+     * Can only be called by spNFT's owner or approved address
+     * spNFT's owner must be a contract
+     */
+    function harvestPositionTo(uint256 tokenId, address to) external;
+}
+// ===== END SOURCE FILE: src/interfaces/external/camelot/INFTPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/camelot/INitroPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC721Enumerable } from "openzeppelin-contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+
+interface INitroPool is IERC721Enumerable {
+    /// @notice Returns the address of the rewards token 1
+    function rewardsToken1() external view returns (address);
+
+    /// @notice Returns the address of the rewards token 2
+    function rewardsToken2() external view returns (address);
+
+    /// @notice Harvest pending NitroPool rewards
+    function harvest() external;
+}
+// ===== END SOURCE FILE: src/interfaces/external/camelot/INitroPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/chainlink/IAggregatorV3Interface.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface IAggregatorV3Interface {
+    /// @notice Returns decimal precision of price feed.
+    function decimals() external view returns (uint8);
+
+    /**
+     * @return roundId The round Id.
+     * @return answer The price.
+     * @return startedAt Timestamp when the round started.
+     * @return updatedAt Timestamp when the round ended.
+     * @return answeredInRound Round Id of round when answer was computed.
+     */
+    function latestRoundData()
+        external
+        view
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
+}
+// ===== END SOURCE FILE: src/interfaces/external/chainlink/IAggregatorV3Interface.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/coinbase/IStakedTokenV1.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { Stats } from "src/stats/Stats.sol";
+import { ISystemRegistry } from "src/interfaces/ISystemRegistry.sol";
+
+interface IStakedTokenV1 {
+    function exchangeRate() external view returns (uint256 _exchangeRate);
+}
+// ===== END SOURCE FILE: src/interfaces/external/coinbase/IStakedTokenV1.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/convex/IBaseRewardPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+interface IBaseRewardPool {
+    /// @notice The address of the reward token
+    function rewardToken() external view returns (IERC20);
+
+    /// @notice The length of the extra rewards array
+    function extraRewardsLength() external view returns (uint256);
+
+    /// @notice The pool PID
+    function pid() external view returns (uint256);
+
+    /// @notice The address of the extra rewards token at a given index
+    function extraRewards(uint256 i) external view returns (address);
+
+    /// @notice Called by a staker to get their allocated rewards
+    function getReward() external returns (bool);
+
+    /// @notice Gives a staker their rewards, with the option of claiming extra rewards
+    function getReward(address _account, bool _claimExtras) external returns (bool);
+
+    /// @notice Get total rewards supply
+    function totalSupply() external returns (uint256);
+
+    /// @notice Get balance of an address
+    function balanceOf(address _account) external view returns (uint256);
+
+    /// @notice Withdraw directly to curve LP token
+    function withdrawAndUnwrap(uint256 _amount, bool _claim) external returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/external/convex/IBaseRewardPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/convex/IConvexBooster.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+/// @notice main Convex contract(booster.sol) basic interface
+interface IConvexBooster {
+    /// @notice deposit into convex, receive a tokenized deposit. parameter to stake immediately
+    function deposit(uint256 _pid, uint256 _amount, bool _stake) external returns (bool);
+
+    /// @notice get poolInfo for a poolId
+    function poolInfo(uint256 _pid)
+        external
+        view
+        returns (address lptoken, address token, address gauge, address crvRewards, address stash, bool shutdown);
+}
+// ===== END SOURCE FILE: src/interfaces/external/convex/IConvexBooster.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/convex/IConvexBoosterArbitrum.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+/// @notice main Convex contract(booster.sol) basic interface
+interface IConvexBoosterArbitrum {
+    /// @notice deposit into convex, receive a tokenized deposit
+    function deposit(uint256 _pid, uint256 _amount) external returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/external/convex/IConvexBoosterArbitrum.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/convex/IConvexRewardPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable var-name-mixedcase
+struct RewardType {
+    address reward_token;
+    uint128 reward_integral;
+    uint128 reward_remaining;
+}
+
+interface IConvexRewardPool {
+    /// @notice the address of the gauge
+    function curveGauge() external view returns (address);
+
+    /// @notice update and claim rewards from all locations
+    function rewardLength() external view returns (uint256);
+
+    /// @notice get the reward token address
+    function rewards(uint256 i) external view returns (RewardType memory);
+
+    /// @notice claim reward for given account (unguarded)
+    function getReward(address _account) external;
+
+    /// @notice convex pool id
+    function convexPoolId() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/convex/IConvexRewardPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICryptoSwapPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IPool } from "./IPool.sol";
+
+/* solhint-disable func-name-mixedcase, var-name-mixedcase */
+interface ICryptoSwapPool is IPool {
+    function token() external returns (address);
+
+    // slither-disable-start naming-convention
+    function add_liquidity(uint256[2] memory amounts, uint256 min_mint_amount) external payable returns (uint256);
+
+    function add_liquidity(uint256[3] memory amounts, uint256 min_mint_amount) external payable returns (uint256);
+
+    function add_liquidity(uint256[4] memory amounts, uint256 min_mint_amount) external payable returns (uint256);
+
+    function remove_liquidity(uint256 amount, uint256[2] memory min_amounts) external;
+
+    function remove_liquidity(uint256 amount, uint256[3] memory min_amounts) external;
+
+    function remove_liquidity(uint256 amount, uint256[4] memory min_amounts) external;
+
+    function remove_liquidity_one_coin(uint256 token_amount, uint256 i, uint256 min_amount) external;
+    // slither-disable-end naming-convention
+
+    function get_virtual_price() external returns (uint256);
+
+    function claim_admin_fees() external;
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICryptoSwapPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveFactoryV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase, var-name-mixedcase
+
+/**
+ * @notice Curve factory for V2 contracts.
+ */
+interface ICurveFactoryV2 {
+    /// @notice Gets coin addresses for pool deployed by factory.
+    function get_coins(address pool) external view returns (address[2] memory);
+
+    /// @notice Gets balances of coins for pool deployed by factory.
+    function get_balances(address pool) external view returns (uint256[2] memory);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveFactoryV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveMetaPoolFactory.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+/**
+ * @notice This interface is used for interacting with the older version of the Curve factory at address
+ *      `0x0959158b6040D32d04c301A72CBFD6b39E21c9AE`.  This factory can only be used to deploy metapools.
+ */
+interface ICurveMetaPoolFactory {
+    /// @notice Gets coin addresses for pool deployed by factory.
+    function get_coins(address pool) external view returns (address[2] memory);
+
+    /// @notice Gets balances of coins for pool deployed by factory.
+    function get_balances(address pool) external view returns (uint256[2] memory);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveMetaPoolFactory.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveMetaRegistry.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase, var-name-mixedcase
+// slither-disable-start naming-convention
+interface ICurveMetaRegistry {
+    /// @notice Get the coins within a pool
+    /// @dev For metapools, these are the wrapped coin addresses
+    /// @param _pool Pool address
+    /// @return List of coin addresses
+    function get_coins(address _pool) external view returns (address[8] memory);
+
+    /// @notice Get the coins within a pool
+    /// @dev For metapools, these are the wrapped coin addresses
+    /// @param _pool Pool address
+    /// @param _handler_id id of registry handler
+    /// @return List of coin addresses
+    function get_coins(address _pool, uint256 _handler_id) external view returns (address[8] memory);
+
+    /// @notice Get the number of coins in a pool
+    /// @dev For metapools, it is tokens + wrapping/lending token (no underlying)
+    /// @param _pool Pool address
+    /// @return Number of coins
+    function get_n_coins(address _pool) external view returns (uint256);
+
+    /// @notice Get the number of coins in a pool
+    /// @dev For metapools, it is tokens + wrapping/lending token (no underlying)
+    /// @param _pool Pool address
+    /// @param _handler_id Id of the registry to check
+    /// @return Number of coins
+    function get_n_coins(address _pool, uint256 _handler_id) external view returns (uint256);
+
+    /// @notice Get the address of the LP token of a pool
+    /// @param _pool Pool address
+    /// @return Address of the LP token
+    function get_lp_token(address _pool) external view returns (address);
+
+    /// @notice Get the address of the LP token of a pool
+    /// @param _pool Pool address
+    /// @param _handler_id id of registry handler
+    /// @return Address of the LP token
+    function get_lp_token(address _pool, uint256 _handler_id) external view returns (address);
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveMetaRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveMetaStableFactory.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+
+/**
+ * @notice Interface used for newer version of Curve factory at address `0xB9fC157394Af804a3578134A6585C0dc9cc990d4`.
+ *      This factory used to deploy both stableswap and meta pools.
+ */
+interface ICurveMetaStableFactory {
+    /// @notice Gets coin addresses for pool deployed by factory.
+    function get_coins(address pool) external view returns (address[4] memory);
+
+    /// @notice Gets balances of coins for pool deployed by factory.
+    function get_balances(address pool) external view returns (uint256[4] memory);
+
+    /// @notice Returns number of coins in pool.
+    function get_n_coins(address pool) external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveMetaStableFactory.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveOwner.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase, var-name-mixedcase
+// slither-disable-start naming-convention
+interface ICurveOwner {
+    function withdraw_admin_fees(address _pool) external;
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveOwner.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveRegistry.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+
+interface ICurveRegistry {
+    /**
+     * @notice Gets lp token address for Curve pool.
+     * @param pool Address of pool to get lp token for.
+     */
+    function get_lp_token(address pool) external view returns (address);
+
+    /**
+     * @notice Gets number of coins in pool.
+     * @dev First value is coins in metaPool, second is including underlying pool.
+     * @dev Each array value will be the same when pool is not meta or lending pool.
+     * @param pool Address of pool to get coins for.
+     */
+    function get_n_coins(address pool) external view returns (uint256[2] memory);
+
+    /**
+     * @notice Gets array of all coins in a pool.
+     * @dev Will return address(0) for array slots that are not filled.
+     * @param pool Address of pool to get coins for.
+     */
+    function get_coins(address pool) external view returns (address[8] memory);
+
+    /**
+     * @notice Returns balances for pool tokens.
+     * @dev Will returns zero for unused array slots.
+     * @param pool Address of pool to get balances for.
+     */
+    function get_balances(address pool) external view returns (uint256[8] memory);
+
+    /**
+     * @notice Gets pool address given lp token address.
+     * @param lpToken Address of lp token being used to get pool address.
+     */
+    function get_pool_from_lp_token(address lpToken) external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveRegistryV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+
+interface ICurveRegistryV2 {
+    /**
+     * @notice Gets address of lp token for pool.
+     * @param pool Address of pool to get lp token for.
+     */
+    function get_lp_token(address pool) external view returns (address);
+
+    /**
+     * Gets number of coins in a Curve pool.
+     * @param pool Address of pool to get number of coins for.
+     */
+    function get_n_coins(address pool) external view returns (uint256);
+
+    /**
+     * @notice Gets array of addresses of coins in pool.
+     * @dev Will have address(0) in unused array slots.
+     * @param pool Address of pool to get coins for.
+     */
+    function get_coins(address pool) external view returns (address[8] memory);
+
+    /**
+     * @notice Returns balances for requested pool.
+     * @dev Unused array slots will contain 0 value.
+     * @param pool Address of pool to get balances for.
+     */
+    function get_balances(address pool) external view returns (uint256[8] memory);
+
+    /**
+     * @notice Returns address of pool associated with lp token.
+     * @param pool Address of pool.
+     */
+    function get_pool_from_lp_token(address pool) external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveRegistryV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveStableSwapNG.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+
+/// @notice Interface for next generation Curve pool oracle functionality.
+interface ICurveStableSwapNG {
+    /// @notice Returns current price in pool.
+    function price_oracle() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveStableSwapNG.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveTokenV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase, var-name-mixedcase
+/// @notice Works with Curve lp tokens version 2 and above, v1 does not expose a public `minter()` method.
+interface ICurveTokenV2 {
+    /// @notice Returns address of minter, which is the pool
+    function minter() external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveTokenV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveV1StableSwap.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase, var-name-mixedcase
+// slither-disable-start naming-convention
+interface ICurveV1StableSwap {
+    function add_liquidity(uint256[2] memory amounts, uint256 min_mint_amount) external payable;
+
+    function add_liquidity(uint256[3] memory amounts, uint256 min_mint_amount) external payable;
+
+    function add_liquidity(uint256[4] memory amounts, uint256 min_mint_amount) external payable;
+
+    function remove_liquidity(uint256 amount, uint256[2] memory min_amounts) external;
+
+    function remove_liquidity(uint256 amount, uint256[3] memory min_amounts) external;
+
+    function remove_liquidity(uint256 amount, uint256[4] memory min_amounts) external;
+
+    function remove_liquidity_one_coin(uint256 token_amount, uint256 i, uint256 min_amount) external;
+
+    function calc_withdraw_one_coin(uint256 token_amount, uint256 i) external returns (uint256);
+
+    function coins(uint256 i) external view returns (address);
+
+    function balanceOf(address account) external returns (uint256);
+
+    function exchange(
+        int128 sellTokenIndex,
+        int128 buyTokenIndex,
+        uint256 sellAmount,
+        uint256 minBuyAmount
+    ) external payable returns (uint256);
+
+    function get_virtual_price() external view returns (uint256);
+
+    function withdraw_admin_fees() external;
+
+    function owner() external view returns (address);
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveV1StableSwap.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ICurveV2Swap.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface ICurveV2Swap {
+    function coins(uint256 i) external view returns (address);
+
+    function exchange(
+        uint256 sellTokenIndex,
+        uint256 buyTokenIndex,
+        uint256 sellAmount,
+        uint256 minBuyAmount
+    ) external payable returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/ICurveV2Swap.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/ILiquidityGaugeV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+// solhint-disable func-name-mixedcase
+// slither-disable-start naming-convention
+interface ILiquidityGaugeV2 {
+    /// @notice the address of the reward contract
+    function reward_contract() external view returns (address);
+
+    /// @notice get the reward token address
+    function reward_tokens(uint256 i) external view returns (address);
+
+    /// @notice claim available reward tokens for `_account`
+    function claim_rewards(address _account) external;
+
+    /// @notice deposit `_value` LP tokens to the gauge
+    function deposit(uint256 _value, address _addr) external;
+}
+// slither-disable-end naming-convention
+// ===== END SOURCE FILE: src/interfaces/external/curve/ILiquidityGaugeV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/IPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+//slither-disable-next-line name-reused
+interface IPool {
+    function coins(uint256 i) external view returns (address);
+
+    function balances(uint256 i) external view returns (uint256);
+
+    // These method used for cases when Pool is a LP token at the same time
+    function balanceOf(address account) external returns (uint256);
+
+    // These method used for cases when Pool is a LP token at the same time
+    function totalSupply() external returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/IPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/curve/IStakingRewards.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+interface IStakingRewards {
+    function rewardsToken() external view returns (IERC20);
+}
+// ===== END SOURCE FILE: src/interfaces/external/curve/IStakingRewards.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/frax/ISfrxEth.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface ISfrxEth {
+    /// @notice Returns price of sfrxEth in frxEth.
+    function pricePerShare() external view returns (uint256);
+
+    /// @notice Represents frxETH
+    function asset() external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/frax/ISfrxEth.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/lido/IstEth.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface IstEth {
+    function submit(address _referral) external payable returns (uint256);
+
+    function decimals() external view returns (uint8);
+
+    /**
+     * @notice Gets the amount of underlyer ETH by share
+     * @dev returns answer in 18 decimals of precision.
+     */
+    function getPooledEthByShares(uint256) external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/lido/IstEth.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/lido/IwstEth.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface IwstEth {
+    /// @notice Gets the amount of wstEth tokens per stEth token.
+    /// @return amount of wstETH for a 1 stETH
+    function tokensPerStEth() external view returns (uint256);
+
+    /// @notice Get amount of stETH for a one wstETH
+    /// @return amount of stETH for 1 wstETH
+    function stEthPerToken() external view returns (uint256);
+
+    /// @notice Returns address of stEth contract.
+    function stETH() external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/lido/IwstEth.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IPool.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+//slither-disable-start similar-names
+interface IPool {
+    event Swap(
+        address sender,
+        address recipient,
+        bool tokenAIn,
+        bool exactOutput,
+        uint256 amountIn,
+        uint256 amountOut,
+        int32 activeTick
+    );
+    event AddLiquidity(address indexed sender, uint256 indexed tokenId, BinDelta[] binDeltas);
+    event MigrateBinsUpStack(address indexed sender, uint128 binId, uint32 maxRecursion);
+    event TransferLiquidity(uint256 fromTokenId, uint256 toTokenId, RemoveLiquidityParams[] params);
+    event RemoveLiquidity(
+        address indexed sender, address indexed recipient, uint256 indexed tokenId, BinDelta[] binDeltas
+    );
+    event BinMerged(uint128 indexed binId, uint128 reserveA, uint128 reserveB, uint128 mergeId);
+    event BinMoved(uint128 indexed binId, int128 previousTick, int128 newTick);
+    event ProtocolFeeCollected(uint256 protocolFee, bool isTokenA);
+    event SetProtocolFeeRatio(uint256 protocolFee);
+
+    /**
+     * @notice return parameters for Add/Remove liquidity
+     * @param binId of the bin that changed
+     * @param kind one of the 4 Kinds (0=static, 1=right, 2=left, 3=both)
+     * @param isActive bool to indicate whether the bin is still active
+     * @param lowerTick is the lower price tick of the bin in its current state
+     * @param deltaA amount of A token that has been added or removed
+     * @param deltaB amount of B token that has been added or removed
+     * @param deltaLpToken amount of LP balance that has increase (add) or decreased (remove)
+     */
+    struct BinDelta {
+        uint128 deltaA;
+        uint128 deltaB;
+        uint256 deltaLpBalance;
+        uint128 binId;
+        uint8 kind;
+        int32 lowerTick;
+        bool isActive;
+    }
+
+    /**
+     * @notice time weighted average state
+     * @param twa the twa at the last update instant
+     * @param value the new value that was passed in at the last update
+     * @param lastTimestamp timestamp of the last update in seconds
+     * @param lookback time in seconds
+     */
+    struct TwaState {
+        int96 twa;
+        int96 value;
+        uint64 lastTimestamp;
+    }
+
+    /**
+     * @notice bin state parameters
+     * @param kind one of the 4 Kinds (0=static, 1=right, 2=left, 3=both)
+     * @param lowerTick is the lower price tick of the bin in its current state
+     * @param mergeId binId of the bin that this bin has merged in to
+     * @param reserveA amount of A token in bin
+     * @param reserveB amount of B token in bin
+     * @param totalSupply total amount of LP tokens in this bin
+     * @param mergeBinBalance LP token balance that this bin possesses of the merge bin
+     */
+    struct BinState {
+        uint128 reserveA;
+        uint128 reserveB;
+        uint128 mergeBinBalance;
+        uint128 mergeId;
+        uint128 totalSupply;
+        uint8 kind;
+        int32 lowerTick;
+    }
+
+    /**
+     * @notice Parameters for each bin that will get new liquidity
+     * @param kind one of the 4 Kinds (0=static, 1=right, 2=left, 3=both)
+     * @param pos bin position
+     * @param isDelta bool that indicates whether the bin position is
+     *        relative to the current bin or an absolute position
+     * @param deltaA amount of A token to add
+     * @param deltaB amount of B token to add
+     */
+    struct AddLiquidityParams {
+        uint8 kind;
+        int32 pos;
+        bool isDelta;
+        uint128 deltaA;
+        uint128 deltaB;
+    }
+
+    /**
+     * @notice Parameters for each bin that will have liquidity removed
+     * @param binId index of the bin losing liquidity
+     * @param amount LP balance amount to remove
+     */
+    struct RemoveLiquidityParams {
+        uint128 binId;
+        uint128 amount;
+    }
+
+    /**
+     * @notice State of the pool
+     * @param activeTick  current bin position that contains the active bins
+     * @param status pool status.  e.g. locked or unlocked; status values defined in Pool.sol
+     * @param binCounter index of the last bin created
+     * @param protocolFeeRatio ratio of the swap fee that is kept for the protocol
+     */
+    struct State {
+        int32 activeTick;
+        uint8 status;
+        uint128 binCounter;
+        uint64 protocolFeeRatio;
+    }
+
+    /// @notice fee for pool in 18 decimal format
+    function fee() external view returns (uint256);
+    /// @notice tickSpacing of pool where 1.0001^tickSpacing is the bin width
+    function tickSpacing() external view returns (uint256);
+    /// @notice address of token A
+    function tokenA() external view returns (IERC20);
+    /// @notice address of token B
+    function tokenB() external view returns (IERC20);
+    /// @notice address of Factory
+    function factory() external view returns (address);
+    /// @notice bitmap of active bins
+    function binMap(int32 tick) external view returns (uint256);
+    /// @notice mapping of tick/kind to binId
+    function binPositions(int32 tick, uint256 kind) external view returns (uint128);
+    /// @notice internal accounting of the sum tokenA balance across bins
+    function binBalanceA() external view returns (uint128);
+    /// @notice internal accounting of the sum tokenB balance across bins
+    function binBalanceB() external view returns (uint128);
+    /// @notice Twa state values
+    function getTwa() external view returns (TwaState memory);
+    /// @notice log base binWidth of the time weighted average price
+    function getCurrentTwa() external view returns (int256);
+    /// @notice pool state
+    function getState() external view returns (State memory);
+
+    /**
+     * @notice Add liquidity to a pool.
+     * @param tokenId NFT token ID that will hold the position
+     * @param params array of AddLiquidityParams that specify the mode and position of the liquidity
+     * @param data callback function that addLiquidity will call so that the caller can transfer tokens
+     */
+    function addLiquidity(
+        uint256 tokenId,
+        AddLiquidityParams[] calldata params,
+        bytes calldata data
+    ) external payable returns (uint256 tokenAAmount, uint256 tokenBAmount, BinDelta[] memory binDeltas);
+
+    /**
+     * @notice Transfer liquidity in an array of bins from one nft tokenId to another
+     * @param fromTokenId NFT token ID that holds the position being transferred
+     * @param toTokenId NFT token ID that is receiving liquidity
+     * @param params array of binIds and amounts to transfer
+     */
+    function transferLiquidity(
+        uint256 fromTokenId,
+        uint256 toTokenId,
+        RemoveLiquidityParams[] calldata params
+    ) external;
+
+    /**
+     * @notice Remove liquidity from a pool.
+     * @param recipient address that will receive the removed tokens
+     * @param tokenId NFT token ID that holds the position being removed
+     * @param params array of RemoveLiquidityParams that specify the bins, and amounts
+     */
+    function removeLiquidity(
+        address recipient,
+        uint256 tokenId,
+        RemoveLiquidityParams[] calldata params
+    ) external returns (uint256 tokenAOut, uint256 tokenBOut, BinDelta[] memory binDeltas);
+
+    /**
+     * @notice Migrate bins up the linked list of merged bins so that its
+     *         mergeId is the current active bin.
+     * @param binId is an array of the binIds to be migrated
+     * @param maxRecursion is the maximum recursion depth of the migration. set to
+     *        zero to recurse until the active bin is found.
+     */
+    function migrateBinUpStack(uint128 binId, uint32 maxRecursion) external;
+
+    /**
+     * @notice swap tokens
+     * @param recipient address that will receive the output tokens
+     * @param amount amount of token that is either the input if exactOutput
+     *        is false or the output if exactOutput is true
+     * @param tokenAIn bool indicating whether tokenA is the input
+     * @param exactOutput bool indicating whether the amount specified is the
+     *        exact output amount (true)
+     * @param sqrtPriceLimit limiting sqrt price of the swap.
+     *        A value of 0 indicates no limit. Limit is only engaged for exactOutput=false.
+     *        If the limit is reached only part of the input amount will be swapped and the
+     *        callback will only require that amount of the swap to be paid.
+     * @param data callback function that swap will call so that the caller can transfer tokens
+     */
+    function swap(
+        address recipient,
+        uint256 amount,
+        bool tokenAIn,
+        bool exactOutput,
+        uint256 sqrtPriceLimit,
+        bytes calldata data
+    ) external returns (uint256 amountIn, uint256 amountOut);
+
+    /// @notice bin information for a given binId
+    function getBin(uint128 binId) external view returns (BinState memory bin);
+
+    /// @notice LP token balance for a given tokenId at a given binId
+    function balanceOf(uint256 tokenId, uint128 binId) external view returns (uint256 lpToken);
+
+    /**
+     * @notice tokenA scale value
+     * @dev msb is a flag to indicate whether tokenA has more or less than 18
+     *      decimals. Scale is used in conjunction with Math.toScale/Math.fromScale
+     *      functions to convert from token amounts to D18 scale internal pool accounting.
+     */
+    function tokenAScale() external view returns (uint256);
+
+    /**
+     * @notice tokenB scale value
+     * @dev msb is a flag to indicate whether tokenA has more or less than 18 decimals.
+     *      Scale is used in conjunction with Math.toScale/Math.fromScale
+     *      functions to convert from token amounts to D18 scale internal pool accounting.
+     */
+    function tokenBScale() external view returns (uint256);
+}
+//slither-disable-end similar-names
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IPool.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IPoolPositionDynamicSlim.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+/// @notice Maverick boosted position.
+interface IPoolPositionDynamicSlim is IERC20 {
+    /// @notice Gets token reserves in boosted position.
+    function getReserves() external returns (uint256 reserveA, uint256 reserveB);
+
+    /// @notice Pool that boosted position is for.
+    function pool() external returns (address maverickPool);
+
+    /// @notice Returns an array of all binIds that boosted position is active for.
+    function allBinIds() external returns (uint128[] memory);
+}
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IPoolPositionDynamicSlim.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IPoolPositionSlim.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.17;
+
+import { IERC20Metadata } from "openzeppelin-contracts/token/ERC20/extensions/IERC20Metadata.sol";
+
+import { IPool } from "src/interfaces/external/maverick/IPool.sol";
+
+interface IPoolPositionSlim is IERC20Metadata {
+    error InvalidBinIds(uint128[] binIds);
+    error InvalidRatio();
+    error BinIsMerged();
+    error InvalidTokenId(uint256 tokenId);
+
+    event MigrateBinLiquidity(uint128 oldBinId, uint128 newBinId);
+
+    function allBinIds() external view returns (uint128[] memory);
+
+    function binIds(uint256) external view returns (uint128);
+
+    function ratios(uint256) external view returns (uint128);
+
+    /// @notice tokenId that holds PP assets
+    function tokenId() external view returns (uint256);
+
+    /// @notice Pool that the position exists in
+    function pool() external view returns (IPool);
+
+    /// @notice Whether or not the PP contains all static bins as opposed to
+    //movement bins
+    function isStatic() external view returns (bool);
+
+    /// @notice Returns struct array of bin lp amounts that need to be transfered for a mint
+    /// @param  binZeroLpAddAmount LP amount of bin[0] to be added
+    function binLpAddAmountRequirement(uint128 binZeroLpAddAmount)
+        external
+        view
+        returns (IPool.RemoveLiquidityParams[] memory params);
+
+    /// @notice Burns PoolPosition ERC20 tokens from given account and
+    //trasnfers Pool liquidity position to toTokenId
+    /// @param account wallet or contract whose PoolPosition tokens will be
+    //burned
+    /// @param toTokenId pool.position() that will own the output liquidity
+    /// @param lpAmountToUnStake number of PoolPosition LPs tokens to burn
+    function burnFromToTokenIdAsBinLiquidity(
+        address account,
+        uint256 toTokenId,
+        uint256 lpAmountToUnStake
+    ) external returns (IPool.RemoveLiquidityParams[] memory params);
+
+    /// @notice Burns PoolPosition ERC20 tokens and trasnfers resulting
+    //liquidity as A/B tokens to recipient
+    /// @param account wallet or contract whose PoolPosition tokens will be
+    //burned
+    /// @param recipient pool.position() that will own the output tokens
+    /// @param lpAmountToUnStake number of PoolPosition LPs tokens to burn
+    function burnFromToAddressAsReserves(
+        address account,
+        address recipient,
+        uint256 lpAmountToUnStake
+    ) external returns (uint256 amountA, uint256 amountB);
+
+    /// @notice Migrates the PoolPosition liquidity to active bin if the
+    //liquidity is currently merged
+    /// @dev Migrating only applies to one-bin dynamic-kind PoolPositions and
+    //it must be called before any other external call will execute if the bin
+    //in the PoolPosition has been merged.
+    function migrateBinLiquidity() external;
+
+    /// @notice Mint new PoolPosition tokens
+    /// @param to wallet or contract where PoolPosition tokens will be minted
+    /// @param fromTokenId pool.position() that will contribute input liquidity
+    /// @param binZeroLpAddAmount LP balance of pool.position() in PoolPosition
+    //bins[0] to be transfered
+    //  @return liquidity number of PoolPosition LP tokens minted
+    function mint(address to, uint256 fromTokenId, uint128 binZeroLpAddAmount) external returns (uint256 liquidity);
+
+    /// @notice Amount of pool.tokenA() and pool.tokenB() tokens held by the
+    //PoolPosition
+    //  @return reserveA Amount of pool.tokenA() tokens held by the
+    //  PoolPosition
+    //  @return reserveB Amount of pool.tokenB() tokens held by the
+    //  PoolPosition
+    function getReserves() external view returns (uint256 reserveA, uint256 reserveB);
+}
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IPoolPositionSlim.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IPosition.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+import { IERC721Enumerable } from "openzeppelin-contracts/token/ERC721/extensions/IERC721Enumerable.sol";
+import { IPositionMetadata } from "./IPositionMetadata.sol";
+
+interface IPosition is IERC721Enumerable {
+    event SetMetadata(IPositionMetadata metadata);
+
+    /// @notice mint new position NFT
+    function mint(address to) external returns (uint256 tokenId);
+
+    function tokenOfOwnerByIndexExists(address owner, uint256 index) external view returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IPosition.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IPositionMetadata.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+interface IPositionMetadata {
+    function tokenURI(uint256 tokenId) external view returns (string memory);
+}
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IPositionMetadata.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IReward.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+pragma solidity ^0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+interface IReward {
+    event NotifyRewardAmount(
+        address sender, address rewardTokenAddress, uint256 amount, uint256 duration, uint256 rewardRate
+    );
+    event GetReward(
+        address sender,
+        address account,
+        address recipient,
+        uint8 rewardTokenIndex,
+        address rewardTokenAddress,
+        uint256 rewardPaid
+    );
+    event UnStake(
+        address sender, address account, uint256 amount, address recipient, uint256 userBalance, uint256 totalSupply
+    );
+    event Stake(
+        address sender, address supplier, uint256 amount, address account, uint256 userBalance, uint256 totalSupply
+    );
+    event AddRewardToken(address rewardTokenAddress, uint8 rewardTokenIndex);
+    event RemoveRewardToken(address rewardTokenAddress, uint8 rewardTokenIndex);
+
+    error DurationOutOfBounds(uint256 duration);
+    error OnlyFactoryOwner();
+    error ZeroAmount();
+    error NotValidRewardToken(address rewardTokenAddress);
+    error TooManyRewardTokens();
+    error StaleToken(uint8 rewardTokenIndex);
+    error TokenNotStale(uint8 rewardTokenIndex);
+    error RewardStillActive(uint8 rewardTokenIndex);
+    error RewardAmountBelowThreshold(uint256 amount, uint256 minimumAmount);
+
+    struct RewardInfo {
+        // Timestamp of when the rewards finish
+        uint256 finishAt;
+        // Minimum of last updated time and reward finish time
+        uint256 updatedAt;
+        // Reward to be paid out per second
+        uint256 rewardRate;
+        // Sum of (reward rate * dt * 1e18 / total supply)
+        uint256 rewardPerTokenStored;
+        IERC20 rewardToken;
+    }
+
+    struct EarnedInfo {
+        // account
+        address account;
+        // earned
+        uint256 earned;
+        // reward token
+        IERC20 rewardToken;
+    }
+
+    function rewardInfo() external view returns (RewardInfo[] memory);
+
+    function tokenIndex(address tokenAddress) external view returns (uint8);
+
+    function balanceOf(address account) external view returns (uint256);
+
+    function earned(address account, address rewardTokenAddress) external view returns (uint256);
+
+    function earned(address account) external view returns (EarnedInfo[] memory earnedInfo);
+
+    /// @notice Add rewards tokens account the pot of rewards with a transferFrom.
+    /// @param  rewardTokenAddress address of reward token added
+    function notifyAndTransfer(address rewardTokenAddress, uint256 amount, uint256 duration) external;
+
+    /// @notice Deposit LP tokens for reward allocation.
+    /// @param amount LP token amount account deposit.
+    /// @param account The receiver of `amount` deposit benefit.
+    function stake(uint256 amount, address account) external;
+
+    /// @notice Withdraw LP token stake.
+    /// @param amount LP token amount account withdraw.
+    /// @param  recipient Receiver of the LP tokens.
+    function unstake(uint256 amount, address recipient) external;
+
+    /// @notice Withdraw entire amount of LP token stake.
+    /// @param  recipient Receiver of the LP tokens.
+    function unstakeAll(address recipient) external;
+
+    /// @notice Get reward proceeds for transaction sender account `account`.
+    /// @param recipient Receiver of REWARD_TOKEN rewards.
+    /// @param rewardTokenIndices indices of reward tokens to collect
+    function getReward(address recipient, uint8[] calldata rewardTokenIndices) external;
+
+    /// @notice Get reward proceeds for transaction sender account `account`.
+    /// @param recipient Receiver of REWARD_TOKEN rewards.
+    /// @param rewardTokenIndex index of reward token to collect
+    function getReward(address recipient, uint8 rewardTokenIndex) external returns (uint256);
+
+    /// @notice Remove stale tokens from the reward contract
+    /// @param rewardTokenIndex is the index of the reward token in the
+    //tokenIndex mapping
+    function removeStaleToken(uint8 rewardTokenIndex) external;
+
+    /// @notice Get address of the token used for staking for receiving rewards.
+    /// @return address of the LP staking token
+    function stakingToken() external view returns (address);
+}
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IReward.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/maverick/IRouter.sol =====
+// SPDX-License-Identifier: GPL-2.0-or-later
+
+/// @notice: this is a simplified version of Maverick's IRouter interface
+
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+import { IPool } from "./IPool.sol";
+import { IPosition } from "./IPosition.sol";
+
+//slither-disable-start similar-names
+//slither-disable-next-line name-reused
+interface IRouter {
+    /// @return Returns the address of the factory
+    function factory() external view returns (address);
+    /// @return Returns the address of the Position NFT
+    function position() external view returns (IPosition);
+
+    struct ExactInputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountIn;
+        uint256 amountOutMinimum;
+    }
+
+    /**
+     * @notice Swaps `amountIn` of one token for as much as possible of another along the specified path
+     * @param params The parameters necessary for the multi-hop swap, encoded as `ExactInputParams` in calldata
+     * @return amountOut The amount of the received token
+     */
+    function exactInput(ExactInputParams calldata params) external payable returns (uint256 amountOut);
+
+    struct ExactOutputParams {
+        bytes path;
+        address recipient;
+        uint256 deadline;
+        uint256 amountOut;
+        uint256 amountInMaximum;
+    }
+
+    /**
+     * @notice Swaps as little as possible of one token for `amountOut` of another along the specified path (reversed)
+     * @param params The parameters necessary for the multi-hop swap, encoded as `ExactOutputParams` in calldata
+     * @return amountIn The amount of the input token
+     */
+    function exactOutput(ExactOutputParams calldata params) external payable returns (uint256 amountIn);
+
+    struct PoolParams {
+        uint256 fee;
+        uint256 tickSpacing;
+        int256 lookback;
+        int32 activeTick;
+        IERC20 tokenA;
+        IERC20 tokenB;
+    }
+
+    /**
+     * @notice create a pool and add liquidity to it
+     * @param poolParams parameters of a pool
+     * @param tokenId nft id of token that will hold lp balance, use 0 to mint a new token
+     * @param addParams parameters of liquidity addition
+     * @param minTokenAAmount minimum amount of token A to add, revert if not met
+     * @param minTokenBAmount minimum amount of token B to add, revert if not met
+     * @param deadline epoch timestamp in seconds
+     */
+    function getOrCreatePoolAndAddLiquidity(
+        PoolParams calldata poolParams,
+        uint256 tokenId,
+        IPool.AddLiquidityParams[] calldata addParams,
+        uint256 minTokenAAmount,
+        uint256 minTokenBAmount,
+        uint256 deadline
+    )
+        external
+        payable
+        returns (
+            uint256 receivingTokenId,
+            uint256 tokenAAmount,
+            uint256 tokenBAmount,
+            IPool.BinDelta[] memory binDeltas
+        );
+
+    /**
+     * @notice add liquidity to a pool
+     * @param pool pool to add liquidity to
+     * @param tokenId nft id of token that will hold lp balance, use 0 to mint a new token
+     * @param params parameters of liquidity addition
+     * @param minTokenAAmount minimum amount of token A to add, revert if not met
+     * @param minTokenBAmount minimum amount of token B to add, revert if not met
+     * @param deadline epoch timestamp in seconds
+     */
+    function addLiquidityToPool(
+        IPool pool,
+        uint256 tokenId,
+        IPool.AddLiquidityParams[] calldata params,
+        uint256 minTokenAAmount,
+        uint256 minTokenBAmount,
+        uint256 deadline
+    )
+        external
+        payable
+        returns (
+            uint256 receivingTokenId,
+            uint256 tokenAAmount,
+            uint256 tokenBAmount,
+            IPool.BinDelta[] memory binDeltas
+        );
+
+    /**
+     * @notice add liquidity to a pool with active tick limits
+     * @param pool pool to add liquidity to
+     * @param tokenId nft id of token that will hold lp balance, use 0 to mint a new token
+     * @param params parameters of liquidity addition
+     * @param minTokenAAmount minimum amount of token A to add, revert if not met
+     * @param minTokenBAmount minimum amount of token B to add, revert if not met
+     * @param minActiveTick lowest activeTick (inclusive) of pool that will permit transaction to pass
+     * @param maxActiveTick highest activeTick (inclusive) of pool that will permit transaction to pass
+     * @param deadline epoch timestamp in seconds
+     */
+    function addLiquidityWTickLimits(
+        IPool pool,
+        uint256 tokenId,
+        IPool.AddLiquidityParams[] calldata params,
+        uint256 minTokenAAmount,
+        uint256 minTokenBAmount,
+        int32 minActiveTick,
+        int32 maxActiveTick,
+        uint256 deadline
+    )
+        external
+        payable
+        returns (
+            uint256 receivingTokenId,
+            uint256 tokenAAmount,
+            uint256 tokenBAmount,
+            IPool.BinDelta[] memory binDeltas
+        );
+
+    /**
+     * @notice moves the head of input merged bins to the active bin
+     * @param pool to remove from
+     * @param binIds array of bin Ids to migrate
+     * @param maxRecursion maximum recursion depth before returning; 0=no max
+     * @param deadline epoch timestamp in seconds
+     */
+    function migrateBinsUpStack(
+        IPool pool,
+        uint128[] calldata binIds,
+        uint32 maxRecursion,
+        uint256 deadline
+    ) external;
+
+    /**
+     * @notice remove liquidity from pool and receive WETH if one of the tokens is WETH
+     * @dev router must be approved for the withdrawing tokenId: Position.approve(router, tokenId)
+     * @param pool pool to remove from
+     * @param recipient address where proceeds are sent; use zero or router address to leave tokens in router
+     * @param tokenId ID of position NFT that holds liquidity
+     * @param params parameters of liquidity removal
+     * @param minTokenAAmount minimum amount of token A to receive, revert if not met
+     * @param minTokenBAmount minimum amount of token B to receive, revert if not met
+     * @param deadline epoch timestamp in seconds
+     */
+    function removeLiquidity(
+        IPool pool,
+        address recipient,
+        uint256 tokenId,
+        IPool.RemoveLiquidityParams[] calldata params,
+        uint256 minTokenAAmount,
+        uint256 minTokenBAmount,
+        uint256 deadline
+    ) external returns (uint256 tokenAAmount, uint256 tokenBAmount, IPool.BinDelta[] memory binDeltas);
+}
+//slither-disable-end similar-names
+// ===== END SOURCE FILE: src/interfaces/external/maverick/IRouter.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/rocket-pool/IRocketOvmPriceOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.17;
+
+/// @title Gets price of rEth from L1 Ethereum
+interface IRocketOvmPriceOracle {
+    /**
+     * @notice Returns rate of rEth to Eth
+     * @dev Always returns price with Eth denomination, 18 decimals of precision
+     */
+    function rate() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/interfaces/external/rocket-pool/IRocketOvmPriceOracle.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/external/rocket-pool/IRocketTokenRETHInterface.sol =====
+// SPDX-License-Identifier: GPL-3.0-only
+pragma solidity 0.8.17;
+
+import { IERC20 } from "openzeppelin-contracts/token/ERC20/IERC20.sol";
+
+interface IRocketTokenRETHInterface is IERC20 {
+    function getEthValue(uint256 _rethAmount) external view returns (uint256);
+    function getRethValue(uint256 _ethAmount) external view returns (uint256);
+    function getExchangeRate() external view returns (uint256);
+    function getTotalCollateral() external view returns (uint256);
+    function getCollateralRate() external view returns (uint256);
+    function depositExcess() external payable;
+    function depositExcessCollateral() external;
+    function mint(uint256 _ethAmount, address _to) external;
+    function burn(uint256 _rethAmount) external;
+}
+// ===== END SOURCE FILE: src/interfaces/external/rocket-pool/IRocketTokenRETHInterface.sol =====

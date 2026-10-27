@@ -1,0 +1,105 @@
+{
+  "report_version": "0.2",
+  "benchmark_version": "v1",
+  "manifest_sha256": "347ab4a643c95f420f2320b38934cbd7a2373a47172c266ffda6c0a662a27123",
+  "judge_config": {
+    "threshold": 0.5,
+    "weight_profile": {
+      "profile_id": "end-to-end-v2",
+      "R": 0.4,
+      "L": 0.2,
+      "I": 0.2,
+      "M": 0.2
+    }
+  },
+  "matching_strategy": "greedy",
+  "corpus_metrics": {
+    "macro_soft_f1": 0.2222222222222222,
+    "pooled_soft_f1": 0.25,
+    "total_matched_weight": 1.0,
+    "total_ground_truth_count": 3,
+    "total_prediction_count": 5
+  },
+  "repositories": [
+    {
+      "repo_id": "2023-04-blueberry",
+      "metrics": {
+        "repo_id": "2023-04-blueberry",
+        "ground_truth_count": 1,
+        "prediction_count": 0,
+        "matched_weight": 0.0,
+        "soft_precision": 0.0,
+        "soft_recall": 0.0,
+        "soft_f1": 0.0
+      },
+      "matched_pairs": [],
+      "matching_order": [],
+      "unmatched_predictions": [],
+      "unmatched_ground_truths": [
+        "H-4"
+      ]
+    },
+    {
+      "repo_id": "2023-06-real-wagmi",
+      "metrics": {
+        "repo_id": "2023-06-real-wagmi",
+        "ground_truth_count": 1,
+        "prediction_count": 2,
+        "matched_weight": 1.0,
+        "soft_precision": 0.5,
+        "soft_recall": 1.0,
+        "soft_f1": 0.6666666666666666
+      },
+      "matched_pairs": [
+        {
+          "prediction_id": "SAF-001",
+          "ground_truth_id": "H-3",
+          "scores": {
+            "R": 4,
+            "L": 4,
+            "I": 4,
+            "M": 4
+          },
+          "weighted_score": 1.0,
+          "rationale": "R: Correctly identifies the root cause: attacker-manipulable Uniswap V3 slot0 spot prices are used to value positions, optimize deposits, and calculate LP issuance without a manipulation-resistant reference. L: Correctly localizes deposit(), getSlots(), and _getReserves(), including the slot0 and LiquidityAmounts data flow. I: Correctly describes distorted deposit ratios and LP exchange rates, including fewer-than-intended LP tokens and value transfer involving existing LP holders. M: TWAP or an independent oracle, deviation checks, and consistent protected valuation directly prevent the slot0 manipulation; minLpAmount is an additional appropriate safeguard."
+        }
+      ],
+      "matching_order": [
+        {
+          "prediction_id": "SAF-001",
+          "ground_truth_id": "H-3"
+        }
+      ],
+      "unmatched_predictions": [
+        "SAF-002"
+      ],
+      "unmatched_ground_truths": []
+    },
+    {
+      "repo_id": "2024-03-woofi-swap",
+      "metrics": {
+        "repo_id": "2024-03-woofi-swap",
+        "ground_truth_count": 1,
+        "prediction_count": 3,
+        "matched_weight": 0.0,
+        "soft_precision": 0.0,
+        "soft_recall": 0.0,
+        "soft_f1": 0.0
+      },
+      "matched_pairs": [],
+      "matching_order": [],
+      "unmatched_predictions": [
+        "SAF-001",
+        "SAF-002",
+        "SAF-003"
+      ],
+      "unmatched_ground_truths": [
+        "H-1"
+      ]
+    }
+  ],
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  }
+}

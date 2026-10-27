@@ -1,0 +1,4978 @@
+// ===== BEGIN SOURCE FILE: contracts/protocol/configuration/PoolAddressesProvider.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {Ownable} from "../../dependencies/openzeppelin/contracts/Ownable.sol";
+import {IPoolAddressesProvider} from "../../interfaces/IPoolAddressesProvider.sol";
+import {IParaProxy} from "../../interfaces/IParaProxy.sol";
+import {InitializableImmutableAdminUpgradeabilityProxy} from "../libraries/paraspace-upgradeability/InitializableImmutableAdminUpgradeabilityProxy.sol";
+import {ParaProxy} from "../libraries/paraspace-upgradeability/ParaProxy.sol";
+import {DataTypes} from "../../protocol/libraries/types/DataTypes.sol";
+import {Address} from "../../dependencies/openzeppelin/contracts/Address.sol";
+import {Errors} from "../../protocol/libraries/helpers/Errors.sol";
+
+/**
+ * @title PoolAddressesProvider
+ *
+ * @notice Main registry of addresses part of or connected to the protocol, including permissioned roles
+ * @dev Acts as factory of proxies and admin of those, so with right to change its implementations
+ * @dev Owned by the ParaSpace Governance
+ **/
+contract PoolAddressesProvider is Ownable, IPoolAddressesProvider {
+    // Identifier of the ParaSpace Market
+    string private _marketId;
+
+    // Map of registered addresses (identifier => registeredAddress)
+    mapping(bytes32 => address) private _addresses;
+
+    // Map of marketplace contracts (id => address)
+    mapping(bytes32 => DataTypes.Marketplace) internal _marketplaces;
+
+    // Main identifiers
+    bytes32 private constant POOL = "POOL";
+    bytes32 private constant POOL_CONFIGURATOR = "POOL_CONFIGURATOR";
+    bytes32 private constant PRICE_ORACLE = "PRICE_ORACLE";
+    bytes32 private constant ACL_MANAGER = "ACL_MANAGER";
+    bytes32 private constant ACL_ADMIN = "ACL_ADMIN";
+    bytes32 private constant PRICE_ORACLE_SENTINEL = "PRICE_ORACLE_SENTINEL";
+    bytes32 private constant DATA_PROVIDER = "DATA_PROVIDER";
+    bytes32 private constant WETH = "WETH";
+
+    /**
+     * @dev Constructor.
+     * @param marketId The identifier of the market.
+     * @param owner The owner address of this contract.
+     */
+    constructor(string memory marketId, address owner) {
+        _setMarketId(marketId);
+        transferOwnership(owner);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getMarketId() external view override returns (string memory) {
+        return _marketId;
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setMarketId(string memory newMarketId)
+        external
+        override
+        onlyOwner
+    {
+        _setMarketId(newMarketId);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getAddress(bytes32 id) public view override returns (address) {
+        return _addresses[id];
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setAddress(bytes32 id, address newAddress)
+        external
+        override
+        onlyOwner
+    {
+        address oldAddress = _addresses[id];
+        _addresses[id] = newAddress;
+        emit AddressSet(id, oldAddress, newAddress);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setAddressAsProxy(bytes32 id, address newImplementationAddress)
+        external
+        override
+        onlyOwner
+    {
+        require(id != POOL, Errors.INVALID_ADDRESSES_PROVIDER_ID);
+
+        address proxyAddress = _addresses[id];
+        address oldImplementationAddress = _getProxyImplementation(id);
+        _updateImpl(id, newImplementationAddress);
+        emit AddressSetAsProxy(
+            id,
+            proxyAddress,
+            oldImplementationAddress,
+            newImplementationAddress
+        );
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getPool() external view override returns (address) {
+        return getAddress(POOL);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function updatePoolImpl(
+        IParaProxy.ProxyImplementation[] calldata implementationParams,
+        address _init,
+        bytes calldata _calldata
+    ) external override onlyOwner {
+        _updateParaProxyImpl(POOL, implementationParams, _init, _calldata);
+
+        emit PoolUpdated(implementationParams, _init, _calldata);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getPoolConfigurator() external view override returns (address) {
+        return getAddress(POOL_CONFIGURATOR);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setPoolConfiguratorImpl(address newPoolConfiguratorImpl)
+        external
+        override
+        onlyOwner
+    {
+        address oldPoolConfiguratorImpl = _getProxyImplementation(
+            POOL_CONFIGURATOR
+        );
+        _updateImpl(POOL_CONFIGURATOR, newPoolConfiguratorImpl);
+        emit PoolConfiguratorUpdated(
+            oldPoolConfiguratorImpl,
+            newPoolConfiguratorImpl
+        );
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getPriceOracle() external view override returns (address) {
+        return getAddress(PRICE_ORACLE);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setPriceOracle(address newPriceOracle)
+        external
+        override
+        onlyOwner
+    {
+        address oldPriceOracle = _addresses[PRICE_ORACLE];
+        _addresses[PRICE_ORACLE] = newPriceOracle;
+        emit PriceOracleUpdated(oldPriceOracle, newPriceOracle);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getACLManager() external view override returns (address) {
+        return getAddress(ACL_MANAGER);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setACLManager(address newAclManager) external override onlyOwner {
+        address oldAclManager = _addresses[ACL_MANAGER];
+        _addresses[ACL_MANAGER] = newAclManager;
+        emit ACLManagerUpdated(oldAclManager, newAclManager);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getACLAdmin() external view override returns (address) {
+        return getAddress(ACL_ADMIN);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setACLAdmin(address newAclAdmin) external override onlyOwner {
+        address oldAclAdmin = _addresses[ACL_ADMIN];
+        _addresses[ACL_ADMIN] = newAclAdmin;
+        emit ACLAdminUpdated(oldAclAdmin, newAclAdmin);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getPriceOracleSentinel() external view override returns (address) {
+        return getAddress(PRICE_ORACLE_SENTINEL);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setPriceOracleSentinel(address newPriceOracleSentinel)
+        external
+        override
+        onlyOwner
+    {
+        address oldPriceOracleSentinel = _addresses[PRICE_ORACLE_SENTINEL];
+        _addresses[PRICE_ORACLE_SENTINEL] = newPriceOracleSentinel;
+        emit PriceOracleSentinelUpdated(
+            oldPriceOracleSentinel,
+            newPriceOracleSentinel
+        );
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getPoolDataProvider() external view override returns (address) {
+        return getAddress(DATA_PROVIDER);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getWETH() external view override returns (address) {
+        return getAddress(WETH);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function getMarketplace(bytes32 id)
+        external
+        view
+        override
+        returns (DataTypes.Marketplace memory)
+    {
+        DataTypes.Marketplace memory marketplace = _marketplaces[id];
+        if (
+            marketplace.marketplace != address(0) &&
+            Address.isContract(marketplace.marketplace)
+        ) {
+            return marketplace;
+        } else {
+            revert(Errors.INVALID_MARKETPLACE_ID);
+        }
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setProtocolDataProvider(address newDataProvider)
+        external
+        override
+        onlyOwner
+    {
+        address oldDataProvider = _addresses[DATA_PROVIDER];
+        _addresses[DATA_PROVIDER] = newDataProvider;
+        emit ProtocolDataProviderUpdated(oldDataProvider, newDataProvider);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setWETH(address newWETH) external override onlyOwner {
+        address oldWETH = _addresses[WETH];
+        _addresses[WETH] = newWETH;
+        emit WETHUpdated(oldWETH, newWETH);
+    }
+
+    /// @inheritdoc IPoolAddressesProvider
+    function setMarketplace(
+        bytes32 id,
+        address marketplace,
+        address adapter,
+        address operator,
+        bool paused
+    ) external override onlyOwner {
+        _marketplaces[id] = DataTypes.Marketplace(
+            marketplace,
+            adapter,
+            operator,
+            paused
+        );
+        emit MarketplaceUpdated(id, marketplace, adapter, operator, paused);
+    }
+
+    /**
+     * @notice Internal function to update the implementation of a specific proxied component of the protocol.
+     * @dev If there is no proxy registered with the given identifier, it creates the proxy setting `newAddress`
+     *   as implementation and calls the initialize() function on the proxy
+     * @dev If there is already a proxy registered, it just updates the implementation to `newAddress` and
+     *   calls the initialize() function via upgradeToAndCall() in the proxy
+     * @param id The id of the proxy to be updated
+     * @param newAddress The address of the new implementation
+     **/
+    function _updateImpl(bytes32 id, address newAddress) internal {
+        require(newAddress != address(0), Errors.ZERO_ADDRESS_NOT_VALID);
+        address proxyAddress = _addresses[id];
+        InitializableImmutableAdminUpgradeabilityProxy proxy;
+        bytes memory params = abi.encodeWithSignature(
+            "initialize(address)",
+            address(this)
+        );
+
+        if (proxyAddress == address(0)) {
+            proxy = new InitializableImmutableAdminUpgradeabilityProxy(
+                address(this)
+            );
+            proxy.initialize(newAddress, params);
+            _addresses[id] = proxyAddress = address(proxy);
+            emit ProxyCreated(id, proxyAddress, newAddress);
+        } else {
+            proxy = InitializableImmutableAdminUpgradeabilityProxy(
+                payable(proxyAddress)
+            );
+            proxy.upgradeToAndCall(newAddress, params);
+        }
+    }
+
+    /**
+     * @notice Internal function to update the implementation of a specific proxied component of the protocol that uses ParaProxy.
+     * @dev If there is no proxy registered with the given identifier, it creates the proxy setting `newAddress`
+     *   as implementation and calls the calldata on the _init
+     * @dev If there is already a proxy registered, it just updates the implementation using the implementationParams
+     * @param id The id of the proxy to be updated
+     * @param implementationParams Contains the implementation addresses and function selectors
+     * @param _init The address of the contract or implementation to execute _calldata
+     * @param _calldata A function call, including function selector and arguments
+     *                  _calldata is executed with delegatecall on _init
+     **/
+    function _updateParaProxyImpl(
+        bytes32 id,
+        IParaProxy.ProxyImplementation[] calldata implementationParams,
+        address _init,
+        bytes calldata _calldata
+    ) internal {
+        address proxyAddress = _addresses[id];
+
+        IParaProxy proxy;
+
+        if (proxyAddress == address(0)) {
+            proxy = IParaProxy(address(new ParaProxy(address(this))));
+            proxy.updateImplementation(implementationParams, _init, _calldata);
+            _addresses[id] = proxyAddress = address(proxy);
+            emit ParaProxyCreated(id, proxyAddress, implementationParams);
+        } else {
+            proxy = IParaProxy(payable(proxyAddress));
+
+            proxy.updateImplementation(implementationParams, _init, _calldata);
+            emit ParaProxyUpdated(id, proxyAddress, implementationParams);
+        }
+    }
+
+    /**
+     * @notice Updates the identifier of the ParaSpace market.
+     * @param newMarketId The new id of the market
+     **/
+    function _setMarketId(string memory newMarketId) internal {
+        string memory oldMarketId = _marketId;
+        _marketId = newMarketId;
+        emit MarketIdSet(oldMarketId, newMarketId);
+    }
+
+    /**
+     * @notice Returns the the implementation contract of the proxy contract by its identifier.
+     * @dev It returns ZERO if there is no registered address with the given id
+     * @dev It reverts if the registered address with the given id is not `InitializableImmutableAdminUpgradeabilityProxy`
+     * @param id The id
+     * @return The address of the implementation contract
+     */
+    function _getProxyImplementation(bytes32 id) internal returns (address) {
+        address proxyAddress = _addresses[id];
+        if (proxyAddress == address(0)) {
+            return address(0);
+        } else {
+            address payable payableProxyAddress = payable(proxyAddress);
+            return
+                InitializableImmutableAdminUpgradeabilityProxy(
+                    payableProxyAddress
+                ).implementation();
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/configuration/PoolAddressesProvider.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/configuration/PoolAddressesProviderRegistry.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {Ownable} from "../../dependencies/openzeppelin/contracts/Ownable.sol";
+import {Errors} from "../libraries/helpers/Errors.sol";
+import {IPoolAddressesProviderRegistry} from "../../interfaces/IPoolAddressesProviderRegistry.sol";
+
+/**
+ * @title PoolAddressesProviderRegistry
+ *
+ * @notice Main registry of PoolAddressesProvider of ParaSpace markets.
+ * @dev Used for indexing purposes of ParaSpace protocol's markets. The id assigned to a PoolAddressesProvider refers to the
+ * market it is connected with, for example with `1` for the ParaSpace main market and `2` for the next created.
+ **/
+contract PoolAddressesProviderRegistry is
+    Ownable,
+    IPoolAddressesProviderRegistry
+{
+    // Map of address provider ids (addressesProvider => id)
+    mapping(address => uint256) private _addressesProviderToId;
+    // Map of id to address provider (id => addressesProvider)
+    mapping(uint256 => address) private _idToAddressesProvider;
+    // List of addresses providers
+    address[] private _addressesProvidersList;
+    // Map of address provider list indexes (addressesProvider => indexInList)
+    mapping(address => uint256) private _addressesProvidersIndexes;
+
+    /**
+     * @dev Constructor.
+     * @param owner The owner address of this contract.
+     */
+    constructor(address owner) {
+        transferOwnership(owner);
+    }
+
+    /// @inheritdoc IPoolAddressesProviderRegistry
+    function getAddressesProvidersList()
+        external
+        view
+        override
+        returns (address[] memory)
+    {
+        return _addressesProvidersList;
+    }
+
+    /// @inheritdoc IPoolAddressesProviderRegistry
+    function registerAddressesProvider(address provider, uint256 id)
+        external
+        override
+        onlyOwner
+    {
+        require(id != 0, Errors.INVALID_ADDRESSES_PROVIDER_ID);
+        require(provider != address(0x0), Errors.INVALID_ADDRESSES_PROVIDER);
+
+        require(
+            _idToAddressesProvider[id] == address(0),
+            Errors.INVALID_ADDRESSES_PROVIDER_ID
+        );
+        require(
+            _addressesProviderToId[provider] == 0,
+            Errors.ADDRESSES_PROVIDER_ALREADY_ADDED
+        );
+
+        _addressesProviderToId[provider] = id;
+        _idToAddressesProvider[id] = provider;
+
+        _addToAddressesProvidersList(provider);
+        emit AddressesProviderRegistered(provider, id);
+    }
+
+    /// @inheritdoc IPoolAddressesProviderRegistry
+    function unregisterAddressesProvider(address provider)
+        external
+        override
+        onlyOwner
+    {
+        require(
+            _addressesProviderToId[provider] != 0,
+            Errors.ADDRESSES_PROVIDER_NOT_REGISTERED
+        );
+        uint256 oldId = _addressesProviderToId[provider];
+        _idToAddressesProvider[oldId] = address(0);
+        _addressesProviderToId[provider] = 0;
+
+        _removeFromAddressesProvidersList(provider);
+
+        emit AddressesProviderUnregistered(provider, oldId);
+    }
+
+    /// @inheritdoc IPoolAddressesProviderRegistry
+    function getAddressesProviderIdByAddress(address addressesProvider)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        return _addressesProviderToId[addressesProvider];
+    }
+
+    /// @inheritdoc IPoolAddressesProviderRegistry
+    function getAddressesProviderAddressById(uint256 id)
+        external
+        view
+        override
+        returns (address)
+    {
+        return _idToAddressesProvider[id];
+    }
+
+    /**
+     * @notice Adds the addresses provider address to the list.
+     * @param provider The address of the PoolAddressesProvider
+     */
+    function _addToAddressesProvidersList(address provider) internal {
+        _addressesProvidersIndexes[provider] = _addressesProvidersList.length;
+        _addressesProvidersList.push(provider);
+    }
+
+    /**
+     * @notice Removes the addresses provider address from the list.
+     * @param provider The address of the PoolAddressesProvider
+     */
+    function _removeFromAddressesProvidersList(address provider) internal {
+        uint256 index = _addressesProvidersIndexes[provider];
+
+        _addressesProvidersIndexes[provider] = 0;
+
+        // Swap the index of the last addresses provider in the list with the index of the provider to remove
+        uint256 lastIndex = _addressesProvidersList.length - 1;
+        if (index < lastIndex) {
+            address lastProvider = _addressesProvidersList[lastIndex];
+            _addressesProvidersList[index] = lastProvider;
+            _addressesProvidersIndexes[lastProvider] = index;
+        }
+        _addressesProvidersList.pop();
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/configuration/PoolAddressesProviderRegistry.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/configuration/PriceOracleSentinel.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {Errors} from "../libraries/helpers/Errors.sol";
+import {IPoolAddressesProvider} from "../../interfaces/IPoolAddressesProvider.sol";
+import {IPriceOracleSentinel} from "../../interfaces/IPriceOracleSentinel.sol";
+import {ISequencerOracle} from "../../interfaces/ISequencerOracle.sol";
+import {IACLManager} from "../../interfaces/IACLManager.sol";
+
+/**
+ * @title PriceOracleSentinel
+ *
+ * @notice It validates if operations are allowed depending on the PriceOracle health.
+ * @dev Once the PriceOracle gets up after an outage/downtime, users can make their positions healthy during a grace
+ *  period. So the PriceOracle is considered completely up once its up and the grace period passed.
+ */
+contract PriceOracleSentinel is IPriceOracleSentinel {
+    /**
+     * @dev Only pool admin can call functions marked by this modifier.
+     **/
+    modifier onlyPoolAdmin() {
+        IACLManager aclManager = IACLManager(
+            ADDRESSES_PROVIDER.getACLManager()
+        );
+        require(
+            aclManager.isPoolAdmin(msg.sender),
+            Errors.CALLER_NOT_POOL_ADMIN
+        );
+        _;
+    }
+
+    /**
+     * @dev Only risk or pool admin can call functions marked by this modifier.
+     **/
+    modifier onlyRiskOrPoolAdmins() {
+        IACLManager aclManager = IACLManager(
+            ADDRESSES_PROVIDER.getACLManager()
+        );
+        require(
+            aclManager.isRiskAdmin(msg.sender) ||
+                aclManager.isPoolAdmin(msg.sender),
+            Errors.CALLER_NOT_RISK_OR_POOL_ADMIN
+        );
+        _;
+    }
+
+    IPoolAddressesProvider public immutable override ADDRESSES_PROVIDER;
+
+    ISequencerOracle internal _sequencerOracle;
+
+    uint256 internal _gracePeriod;
+
+    /**
+     * @dev Constructor
+     * @param provider The address of the PoolAddressesProvider
+     * @param oracle The address of the SequencerOracle
+     * @param gracePeriod The duration of the grace period in seconds
+     */
+    constructor(
+        IPoolAddressesProvider provider,
+        ISequencerOracle oracle,
+        uint256 gracePeriod
+    ) {
+        ADDRESSES_PROVIDER = provider;
+        _sequencerOracle = oracle;
+        _gracePeriod = gracePeriod;
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function isBorrowAllowed() external view override returns (bool) {
+        return _isUpAndGracePeriodPassed();
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function isLiquidationAllowed() external view override returns (bool) {
+        return _isUpAndGracePeriodPassed();
+    }
+
+    /**
+     * @notice Checks the sequencer oracle is healthy: is up and grace period passed.
+     * @return True if the SequencerOracle is up and the grace period passed, false otherwise
+     */
+    function _isUpAndGracePeriodPassed() internal view returns (bool) {
+        (, int256 answer, , uint256 lastUpdateTimestamp, ) = _sequencerOracle
+            .latestRoundData();
+        return
+            answer == 0 && block.timestamp - lastUpdateTimestamp > _gracePeriod;
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function setSequencerOracle(address newSequencerOracle)
+        external
+        onlyPoolAdmin
+    {
+        _sequencerOracle = ISequencerOracle(newSequencerOracle);
+        emit SequencerOracleUpdated(newSequencerOracle);
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function setGracePeriod(uint256 newGracePeriod)
+        external
+        onlyRiskOrPoolAdmins
+    {
+        _gracePeriod = newGracePeriod;
+        emit GracePeriodUpdated(newGracePeriod);
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function getSequencerOracle() external view returns (address) {
+        return address(_sequencerOracle);
+    }
+
+    /// @inheritdoc IPriceOracleSentinel
+    function getGracePeriod() external view returns (uint256) {
+        return _gracePeriod;
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/configuration/PriceOracleSentinel.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/configuration/ReserveConfiguration.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {Errors} from "../helpers/Errors.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+
+/**
+ * @title ReserveConfiguration library
+ *
+ * @notice Implements the bitmap logic to handle the reserve configuration
+ */
+library ReserveConfiguration {
+    uint256 internal constant LTV_MASK =                       0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000; // prettier-ignore
+    uint256 internal constant LIQUIDATION_THRESHOLD_MASK =     0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000FFFF; // prettier-ignore
+    uint256 internal constant LIQUIDATION_BONUS_MASK =         0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000FFFFFFFF; // prettier-ignore
+    uint256 internal constant DECIMALS_MASK =                  0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF00FFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant ACTIVE_MASK =                    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant FROZEN_MASK =                    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFDFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant BORROWING_MASK =                 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant STABLE_BORROWING_MASK =          0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant PAUSED_MASK =                    0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant SILOED_BORROWING_MASK =          0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFBFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant RESERVE_FACTOR_MASK =            0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF0000FFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant BORROW_CAP_MASK =                0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF000000000FFFFFFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant SUPPLY_CAP_MASK =                0xFFFFFFFFFFFFFFFFFFFFFFFFFF000000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant LIQUIDATION_PROTOCOL_FEE_MASK =  0xFFFFFFFFFFFFFFFFFFFFFF0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // prettier-ignore
+    uint256 internal constant ASSET_TYPE_MASK =                0xFFFFFFFFFFFFFFFFFFFFF0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // prettier-ignore
+    //uint256 internal constant DYNAMIC_CONFIGS_MASK =           0xFFFFFFFFFFFFFFFFFFFFEFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF; // prettier-ignore
+
+    /// @dev For the LTV, the start bit is 0 (up to 15), hence no bitshifting is needed
+    uint256 internal constant LIQUIDATION_THRESHOLD_START_BIT_POSITION = 16;
+    uint256 internal constant LIQUIDATION_BONUS_START_BIT_POSITION = 32;
+    uint256 internal constant RESERVE_DECIMALS_START_BIT_POSITION = 48;
+    uint256 internal constant IS_ACTIVE_START_BIT_POSITION = 56;
+    uint256 internal constant IS_FROZEN_START_BIT_POSITION = 57;
+    uint256 internal constant BORROWING_ENABLED_START_BIT_POSITION = 58;
+    uint256 internal constant STABLE_BORROWING_ENABLED_START_BIT_POSITION = 59;
+    uint256 internal constant IS_PAUSED_START_BIT_POSITION = 60;
+    uint256 internal constant SILOED_BORROWING_START_BIT_POSITION = 62;
+    /// @dev bit 63 reserved
+
+    uint256 internal constant RESERVE_FACTOR_START_BIT_POSITION = 64;
+    uint256 internal constant BORROW_CAP_START_BIT_POSITION = 80;
+    uint256 internal constant SUPPLY_CAP_START_BIT_POSITION = 116;
+    uint256 internal constant LIQUIDATION_PROTOCOL_FEE_START_BIT_POSITION = 152;
+    uint256 internal constant ASSET_TYPE_START_BIT_POSITION = 168;
+
+    uint256 internal constant MAX_VALID_LTV = 65535;
+    uint256 internal constant MAX_VALID_LIQUIDATION_THRESHOLD = 65535;
+    uint256 internal constant MAX_VALID_LIQUIDATION_BONUS = 65535;
+    uint256 internal constant MAX_VALID_DECIMALS = 255;
+    uint256 internal constant MAX_VALID_RESERVE_FACTOR = 65535;
+    uint256 internal constant MAX_VALID_BORROW_CAP = 68719476735;
+    uint256 internal constant MAX_VALID_SUPPLY_CAP = 68719476735;
+    uint256 internal constant MAX_VALID_LIQUIDATION_PROTOCOL_FEE = 65535;
+    uint256 internal constant MAX_ASSET_TYPE = 16;
+
+    uint16 public constant MAX_RESERVES_COUNT = 128;
+
+    /**
+     * @notice Sets the Loan to Value of the reserve
+     * @param self The reserve configuration
+     * @param ltv The new ltv
+     **/
+    function setLtv(DataTypes.ReserveConfigurationMap memory self, uint256 ltv)
+        internal
+        pure
+    {
+        require(ltv <= MAX_VALID_LTV, Errors.INVALID_LTV);
+
+        self.data = (self.data & LTV_MASK) | ltv;
+    }
+
+    /**
+     * @notice Gets the Loan to Value of the reserve
+     * @param self The reserve configuration
+     * @return The loan to value
+     **/
+    function getLtv(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return self.data & ~LTV_MASK;
+    }
+
+    /**
+     * @notice Sets the liquidation threshold of the reserve
+     * @param self The reserve configuration
+     * @param threshold The new liquidation threshold
+     **/
+    function setLiquidationThreshold(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 threshold
+    ) internal pure {
+        require(
+            threshold <= MAX_VALID_LIQUIDATION_THRESHOLD,
+            Errors.INVALID_LIQ_THRESHOLD
+        );
+
+        self.data =
+            (self.data & LIQUIDATION_THRESHOLD_MASK) |
+            (threshold << LIQUIDATION_THRESHOLD_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the liquidation threshold of the reserve
+     * @param self The reserve configuration
+     * @return The liquidation threshold
+     **/
+    function getLiquidationThreshold(
+        DataTypes.ReserveConfigurationMap memory self
+    ) internal pure returns (uint256) {
+        return
+            (self.data & ~LIQUIDATION_THRESHOLD_MASK) >>
+            LIQUIDATION_THRESHOLD_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the liquidation bonus of the reserve
+     * @param self The reserve configuration
+     * @param bonus The new liquidation bonus
+     **/
+    function setLiquidationBonus(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 bonus
+    ) internal pure {
+        require(bonus <= MAX_VALID_LIQUIDATION_BONUS, Errors.INVALID_LIQ_BONUS);
+
+        self.data =
+            (self.data & LIQUIDATION_BONUS_MASK) |
+            (bonus << LIQUIDATION_BONUS_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the liquidation bonus of the reserve
+     * @param self The reserve configuration
+     * @return The liquidation bonus
+     **/
+    function getLiquidationBonus(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return
+            (self.data & ~LIQUIDATION_BONUS_MASK) >>
+            LIQUIDATION_BONUS_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the decimals of the underlying asset of the reserve
+     * @param self The reserve configuration
+     * @param decimals The decimals
+     **/
+    function setDecimals(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 decimals
+    ) internal pure {
+        require(decimals <= MAX_VALID_DECIMALS, Errors.INVALID_DECIMALS);
+
+        self.data =
+            (self.data & DECIMALS_MASK) |
+            (decimals << RESERVE_DECIMALS_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the decimals of the underlying asset of the reserve
+     * @param self The reserve configuration
+     * @return The decimals of the asset
+     **/
+    function getDecimals(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return
+            (self.data & ~DECIMALS_MASK) >> RESERVE_DECIMALS_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the asset type of the reserve
+     * @param self The reserve configuration
+     * @param assetType The asset type
+     **/
+    function setAssetType(
+        DataTypes.ReserveConfigurationMap memory self,
+        DataTypes.AssetType assetType
+    ) internal pure {
+        require(
+            uint256(assetType) <= MAX_ASSET_TYPE,
+            Errors.INVALID_ASSET_TYPE
+        );
+
+        self.data =
+            (self.data & ASSET_TYPE_MASK) |
+            (uint256(assetType) << ASSET_TYPE_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the asset type of the reserve
+     * @param self The reserve configuration
+     * @return The asset type
+     **/
+    function getAssetType(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (DataTypes.AssetType)
+    {
+        return
+            DataTypes.AssetType(
+                (self.data & ~ASSET_TYPE_MASK) >> ASSET_TYPE_START_BIT_POSITION
+            );
+    }
+
+    /**
+     * @notice Sets the active state of the reserve
+     * @param self The reserve configuration
+     * @param active The active state
+     **/
+    function setActive(
+        DataTypes.ReserveConfigurationMap memory self,
+        bool active
+    ) internal pure {
+        self.data =
+            (self.data & ACTIVE_MASK) |
+            (uint256(active ? 1 : 0) << IS_ACTIVE_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the active state of the reserve
+     * @param self The reserve configuration
+     * @return The active state
+     **/
+    function getActive(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return (self.data & ~ACTIVE_MASK) != 0;
+    }
+
+    /**
+     * @notice Sets the frozen state of the reserve
+     * @param self The reserve configuration
+     * @param frozen The frozen state
+     **/
+    function setFrozen(
+        DataTypes.ReserveConfigurationMap memory self,
+        bool frozen
+    ) internal pure {
+        self.data =
+            (self.data & FROZEN_MASK) |
+            (uint256(frozen ? 1 : 0) << IS_FROZEN_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the frozen state of the reserve
+     * @param self The reserve configuration
+     * @return The frozen state
+     **/
+    function getFrozen(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return (self.data & ~FROZEN_MASK) != 0;
+    }
+
+    /**
+     * @notice Sets the paused state of the reserve
+     * @param self The reserve configuration
+     * @param paused The paused state
+     **/
+    function setPaused(
+        DataTypes.ReserveConfigurationMap memory self,
+        bool paused
+    ) internal pure {
+        self.data =
+            (self.data & PAUSED_MASK) |
+            (uint256(paused ? 1 : 0) << IS_PAUSED_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the paused state of the reserve
+     * @param self The reserve configuration
+     * @return The paused state
+     **/
+    function getPaused(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return (self.data & ~PAUSED_MASK) != 0;
+    }
+
+    /**
+     * @notice Sets the siloed borrowing flag for the reserve.
+     * @dev When this flag is set to true, users borrowing this asset will not be allowed to borrow any other asset.
+     * @param self The reserve configuration
+     * @param siloed True if the asset is siloed
+     **/
+    function setSiloedBorrowing(
+        DataTypes.ReserveConfigurationMap memory self,
+        bool siloed
+    ) internal pure {
+        self.data =
+            (self.data & SILOED_BORROWING_MASK) |
+            (uint256(siloed ? 1 : 0) << SILOED_BORROWING_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the siloed borrowing flag for the reserve.
+     * @dev When this flag is set to true, users borrowing this asset will not be allowed to borrow any other asset.
+     * @param self The reserve configuration
+     * @return The siloed borrowing flag
+     **/
+    function getSiloedBorrowing(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return (self.data & ~SILOED_BORROWING_MASK) != 0;
+    }
+
+    /**
+     * @notice Enables or disables borrowing on the reserve
+     * @param self The reserve configuration
+     * @param enabled True if the borrowing needs to be enabled, false otherwise
+     **/
+    function setBorrowingEnabled(
+        DataTypes.ReserveConfigurationMap memory self,
+        bool enabled
+    ) internal pure {
+        self.data =
+            (self.data & BORROWING_MASK) |
+            (uint256(enabled ? 1 : 0) << BORROWING_ENABLED_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the borrowing state of the reserve
+     * @param self The reserve configuration
+     * @return The borrowing state
+     **/
+    function getBorrowingEnabled(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return (self.data & ~BORROWING_MASK) != 0;
+    }
+
+    /**
+     * @notice Sets the reserve factor of the reserve
+     * @param self The reserve configuration
+     * @param reserveFactor The reserve factor
+     **/
+    function setReserveFactor(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 reserveFactor
+    ) internal pure {
+        require(
+            reserveFactor <= MAX_VALID_RESERVE_FACTOR,
+            Errors.INVALID_RESERVE_FACTOR
+        );
+
+        self.data =
+            (self.data & RESERVE_FACTOR_MASK) |
+            (reserveFactor << RESERVE_FACTOR_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the reserve factor of the reserve
+     * @param self The reserve configuration
+     * @return The reserve factor
+     **/
+    function getReserveFactor(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return
+            (self.data & ~RESERVE_FACTOR_MASK) >>
+            RESERVE_FACTOR_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the borrow cap of the reserve
+     * @param self The reserve configuration
+     * @param borrowCap The borrow cap
+     **/
+    function setBorrowCap(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 borrowCap
+    ) internal pure {
+        require(borrowCap <= MAX_VALID_BORROW_CAP, Errors.INVALID_BORROW_CAP);
+
+        self.data =
+            (self.data & BORROW_CAP_MASK) |
+            (borrowCap << BORROW_CAP_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the borrow cap of the reserve
+     * @param self The reserve configuration
+     * @return The borrow cap
+     **/
+    function getBorrowCap(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return (self.data & ~BORROW_CAP_MASK) >> BORROW_CAP_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the supply cap of the reserve
+     * @param self The reserve configuration
+     * @param supplyCap The supply cap
+     **/
+    function setSupplyCap(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 supplyCap
+    ) internal pure {
+        require(supplyCap <= MAX_VALID_SUPPLY_CAP, Errors.INVALID_SUPPLY_CAP);
+
+        self.data =
+            (self.data & SUPPLY_CAP_MASK) |
+            (supplyCap << SUPPLY_CAP_START_BIT_POSITION);
+    }
+
+    /**
+     * @notice Gets the supply cap of the reserve
+     * @param self The reserve configuration
+     * @return The supply cap
+     **/
+    function getSupplyCap(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256)
+    {
+        return (self.data & ~SUPPLY_CAP_MASK) >> SUPPLY_CAP_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Sets the liquidation protocol fee of the reserve
+     * @param self The reserve configuration
+     * @param liquidationProtocolFee The liquidation protocol fee
+     **/
+    function setLiquidationProtocolFee(
+        DataTypes.ReserveConfigurationMap memory self,
+        uint256 liquidationProtocolFee
+    ) internal pure {
+        require(
+            liquidationProtocolFee <= MAX_VALID_LIQUIDATION_PROTOCOL_FEE,
+            Errors.INVALID_LIQUIDATION_PROTOCOL_FEE
+        );
+
+        self.data =
+            (self.data & LIQUIDATION_PROTOCOL_FEE_MASK) |
+            (liquidationProtocolFee <<
+                LIQUIDATION_PROTOCOL_FEE_START_BIT_POSITION);
+    }
+
+    /**
+     * @dev Gets the liquidation protocol fee
+     * @param self The reserve configuration
+     * @return The liquidation protocol fee
+     **/
+    function getLiquidationProtocolFee(
+        DataTypes.ReserveConfigurationMap memory self
+    ) internal pure returns (uint256) {
+        return
+            (self.data & ~LIQUIDATION_PROTOCOL_FEE_MASK) >>
+            LIQUIDATION_PROTOCOL_FEE_START_BIT_POSITION;
+    }
+
+    /**
+     * @notice Gets the configuration flags of the reserve
+     * @param self The reserve configuration
+     * @return The state flag representing active
+     * @return The state flag representing frozen
+     * @return The state flag representing borrowing enabled
+     * @return The state flag representing paused
+     * @return The asset type
+     **/
+    function getFlags(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (
+            bool,
+            bool,
+            bool,
+            bool,
+            DataTypes.AssetType
+        )
+    {
+        uint256 dataLocal = self.data;
+
+        return (
+            (dataLocal & ~ACTIVE_MASK) != 0,
+            (dataLocal & ~FROZEN_MASK) != 0,
+            (dataLocal & ~BORROWING_MASK) != 0,
+            (dataLocal & ~PAUSED_MASK) != 0,
+            DataTypes.AssetType(
+                (dataLocal & ~ASSET_TYPE_MASK) >> ASSET_TYPE_START_BIT_POSITION
+            )
+        );
+    }
+
+    /**
+     * @notice Gets the configuration parameters of the reserve from storage
+     * @param self The reserve configuration
+     * @return The state param representing ltv
+     * @return The state param representing liquidation threshold
+     * @return The state param representing liquidation bonus
+     * @return The state param representing reserve decimals
+     * @return The state param representing reserve factor
+     **/
+    function getParams(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
+        uint256 dataLocal = self.data;
+
+        return (
+            dataLocal & ~LTV_MASK,
+            (dataLocal & ~LIQUIDATION_THRESHOLD_MASK) >>
+                LIQUIDATION_THRESHOLD_START_BIT_POSITION,
+            (dataLocal & ~LIQUIDATION_BONUS_MASK) >>
+                LIQUIDATION_BONUS_START_BIT_POSITION,
+            (dataLocal & ~DECIMALS_MASK) >> RESERVE_DECIMALS_START_BIT_POSITION,
+            (dataLocal & ~RESERVE_FACTOR_MASK) >>
+                RESERVE_FACTOR_START_BIT_POSITION
+        );
+    }
+
+    /**
+     * @notice Gets the caps parameters of the reserve from storage
+     * @param self The reserve configuration
+     * @return The state param representing borrow cap
+     * @return The state param representing supply cap.
+     **/
+    function getCaps(DataTypes.ReserveConfigurationMap memory self)
+        internal
+        pure
+        returns (uint256, uint256)
+    {
+        uint256 dataLocal = self.data;
+
+        return (
+            (dataLocal & ~BORROW_CAP_MASK) >> BORROW_CAP_START_BIT_POSITION,
+            (dataLocal & ~SUPPLY_CAP_MASK) >> SUPPLY_CAP_START_BIT_POSITION
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/configuration/ReserveConfiguration.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/configuration/UserConfiguration.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {Errors} from "../helpers/Errors.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {ReserveConfiguration} from "./ReserveConfiguration.sol";
+
+/**
+ * @title UserConfiguration library
+ *
+ * @notice Implements the bitmap logic to handle the user configuration
+ */
+library UserConfiguration {
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+
+    uint256 internal constant BORROWING_MASK =
+        0x5555555555555555555555555555555555555555555555555555555555555555;
+    uint256 internal constant COLLATERAL_MASK =
+        0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA;
+
+    /**
+     * @notice Sets if the user is borrowing the reserve identified by reserveIndex
+     * @param self The configuration object
+     * @param reserveIndex The index of the reserve in the bitmap
+     * @param borrowing True if the user is borrowing the reserve, false otherwise
+     **/
+    function setBorrowing(
+        DataTypes.UserConfigurationMap storage self,
+        uint256 reserveIndex,
+        bool borrowing
+    ) internal {
+        unchecked {
+            require(
+                reserveIndex < ReserveConfiguration.MAX_RESERVES_COUNT,
+                Errors.INVALID_RESERVE_INDEX
+            );
+            uint256 bit = 1 << (reserveIndex << 1);
+            if (borrowing) {
+                self.data |= bit;
+            } else {
+                self.data &= ~bit;
+            }
+        }
+    }
+
+    /**
+     * @notice Sets if the user is using as collateral the reserve identified by reserveIndex
+     * @param self The configuration object
+     * @param reserveIndex The index of the reserve in the bitmap
+     * @param usingAsCollateral True if the user is using the reserve as collateral, false otherwise
+     **/
+    function setUsingAsCollateral(
+        DataTypes.UserConfigurationMap storage self,
+        uint256 reserveIndex,
+        bool usingAsCollateral
+    ) internal {
+        unchecked {
+            require(
+                reserveIndex < ReserveConfiguration.MAX_RESERVES_COUNT,
+                Errors.INVALID_RESERVE_INDEX
+            );
+            uint256 bit = 1 << ((reserveIndex << 1) + 1);
+            if (usingAsCollateral) {
+                self.data |= bit;
+            } else {
+                self.data &= ~bit;
+            }
+        }
+    }
+
+    /**
+     * @notice Returns if a user has been using the reserve for borrowing or as collateral
+     * @param self The configuration object
+     * @param reserveIndex The index of the reserve in the bitmap
+     * @return True if the user has been using a reserve for borrowing or as collateral, false otherwise
+     **/
+    function isUsingAsCollateralOrBorrowing(
+        DataTypes.UserConfigurationMap memory self,
+        uint256 reserveIndex
+    ) internal pure returns (bool) {
+        unchecked {
+            require(
+                reserveIndex < ReserveConfiguration.MAX_RESERVES_COUNT,
+                Errors.INVALID_RESERVE_INDEX
+            );
+            return (self.data >> (reserveIndex << 1)) & 3 != 0;
+        }
+    }
+
+    /**
+     * @notice Validate a user has been using the reserve for borrowing
+     * @param self The configuration object
+     * @param reserveIndex The index of the reserve in the bitmap
+     * @return True if the user has been using a reserve for borrowing, false otherwise
+     **/
+    function isBorrowing(
+        DataTypes.UserConfigurationMap memory self,
+        uint256 reserveIndex
+    ) internal pure returns (bool) {
+        unchecked {
+            require(
+                reserveIndex < ReserveConfiguration.MAX_RESERVES_COUNT,
+                Errors.INVALID_RESERVE_INDEX
+            );
+            return (self.data >> (reserveIndex << 1)) & 1 != 0;
+        }
+    }
+
+    /**
+     * @notice Validate a user has been using the reserve as collateral
+     * @param self The configuration object
+     * @param reserveIndex The index of the reserve in the bitmap
+     * @return True if the user has been using a reserve as collateral, false otherwise
+     **/
+    function isUsingAsCollateral(
+        DataTypes.UserConfigurationMap memory self,
+        uint256 reserveIndex
+    ) internal pure returns (bool) {
+        unchecked {
+            require(
+                reserveIndex < ReserveConfiguration.MAX_RESERVES_COUNT,
+                Errors.INVALID_RESERVE_INDEX
+            );
+            return (self.data >> ((reserveIndex << 1) + 1)) & 1 != 0;
+        }
+    }
+
+    /**
+     * @notice Checks if a user has been supplying only one reserve as collateral
+     * @dev this uses a simple trick - if a number is a power of two (only one bit set) then n & (n - 1) == 0
+     * @param self The configuration object
+     * @return True if the user has been supplying as collateral one reserve, false otherwise
+     **/
+    function isUsingAsCollateralOne(DataTypes.UserConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        uint256 collateralData = self.data & COLLATERAL_MASK;
+        return
+            collateralData != 0 && (collateralData & (collateralData - 1) == 0);
+    }
+
+    /**
+     * @notice Checks if a user has been supplying any reserve as collateral
+     * @param self The configuration object
+     * @return True if the user has been supplying as collateral any reserve, false otherwise
+     **/
+    function isUsingAsCollateralAny(DataTypes.UserConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return self.data & COLLATERAL_MASK != 0;
+    }
+
+    /**
+     * @notice Checks if a user has been borrowing only one asset
+     * @dev this uses a simple trick - if a number is a power of two (only one bit set) then n & (n - 1) == 0
+     * @param self The configuration object
+     * @return True if the user has been supplying as collateral one reserve, false otherwise
+     **/
+    function isBorrowingOne(DataTypes.UserConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        uint256 borrowingData = self.data & BORROWING_MASK;
+        return borrowingData != 0 && (borrowingData & (borrowingData - 1) == 0);
+    }
+
+    /**
+     * @notice Checks if a user has been borrowing from any reserve
+     * @param self The configuration object
+     * @return True if the user has been borrowing any reserve, false otherwise
+     **/
+    function isBorrowingAny(DataTypes.UserConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return self.data & BORROWING_MASK != 0;
+    }
+
+    /**
+     * @notice Checks if a user has not been using any reserve for borrowing or supply
+     * @param self The configuration object
+     * @return True if the user has not been borrowing or supplying any reserve, false otherwise
+     **/
+    function isEmpty(DataTypes.UserConfigurationMap memory self)
+        internal
+        pure
+        returns (bool)
+    {
+        return self.data == 0;
+    }
+
+    /**
+     * @notice Returns the siloed borrowing state for the user
+     * @param self The configuration object
+     * @param reservesData The data of all the reserves
+     * @param reservesList The reserve list
+     * @return True if the user has borrowed a siloed asset, false otherwise
+     * @return The address of the only borrowed asset
+     */
+    function getSiloedBorrowingState(
+        DataTypes.UserConfigurationMap memory self,
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList
+    ) internal view returns (bool, address) {
+        if (isBorrowingOne(self)) {
+            uint256 assetId = _getFirstAssetIdByMask(self, BORROWING_MASK);
+            address assetAddress = reservesList[assetId];
+            if (reservesData[assetAddress].configuration.getSiloedBorrowing()) {
+                return (true, assetAddress);
+            }
+        }
+
+        return (false, address(0));
+    }
+
+    /**
+     * @notice Returns the address of the first asset flagged in the bitmap given the corresponding bitmask
+     * @param self The configuration object
+     * @return The index of the first asset flagged in the bitmap once the corresponding mask is applied
+     */
+    function _getFirstAssetIdByMask(
+        DataTypes.UserConfigurationMap memory self,
+        uint256 mask
+    ) internal pure returns (uint256) {
+        unchecked {
+            uint256 bitmapData = self.data & mask;
+            uint256 firstAssetPosition = bitmapData & ~(bitmapData - 1);
+            uint256 id;
+
+            while ((firstAssetPosition >>= 2) != 0) {
+                id += 1;
+            }
+            return id;
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/configuration/UserConfiguration.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/helpers/Errors.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+/**
+ * @title Errors library
+ *
+ * @notice Defines the error messages emitted by the different contracts of the ParaSpace protocol
+ */
+library Errors {
+    string public constant CALLER_NOT_POOL_ADMIN = "1"; // 'The caller of the function is not a pool admin'
+    string public constant CALLER_NOT_EMERGENCY_ADMIN = "2"; // 'The caller of the function is not an emergency admin'
+    string public constant CALLER_NOT_POOL_OR_EMERGENCY_ADMIN = "3"; // 'The caller of the function is not a pool or emergency admin'
+    string public constant CALLER_NOT_RISK_OR_POOL_ADMIN = "4"; // 'The caller of the function is not a risk or pool admin'
+    string public constant CALLER_NOT_ASSET_LISTING_OR_POOL_ADMIN = "5"; // 'The caller of the function is not an asset listing or pool admin'
+    string public constant CALLER_NOT_BRIDGE = "6"; // 'The caller of the function is not a bridge'
+    string public constant ADDRESSES_PROVIDER_NOT_REGISTERED = "7"; // 'Pool addresses provider is not registered'
+    string public constant INVALID_ADDRESSES_PROVIDER_ID = "8"; // 'Invalid id for the pool addresses provider'
+    string public constant NOT_CONTRACT = "9"; // 'Address is not a contract'
+    string public constant CALLER_NOT_POOL_CONFIGURATOR = "10"; // 'The caller of the function is not the pool configurator'
+    string public constant CALLER_NOT_XTOKEN = "11"; // 'The caller of the function is not an PToken or NToken'
+    string public constant INVALID_ADDRESSES_PROVIDER = "12"; // 'The address of the pool addresses provider is invalid'
+    string public constant RESERVE_ALREADY_ADDED = "14"; // 'Reserve has already been added to reserve list'
+    string public constant NO_MORE_RESERVES_ALLOWED = "15"; // 'Maximum amount of reserves in the pool reached'
+    string public constant RESERVE_LIQUIDITY_NOT_ZERO = "18"; // 'The liquidity of the reserve needs to be 0'
+    string public constant INVALID_RESERVE_PARAMS = "20"; // 'Invalid risk parameters for the reserve'
+    string public constant CALLER_MUST_BE_POOL = "23"; // 'The caller of this function must be a pool'
+    string public constant INVALID_MINT_AMOUNT = "24"; // 'Invalid amount to mint'
+    string public constant INVALID_BURN_AMOUNT = "25"; // 'Invalid amount to burn'
+    string public constant INVALID_AMOUNT = "26"; // 'Amount must be greater than 0'
+    string public constant RESERVE_INACTIVE = "27"; // 'Action requires an active reserve'
+    string public constant RESERVE_FROZEN = "28"; // 'Action cannot be performed because the reserve is frozen'
+    string public constant RESERVE_PAUSED = "29"; // 'Action cannot be performed because the reserve is paused'
+    string public constant BORROWING_NOT_ENABLED = "30"; // 'Borrowing is not enabled'
+    string public constant STABLE_BORROWING_NOT_ENABLED = "31"; // 'Stable borrowing is not enabled'
+    string public constant NOT_ENOUGH_AVAILABLE_USER_BALANCE = "32"; // 'User cannot withdraw more than the available balance'
+    string public constant INVALID_INTEREST_RATE_MODE_SELECTED = "33"; // 'Invalid interest rate mode selected'
+    string public constant COLLATERAL_BALANCE_IS_ZERO = "34"; // 'The collateral balance is 0'
+    string public constant HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD =
+        "35"; // 'Health factor is lesser than the liquidation threshold'
+    string public constant COLLATERAL_CANNOT_COVER_NEW_BORROW = "36"; // 'There is not enough collateral to cover a new borrow'
+    string public constant COLLATERAL_SAME_AS_BORROWING_CURRENCY = "37"; // 'Collateral is (mostly) the same currency that is being borrowed'
+    string public constant AMOUNT_BIGGER_THAN_MAX_LOAN_SIZE_STABLE = "38"; // 'The requested amount is greater than the max loan size in stable rate mode'
+    string public constant NO_DEBT_OF_SELECTED_TYPE = "39"; // 'For repayment of a specific type of debt, the user needs to have debt that type'
+    string public constant NO_EXPLICIT_AMOUNT_TO_REPAY_ON_BEHALF = "40"; // 'To repay on behalf of a user an explicit amount to repay is needed'
+    string public constant NO_OUTSTANDING_STABLE_DEBT = "41"; // 'User does not have outstanding stable rate debt on this reserve'
+    string public constant NO_OUTSTANDING_VARIABLE_DEBT = "42"; // 'User does not have outstanding variable rate debt on this reserve'
+    string public constant UNDERLYING_BALANCE_ZERO = "43"; // 'The underlying balance needs to be greater than 0'
+    string public constant INTEREST_RATE_REBALANCE_CONDITIONS_NOT_MET = "44"; // 'Interest rate rebalance conditions were not met'
+    string public constant HEALTH_FACTOR_NOT_BELOW_THRESHOLD = "45"; // 'Health factor is not below the threshold'
+    string public constant COLLATERAL_CANNOT_BE_AUCTIONED_OR_LIQUIDATED = "46"; // 'The collateral chosen cannot be auctioned OR liquidated'
+    string public constant SPECIFIED_CURRENCY_NOT_BORROWED_BY_USER = "47"; // 'User did not borrow the specified currency'
+    string public constant SAME_BLOCK_BORROW_REPAY = "48"; // 'Borrow and repay in same block is not allowed'
+    string public constant BORROW_CAP_EXCEEDED = "50"; // 'Borrow cap is exceeded'
+    string public constant SUPPLY_CAP_EXCEEDED = "51"; // 'Supply cap is exceeded'
+    string public constant XTOKEN_SUPPLY_NOT_ZERO = "54"; // 'PToken supply is not zero'
+    string public constant STABLE_DEBT_NOT_ZERO = "55"; // 'Stable debt supply is not zero'
+    string public constant VARIABLE_DEBT_SUPPLY_NOT_ZERO = "56"; // 'Variable debt supply is not zero'
+    string public constant LTV_VALIDATION_FAILED = "57"; // 'Ltv validation failed'
+    string public constant PRICE_ORACLE_SENTINEL_CHECK_FAILED = "59"; // 'Price oracle sentinel validation failed'
+    string public constant RESERVE_ALREADY_INITIALIZED = "61"; // 'Reserve has already been initialized'
+    string public constant INVALID_LTV = "63"; // 'Invalid ltv parameter for the reserve'
+    string public constant INVALID_LIQ_THRESHOLD = "64"; // 'Invalid liquidity threshold parameter for the reserve'
+    string public constant INVALID_LIQ_BONUS = "65"; // 'Invalid liquidity bonus parameter for the reserve'
+    string public constant INVALID_DECIMALS = "66"; // 'Invalid decimals parameter of the underlying asset of the reserve'
+    string public constant INVALID_RESERVE_FACTOR = "67"; // 'Invalid reserve factor parameter for the reserve'
+    string public constant INVALID_BORROW_CAP = "68"; // 'Invalid borrow cap for the reserve'
+    string public constant INVALID_SUPPLY_CAP = "69"; // 'Invalid supply cap for the reserve'
+    string public constant INVALID_LIQUIDATION_PROTOCOL_FEE = "70"; // 'Invalid liquidation protocol fee for the reserve'
+    string public constant INVALID_DEBT_CEILING = "73"; // 'Invalid debt ceiling for the reserve
+    string public constant INVALID_RESERVE_INDEX = "74"; // 'Invalid reserve index'
+    string public constant ACL_ADMIN_CANNOT_BE_ZERO = "75"; // 'ACL admin cannot be set to the zero address'
+    string public constant INCONSISTENT_PARAMS_LENGTH = "76"; // 'Array parameters that should be equal length are not'
+    string public constant ZERO_ADDRESS_NOT_VALID = "77"; // 'Zero address not valid'
+    string public constant INVALID_EXPIRATION = "78"; // 'Invalid expiration'
+    string public constant INVALID_SIGNATURE = "79"; // 'Invalid signature'
+    string public constant OPERATION_NOT_SUPPORTED = "80"; // 'Operation not supported'
+    string public constant ASSET_NOT_LISTED = "82"; // 'Asset is not listed'
+    string public constant INVALID_OPTIMAL_USAGE_RATIO = "83"; // 'Invalid optimal usage ratio'
+    string public constant INVALID_OPTIMAL_STABLE_TO_TOTAL_DEBT_RATIO = "84"; // 'Invalid optimal stable to total debt ratio'
+    string public constant UNDERLYING_CANNOT_BE_RESCUED = "85"; // 'The underlying asset cannot be rescued'
+    string public constant ADDRESSES_PROVIDER_ALREADY_ADDED = "86"; // 'Reserve has already been added to reserve list'
+    string public constant POOL_ADDRESSES_DO_NOT_MATCH = "87"; // 'The token implementation pool address and the pool address provided by the initializing pool do not match'
+    string public constant STABLE_BORROWING_ENABLED = "88"; // 'Stable borrowing is enabled'
+    string public constant SILOED_BORROWING_VIOLATION = "89"; // 'User is trying to borrow multiple assets including a siloed one'
+    string public constant RESERVE_DEBT_NOT_ZERO = "90"; // the total debt of the reserve needs to be 0
+    string public constant NOT_THE_OWNER = "91"; // user is not the owner of a given asset
+    string public constant LIQUIDATION_AMOUNT_NOT_ENOUGH = "92";
+    string public constant INVALID_ASSET_TYPE = "93"; // invalid asset type for action.
+    string public constant INVALID_FLASH_CLAIM_RECEIVER = "94"; // invalid flash claim receiver.
+    string public constant ERC721_HEALTH_FACTOR_NOT_BELOW_THRESHOLD = "95"; // ERC721 Health factor is not below the threshold. Can only liquidate ERC20.
+    string public constant UNDERLYING_ASSET_CAN_NOT_BE_TRANSFERRED = "96"; //underlying asset can not be transferred.
+    string public constant TOKEN_TRANSFERRED_CAN_NOT_BE_SELF_ADDRESS = "97"; //token transferred can not be self address.
+    string public constant INVALID_AIRDROP_CONTRACT_ADDRESS = "98"; //invalid airdrop contract address.
+    string public constant INVALID_AIRDROP_PARAMETERS = "99"; //invalid airdrop parameters.
+    string public constant CALL_AIRDROP_METHOD_FAILED = "100"; //call airdrop method failed.
+    string public constant SUPPLIER_NOT_NTOKEN = "101"; //supplier is not the NToken contract
+    string public constant CALL_MARKETPLACE_FAILED = "102"; //call marketplace failed.
+    string public constant INVALID_MARKETPLACE_ID = "103"; //invalid marketplace id.
+    string public constant INVALID_MARKETPLACE_ORDER = "104"; //invalid marketplace id.
+    string public constant CREDIT_DOES_NOT_MATCH_ORDER = "105"; //credit doesn't match order.
+    string public constant PAYNOW_NOT_ENOUGH = "106"; //paynow not enough.
+    string public constant INVALID_CREDIT_SIGNATURE = "107"; //invalid credit signature.
+    string public constant INVALID_ORDER_TAKER = "108"; //invalid order taker.
+    string public constant MARKETPLACE_PAUSED = "109"; //marketplace paused.
+    string public constant INVALID_AUCTION_RECOVERY_HEALTH_FACTOR = "110"; //invalid auction recovery health factor.
+    string public constant AUCTION_ALREADY_STARTED = "111"; //auction already started.
+    string public constant AUCTION_NOT_STARTED = "112"; //auction not started yet.
+    string public constant AUCTION_NOT_ENABLED = "113"; //auction not enabled on the reserve.
+    string public constant ERC721_HEALTH_FACTOR_NOT_ABOVE_THRESHOLD = "114"; //ERC721 Health factor is not above the threshold.
+    string public constant TOKEN_IN_AUCTION = "115"; //tokenId is in auction.
+    string public constant AUCTIONED_BALANCE_NOT_ZERO = "116"; //auctioned balance not zero.
+    string public constant LIQUIDATOR_CAN_NOT_BE_SELF = "117"; //user can not liquidate himself.
+    string public constant INVALID_RECIPIENT = "118"; //invalid recipient specified in order.
+    string public constant UNIV3_NOT_ALLOWED = "119"; //flash claim is not allowed for UniswapV3.
+    string public constant NTOKEN_BALANCE_EXCEEDED = "120"; //ntoken balance exceed limit.
+    string public constant ORACLE_PRICE_NOT_READY = "121"; //oracle price not ready.
+    string public constant SET_ORACLE_SOURCE_NOT_ALLOWED = "122"; //source of oracle not allowed to set.
+    string public constant INVALID_LIQUIDATION_ASSET = "123"; //invalid liquidation asset.
+    string public constant ONLY_UNIV3_ALLOWED = "124"; //only UniswapV3 allowed.
+    string public constant GLOBAL_DEBT_IS_ZERO = "125"; //liquidation is not allowed when global debt is zero.
+    string public constant ORACLE_PRICE_EXPIRED = "126"; //oracle price expired.
+    string public constant APE_STAKING_POSITION_EXISTED = "127"; //ape staking position is existed.
+    string public constant SAPE_NOT_ALLOWED = "128"; //operation is not allow for sApe.
+    string public constant TOTAL_STAKING_AMOUNT_WRONG = "129"; //cash plus borrow amount not equal to total staking amount.
+    string public constant APE_STAKING_AMOUNT_NON_ZERO = "130"; //ape staking amount should be zero when supply bayc/mayc.
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/helpers/Errors.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/helpers/Helpers.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+
+/**
+ * @title Helpers library
+ *
+ */
+library Helpers {
+    /**
+     * @notice Fetches the user current stable and variable debt balances
+     * @param user The user address
+     * @param debtTokenAddress The debt token address
+     * @return The variable debt balance
+     **/
+    function getUserCurrentDebt(address user, address debtTokenAddress)
+        internal
+        view
+        returns (uint256)
+    {
+        return (IERC20(debtTokenAddress).balanceOf(user));
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/helpers/Helpers.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/AuctionLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {DataTypes} from "../../libraries/types/DataTypes.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import {GenericLogic} from "./GenericLogic.sol";
+import {IAuctionableERC721} from "../../../interfaces/IAuctionableERC721.sol";
+import {IReserveAuctionStrategy} from "../../../interfaces/IReserveAuctionStrategy.sol";
+
+/**
+ * @title AuctionLogic library
+ *
+ * @notice Implements actions involving NFT auctions
+ **/
+library AuctionLogic {
+    event AuctionStarted(
+        address indexed user,
+        address indexed collateralAsset,
+        uint256 indexed collateralTokenId
+    );
+    event AuctionEnded(
+        address indexed user,
+        address indexed collateralAsset,
+        uint256 indexed collateralTokenId
+    );
+
+    struct AuctionLocalVars {
+        uint256 erc721HealthFactor;
+        address collateralXToken;
+        DataTypes.AssetType assetType;
+    }
+
+    /**
+     * @notice Function to tsatr auction on an ERC721 of a position if its ERC721 Health Factor drops below 1.
+     * @dev Emits the `AuctionStarted()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param usersConfig The users configuration mapping that track the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the auction function
+     **/
+    function executeStartAuction(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        mapping(address => DataTypes.UserConfigurationMap) storage usersConfig,
+        DataTypes.ExecuteAuctionParams memory params
+    ) external {
+        AuctionLocalVars memory vars;
+        DataTypes.ReserveData storage collateralReserve = reservesData[
+            params.collateralAsset
+        ];
+
+        vars.collateralXToken = collateralReserve.xTokenAddress;
+        DataTypes.UserConfigurationMap storage userConfig = usersConfig[
+            params.user
+        ];
+
+        (, , , , , , , , vars.erc721HealthFactor, ) = GenericLogic
+            .calculateUserAccountData(
+                reservesData,
+                reservesList,
+                DataTypes.CalculateUserAccountDataParams({
+                    userConfig: userConfig,
+                    reservesCount: params.reservesCount,
+                    user: params.user,
+                    oracle: params.priceOracle
+                })
+            );
+
+        ValidationLogic.validateStartAuction(
+            userConfig,
+            collateralReserve,
+            DataTypes.ValidateAuctionParams({
+                user: params.user,
+                auctionRecoveryHealthFactor: params.auctionRecoveryHealthFactor,
+                erc721HealthFactor: vars.erc721HealthFactor,
+                collateralAsset: params.collateralAsset,
+                tokenId: params.collateralTokenId,
+                xTokenAddress: vars.collateralXToken
+            })
+        );
+
+        IAuctionableERC721(vars.collateralXToken).startAuction(
+            params.collateralTokenId
+        );
+
+        emit AuctionStarted(
+            params.user,
+            params.collateralAsset,
+            params.collateralTokenId
+        );
+    }
+
+    /**
+     * @notice Function to end auction on an ERC721 of a position if its ERC721 Health Factor increases back to above `AUCTION_RECOVERY_HEALTH_FACTOR`.
+     * @dev Emits the `AuctionEnded()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param usersConfig The users configuration mapping that track the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the auction function
+     **/
+    function executeEndAuction(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        mapping(address => DataTypes.UserConfigurationMap) storage usersConfig,
+        DataTypes.ExecuteAuctionParams memory params
+    ) external {
+        AuctionLocalVars memory vars;
+        DataTypes.ReserveData storage collateralReserve = reservesData[
+            params.collateralAsset
+        ];
+        vars.collateralXToken = collateralReserve.xTokenAddress;
+        DataTypes.UserConfigurationMap storage userConfig = usersConfig[
+            params.user
+        ];
+
+        (, , , , , , , , vars.erc721HealthFactor, ) = GenericLogic
+            .calculateUserAccountData(
+                reservesData,
+                reservesList,
+                DataTypes.CalculateUserAccountDataParams({
+                    userConfig: userConfig,
+                    reservesCount: params.reservesCount,
+                    user: params.user,
+                    oracle: params.priceOracle
+                })
+            );
+
+        ValidationLogic.validateEndAuction(
+            collateralReserve,
+            DataTypes.ValidateAuctionParams({
+                user: params.user,
+                auctionRecoveryHealthFactor: params.auctionRecoveryHealthFactor,
+                erc721HealthFactor: vars.erc721HealthFactor,
+                collateralAsset: params.collateralAsset,
+                tokenId: params.collateralTokenId,
+                xTokenAddress: vars.collateralXToken
+            })
+        );
+
+        IAuctionableERC721(vars.collateralXToken).endAuction(
+            params.collateralTokenId
+        );
+
+        emit AuctionEnded(
+            params.user,
+            params.collateralAsset,
+            params.collateralTokenId
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/AuctionLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/BorrowLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {GPv2SafeERC20} from "../../../dependencies/gnosis/contracts/GPv2SafeERC20.sol";
+import {SafeCast} from "../../../dependencies/openzeppelin/contracts/SafeCast.sol";
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IVariableDebtToken} from "../../../interfaces/IVariableDebtToken.sol";
+import {IPToken} from "../../../interfaces/IPToken.sol";
+import {UserConfiguration} from "../configuration/UserConfiguration.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {Helpers} from "../helpers/Helpers.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import {ReserveLogic} from "./ReserveLogic.sol";
+
+/**
+ * @title BorrowLogic library
+ *
+ * @notice Implements the base logic for all the actions related to borrowing
+ */
+library BorrowLogic {
+    using ReserveLogic for DataTypes.ReserveData;
+    using GPv2SafeERC20 for IERC20;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+
+    // See `IPool` for descriptions
+    event Borrow(
+        address indexed reserve,
+        address user,
+        address indexed onBehalfOf,
+        uint256 amount,
+        uint256 borrowRate,
+        uint16 indexed referralCode
+    );
+    event Repay(
+        address indexed reserve,
+        address indexed user,
+        address indexed repayer,
+        uint256 amount,
+        bool usePTokens
+    );
+
+    /**
+     * @notice Implements the borrow feature. Borrowing allows users that provided collateral to draw liquidity from the
+     * ParaSpace protocol proportionally to their collateralization power.
+     * @dev  Emits the `Borrow()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param userConfig The user configuration mapping that tracks the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the borrow function
+     */
+    function executeBorrow(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteBorrowParams memory params
+    ) public {
+        DataTypes.ReserveData storage reserve = reservesData[params.asset];
+        DataTypes.ReserveCache memory reserveCache = reserve.cache();
+
+        reserve.updateState(reserveCache);
+
+        ValidationLogic.validateBorrow(
+            reservesData,
+            reservesList,
+            DataTypes.ValidateBorrowParams({
+                reserveCache: reserveCache,
+                userConfig: userConfig,
+                asset: params.asset,
+                userAddress: params.onBehalfOf,
+                amount: params.amount,
+                reservesCount: params.reservesCount,
+                oracle: params.oracle,
+                priceOracleSentinel: params.priceOracleSentinel
+            })
+        );
+
+        bool isFirstBorrowing = false;
+
+        (
+            isFirstBorrowing,
+            reserveCache.nextScaledVariableDebt
+        ) = IVariableDebtToken(reserveCache.variableDebtTokenAddress).mint(
+            params.user,
+            params.onBehalfOf,
+            params.amount,
+            reserveCache.nextVariableBorrowIndex
+        );
+
+        if (isFirstBorrowing) {
+            userConfig.setBorrowing(reserve.id, true);
+        }
+
+        reserve.updateInterestRates(
+            reserveCache,
+            params.asset,
+            0,
+            params.releaseUnderlying ? params.amount : 0
+        );
+
+        if (params.releaseUnderlying) {
+            IPToken(reserveCache.xTokenAddress).transferUnderlyingTo(
+                params.user,
+                params.amount
+            );
+        }
+
+        emit Borrow(
+            params.asset,
+            params.user,
+            params.onBehalfOf,
+            params.amount,
+            reserve.currentVariableBorrowRate,
+            params.referralCode
+        );
+    }
+
+    /**
+     * @notice Implements the repay feature. Repaying transfers the underlying back to the xToken and clears the
+     * equivalent amount of debt for the user by burning the corresponding debt token.
+     * @dev  Emits the `Repay()` event
+     * @param reservesData The state of all the reserves
+     * @param userConfig The user configuration mapping that tracks the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the repay function
+     * @return The actual amount being repaid
+     */
+    function executeRepay(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteRepayParams memory params
+    ) external returns (uint256) {
+        DataTypes.ReserveData storage reserve = reservesData[params.asset];
+        DataTypes.ReserveCache memory reserveCache = reserve.cache();
+        reserve.updateState(reserveCache);
+
+        uint256 variableDebt = Helpers.getUserCurrentDebt(
+            params.onBehalfOf,
+            reserveCache.variableDebtTokenAddress
+        );
+
+        ValidationLogic.validateRepay(
+            reserveCache,
+            params.amount,
+            params.onBehalfOf,
+            variableDebt
+        );
+
+        uint256 paybackAmount = variableDebt;
+
+        // Allows a user to repay with xTokens without leaving dust from interest.
+        if (params.usePTokens && params.amount == type(uint256).max) {
+            params.amount = IPToken(reserveCache.xTokenAddress).balanceOf(
+                msg.sender
+            );
+        }
+
+        // if amount user is sending is less than payback amount (debt), update the payback amount to what the user is sending
+        if (params.amount < paybackAmount) {
+            paybackAmount = params.amount;
+        }
+
+        reserveCache.nextScaledVariableDebt = IVariableDebtToken(
+            reserveCache.variableDebtTokenAddress
+        ).burn(
+                params.onBehalfOf,
+                paybackAmount,
+                reserveCache.nextVariableBorrowIndex
+            );
+
+        reserve.updateInterestRates(
+            reserveCache,
+            params.asset,
+            params.usePTokens ? 0 : paybackAmount,
+            0
+        );
+
+        if (variableDebt - paybackAmount == 0) {
+            userConfig.setBorrowing(reserve.id, false);
+        }
+
+        if (params.usePTokens) {
+            IPToken(reserveCache.xTokenAddress).burn(
+                msg.sender,
+                reserveCache.xTokenAddress,
+                paybackAmount,
+                reserveCache.nextLiquidityIndex
+            );
+        } else {
+            // send paybackAmount from user to reserve
+            IERC20(params.asset).safeTransferFrom(
+                msg.sender,
+                reserveCache.xTokenAddress,
+                paybackAmount
+            );
+            IPToken(reserveCache.xTokenAddress).handleRepayment(
+                msg.sender,
+                paybackAmount
+            );
+        }
+
+        emit Repay(
+            params.asset,
+            params.onBehalfOf,
+            msg.sender,
+            paybackAmount,
+            params.usePTokens
+        );
+
+        return paybackAmount;
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/BorrowLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/ConfiguratorLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IPool} from "../../../interfaces/IPool.sol";
+import {IInitializablePToken} from "../../../interfaces/IInitializablePToken.sol";
+import {IInitializableNToken} from "../../../interfaces/IInitializableNToken.sol";
+import {IInitializableDebtToken} from "../../../interfaces/IInitializableDebtToken.sol";
+import {IRewardController} from "../../../interfaces/IRewardController.sol";
+import {InitializableImmutableAdminUpgradeabilityProxy} from "../paraspace-upgradeability/InitializableImmutableAdminUpgradeabilityProxy.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {ConfiguratorInputTypes} from "../types/ConfiguratorInputTypes.sol";
+
+/**
+ * @title ConfiguratorLogic library
+ *
+ * @notice Implements the functions to initialize reserves and update xTokens and debtTokens
+ */
+library ConfiguratorLogic {
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+
+    // See `IPoolConfigurator` for descriptions
+    event ReserveInitialized(
+        address indexed asset,
+        address indexed xToken,
+        address variableDebtToken,
+        address interestRateStrategyAddress,
+        address auctionStrategyAddress
+    );
+    event PTokenUpgraded(
+        address indexed asset,
+        address indexed proxy,
+        address indexed implementation
+    );
+    event NTokenUpgraded(
+        address indexed asset,
+        address indexed proxy,
+        address indexed implementation
+    );
+    event VariableDebtTokenUpgraded(
+        address indexed asset,
+        address indexed proxy,
+        address indexed implementation
+    );
+
+    /**
+     * @notice Initialize a reserve by creating and initializing xToken, stable debt token and variable debt token
+     * @dev Emits the `ReserveInitialized` event
+     * @param pool The Pool in which the reserve will be initialized
+     * @param input The needed parameters for the initialization
+     */
+    function executeInitReserve(
+        IPool pool,
+        ConfiguratorInputTypes.InitReserveInput calldata input
+    ) public {
+        address xTokenProxyAddress;
+        if (input.assetType == DataTypes.AssetType.ERC20) {
+            xTokenProxyAddress = _initTokenWithProxy(
+                input.xTokenImpl,
+                abi.encodeWithSelector(
+                    IInitializablePToken.initialize.selector,
+                    pool,
+                    input.treasury,
+                    input.underlyingAsset,
+                    input.incentivesController,
+                    input.underlyingAssetDecimals,
+                    input.xTokenName,
+                    input.xTokenSymbol,
+                    input.params
+                )
+            );
+        } else {
+            xTokenProxyAddress = _initTokenWithProxy(
+                input.xTokenImpl,
+                abi.encodeWithSelector(
+                    IInitializableNToken.initialize.selector,
+                    pool,
+                    input.underlyingAsset,
+                    input.incentivesController,
+                    input.xTokenName,
+                    input.xTokenSymbol,
+                    input.params
+                )
+            );
+        }
+
+        address variableDebtTokenProxyAddress = _initTokenWithProxy(
+            input.variableDebtTokenImpl,
+            abi.encodeWithSelector(
+                IInitializableDebtToken.initialize.selector,
+                pool,
+                input.underlyingAsset,
+                input.incentivesController,
+                input.underlyingAssetDecimals,
+                input.variableDebtTokenName,
+                input.variableDebtTokenSymbol,
+                input.params
+            )
+        );
+
+        pool.initReserve(
+            input.underlyingAsset,
+            xTokenProxyAddress,
+            variableDebtTokenProxyAddress,
+            input.interestRateStrategyAddress,
+            input.auctionStrategyAddress
+        );
+
+        DataTypes.ReserveConfigurationMap memory currentConfig = DataTypes
+            .ReserveConfigurationMap(0);
+
+        currentConfig.setDecimals(input.underlyingAssetDecimals);
+        currentConfig.setAssetType(input.assetType);
+        currentConfig.setActive(true);
+        currentConfig.setPaused(false);
+        currentConfig.setFrozen(false);
+
+        pool.setConfiguration(input.underlyingAsset, currentConfig);
+
+        emit ReserveInitialized(
+            input.underlyingAsset,
+            xTokenProxyAddress,
+            variableDebtTokenProxyAddress,
+            input.interestRateStrategyAddress,
+            input.auctionStrategyAddress
+        );
+    }
+
+    /**
+     * @notice Updates the xToken implementation and initializes it
+     * @dev Emits the `XTokenUpgraded` event
+     * @param cachedPool The Pool containing the reserve with the xToken
+     * @param input The parameters needed for the initialize call
+     */
+    function executeUpdatePToken(
+        IPool cachedPool,
+        ConfiguratorInputTypes.UpdatePTokenInput calldata input
+    ) public {
+        DataTypes.ReserveData memory reserveData = cachedPool.getReserveData(
+            input.asset
+        );
+
+        (, , , uint256 decimals, ) = cachedPool
+            .getConfiguration(input.asset)
+            .getParams();
+
+        bytes memory encodedCall = abi.encodeWithSelector(
+            IInitializablePToken.initialize.selector,
+            cachedPool,
+            input.treasury,
+            input.asset,
+            input.incentivesController,
+            decimals,
+            input.name,
+            input.symbol,
+            input.params
+        );
+
+        _upgradeTokenImplementation(
+            reserveData.xTokenAddress,
+            input.implementation,
+            encodedCall
+        );
+
+        emit PTokenUpgraded(
+            input.asset,
+            reserveData.xTokenAddress,
+            input.implementation
+        );
+    }
+
+    /**
+     * @notice Updates the xToken implementation and initializes it
+     * @dev Emits the `XTokenUpgraded` event
+     * @param cachedPool The Pool containing the reserve with the xToken
+     * @param input The parameters needed for the initialize call
+     */
+    function executeUpdateNToken(
+        IPool cachedPool,
+        ConfiguratorInputTypes.UpdateNTokenInput calldata input
+    ) public {
+        DataTypes.ReserveData memory reserveData = cachedPool.getReserveData(
+            input.asset
+        );
+
+        bytes memory encodedCall = abi.encodeWithSelector(
+            IInitializableNToken.initialize.selector,
+            cachedPool,
+            input.asset,
+            input.incentivesController,
+            input.name,
+            input.symbol,
+            input.params
+        );
+
+        _upgradeTokenImplementation(
+            reserveData.xTokenAddress,
+            input.implementation,
+            encodedCall
+        );
+
+        emit NTokenUpgraded(
+            input.asset,
+            reserveData.xTokenAddress,
+            input.implementation
+        );
+    }
+
+    /**
+     * @notice Updates the variable debt token implementation and initializes it
+     * @dev Emits the `VariableDebtTokenUpgraded` event
+     * @param cachedPool The Pool containing the reserve with the variable debt token
+     * @param input The parameters needed for the initialize call
+     */
+    function executeUpdateVariableDebtToken(
+        IPool cachedPool,
+        ConfiguratorInputTypes.UpdateDebtTokenInput calldata input
+    ) public {
+        DataTypes.ReserveData memory reserveData = cachedPool.getReserveData(
+            input.asset
+        );
+
+        (, , , uint256 decimals, ) = cachedPool
+            .getConfiguration(input.asset)
+            .getParams();
+
+        bytes memory encodedCall = abi.encodeWithSelector(
+            IInitializableDebtToken.initialize.selector,
+            cachedPool,
+            input.asset,
+            input.incentivesController,
+            decimals,
+            input.name,
+            input.symbol,
+            input.params
+        );
+
+        _upgradeTokenImplementation(
+            reserveData.variableDebtTokenAddress,
+            input.implementation,
+            encodedCall
+        );
+
+        emit VariableDebtTokenUpgraded(
+            input.asset,
+            reserveData.variableDebtTokenAddress,
+            input.implementation
+        );
+    }
+
+    /**
+     * @notice Creates a new proxy and initializes the implementation
+     * @param implementation The address of the implementation
+     * @param initParams The parameters that is passed to the implementation to initialize
+     * @return The address of initialized proxy
+     */
+    function _initTokenWithProxy(
+        address implementation,
+        bytes memory initParams
+    ) internal returns (address) {
+        InitializableImmutableAdminUpgradeabilityProxy proxy = new InitializableImmutableAdminUpgradeabilityProxy(
+                address(this)
+            );
+
+        proxy.initialize(implementation, initParams);
+
+        return address(proxy);
+    }
+
+    /**
+     * @notice Upgrades the implementation and makes call to the proxy
+     * @dev The call is used to initialize the new implementation.
+     * @param proxyAddress The address of the proxy
+     * @param implementation The address of the new implementation
+     * @param  initParams The parameters to the call after the upgrade
+     */
+    function _upgradeTokenImplementation(
+        address proxyAddress,
+        address implementation,
+        bytes memory initParams
+    ) internal {
+        InitializableImmutableAdminUpgradeabilityProxy proxy = InitializableImmutableAdminUpgradeabilityProxy(
+                payable(proxyAddress)
+            );
+
+        proxy.upgradeToAndCall(implementation, initParams);
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/ConfiguratorLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/FlashClaimLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC721} from "../../../dependencies/openzeppelin/contracts/IERC721.sol";
+import {IFlashClaimReceiver} from "../../../misc/interfaces/IFlashClaimReceiver.sol";
+import {INToken} from "../../../interfaces/INToken.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {Errors} from "../helpers/Errors.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import "../../../interfaces/INTokenApeStaking.sol";
+import {XTokenType, IXTokenType} from "../../../interfaces/IXTokenType.sol";
+import {GenericLogic} from "./GenericLogic.sol";
+
+library FlashClaimLogic {
+    // See `IPool` for descriptions
+    event FlashClaim(
+        address indexed target,
+        address indexed initiator,
+        address indexed nftAsset,
+        uint256 tokenId
+    );
+
+    /**
+     * @notice Implements the executeFlashClaim feature.
+     * @param ps The state of pool storage
+     * @param params The additional parameters needed to execute the flash claim
+     */
+    function executeFlashClaim(
+        DataTypes.PoolStorage storage ps,
+        DataTypes.ExecuteFlashClaimParams memory params
+    ) external {
+        DataTypes.ReserveData storage reserve = ps._reserves[params.nftAsset];
+        address nTokenAddress = reserve.xTokenAddress;
+        ValidationLogic.validateFlashClaim(ps, params);
+
+        uint256 i;
+        // step 1: moving underlying asset forward to receiver contract
+        for (i = 0; i < params.nftTokenIds.length; i++) {
+            INToken(nTokenAddress).transferUnderlyingTo(
+                params.receiverAddress,
+                params.nftTokenIds[i]
+            );
+        }
+
+        // step 2: execute receiver contract, doing something like airdrop
+        require(
+            IFlashClaimReceiver(params.receiverAddress).executeOperation(
+                params.nftAsset,
+                params.nftTokenIds,
+                params.params
+            ),
+            Errors.INVALID_FLASH_CLAIM_RECEIVER
+        );
+
+        // step 3: moving underlying asset backward from receiver contract
+        for (i = 0; i < params.nftTokenIds.length; i++) {
+            IERC721(params.nftAsset).safeTransferFrom(
+                params.receiverAddress,
+                nTokenAddress,
+                params.nftTokenIds[i]
+            );
+
+            emit FlashClaim(
+                params.receiverAddress,
+                msg.sender,
+                params.nftAsset,
+                params.nftTokenIds[i]
+            );
+        }
+
+        // step 4: check hf
+        DataTypes.CalculateUserAccountDataParams
+            memory accountParams = DataTypes.CalculateUserAccountDataParams({
+                userConfig: ps._usersConfig[msg.sender],
+                reservesCount: ps._reservesCount,
+                user: msg.sender,
+                oracle: params.oracle
+            });
+
+        (, , , , , , , uint256 healthFactor, , ) = GenericLogic
+            .calculateUserAccountData(
+                ps._reserves,
+                ps._reservesList,
+                accountParams
+            );
+        require(
+            healthFactor > DataTypes.HEALTH_FACTOR_LIQUIDATION_THRESHOLD,
+            Errors.HEALTH_FACTOR_LOWER_THAN_LIQUIDATION_THRESHOLD
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/FlashClaimLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/GenericLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IERC721Enumerable} from "../../../dependencies/openzeppelin/contracts/IERC721Enumerable.sol";
+import {Math} from "../../../dependencies/openzeppelin/contracts/Math.sol";
+import {IScaledBalanceToken} from "../../../interfaces/IScaledBalanceToken.sol";
+import {INToken} from "../../../interfaces/INToken.sol";
+import {ICollateralizableERC721} from "../../../interfaces/ICollateralizableERC721.sol";
+import {IPriceOracleGetter} from "../../../interfaces/IPriceOracleGetter.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {UserConfiguration} from "../configuration/UserConfiguration.sol";
+import {PercentageMath} from "../math/PercentageMath.sol";
+import {WadRayMath} from "../math/WadRayMath.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {ReserveLogic} from "./ReserveLogic.sol";
+import {INonfungiblePositionManager} from "../../../dependencies/uniswap/INonfungiblePositionManager.sol";
+import {XTokenType} from "../../../interfaces/IXTokenType.sol";
+
+/**
+ * @title GenericLogic library
+ *
+ * @notice Implements protocol-level logic to calculate and validate the state of a user
+ */
+library GenericLogic {
+    using ReserveLogic for DataTypes.ReserveData;
+    using WadRayMath for uint256;
+    using PercentageMath for uint256;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+
+    struct CalculateUserAccountDataVars {
+        uint256 assetPrice;
+        uint256 assetUnit;
+        DataTypes.ReserveConfigurationMap reserveConfiguration;
+        uint256 userBalanceInBaseCurrency;
+        uint256 decimals;
+        uint256 ltv;
+        uint256 liquidationThreshold;
+        uint256 liquidationBonus;
+        uint256 i;
+        uint256 healthFactor;
+        uint256 erc721HealthFactor;
+        uint256 totalERC721CollateralInBaseCurrency;
+        uint256 payableDebtByERC20Assets;
+        uint256 totalCollateralInBaseCurrency;
+        uint256 totalDebtInBaseCurrency;
+        uint256 avgLtv;
+        uint256 avgLiquidationThreshold;
+        uint256 avgERC721LiquidationThreshold;
+        address currentReserveAddress;
+        bool hasZeroLtvCollateral;
+        address xTokenAddress;
+        XTokenType xTokenType;
+    }
+
+    /**
+     * @notice Calculates the user data across the reserves.
+     * @dev It includes the total liquidity/collateral/borrow balances in the base currency used by the price feed,
+     * the average Loan To Value, the average Liquidation Ratio, and the Health factor.
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param params Additional parameters needed for the calculation
+     * @return The total collateral of the user in the base currency used by the price feed
+     * @return The total ERC721 collateral of the user in the base currency used by the price feed
+     * @return The total debt of the user in the base currency used by the price feed
+     * @return The average ltv of the user
+     * @return The average liquidation threshold of the user
+     * @return The payable debt by ERC20 assets
+     * @return The health factor of the user
+     * @return The ERC721 health factor of the user
+     * @return True if the ltv is zero, false otherwise
+     **/
+    function calculateUserAccountData(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.CalculateUserAccountDataParams memory params
+    )
+        internal
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            uint256,
+            bool
+        )
+    {
+        if (params.userConfig.isEmpty()) {
+            return (
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                type(uint256).max,
+                type(uint256).max,
+                false
+            );
+        }
+
+        CalculateUserAccountDataVars memory vars;
+
+        while (vars.i < params.reservesCount) {
+            if (!params.userConfig.isUsingAsCollateralOrBorrowing(vars.i)) {
+                unchecked {
+                    ++vars.i;
+                }
+                continue;
+            }
+
+            vars.currentReserveAddress = reservesList[vars.i];
+
+            if (vars.currentReserveAddress == address(0)) {
+                unchecked {
+                    ++vars.i;
+                }
+                continue;
+            }
+
+            DataTypes.ReserveData storage currentReserve = reservesData[
+                vars.currentReserveAddress
+            ];
+
+            vars.reserveConfiguration = currentReserve.configuration;
+
+            (
+                vars.ltv,
+                vars.liquidationThreshold,
+                vars.liquidationBonus,
+                vars.decimals,
+
+            ) = currentReserve.configuration.getParams();
+
+            unchecked {
+                vars.assetUnit = 10**vars.decimals;
+            }
+
+            vars.xTokenAddress = currentReserve.xTokenAddress;
+
+            if (
+                vars.reserveConfiguration.getAssetType() ==
+                DataTypes.AssetType.ERC20
+            ) {
+                vars.assetPrice = _getAssetPrice(
+                    params.oracle,
+                    vars.currentReserveAddress
+                );
+
+                if (
+                    (vars.liquidationThreshold != 0) &&
+                    params.userConfig.isUsingAsCollateral(vars.i)
+                ) {
+                    vars.userBalanceInBaseCurrency = _getUserBalanceForERC20(
+                        params.user,
+                        currentReserve,
+                        vars.xTokenAddress,
+                        vars.assetUnit,
+                        vars.assetPrice
+                    );
+
+                    vars.payableDebtByERC20Assets += vars
+                        .userBalanceInBaseCurrency
+                        .percentDiv(vars.liquidationBonus);
+
+                    vars.liquidationThreshold =
+                        vars.userBalanceInBaseCurrency *
+                        (vars.liquidationThreshold);
+                    vars.avgLtv += vars.userBalanceInBaseCurrency * vars.ltv;
+
+                    vars.totalCollateralInBaseCurrency += vars
+                        .userBalanceInBaseCurrency;
+
+                    if (vars.ltv == 0) {
+                        vars.hasZeroLtvCollateral = true;
+                    }
+
+                    vars.avgLiquidationThreshold += vars.liquidationThreshold;
+                }
+
+                if (params.userConfig.isBorrowing(vars.i)) {
+                    vars.totalDebtInBaseCurrency += _getUserDebtInBaseCurrency(
+                        params.user,
+                        currentReserve,
+                        vars.assetPrice,
+                        vars.assetUnit
+                    );
+                }
+            } else {
+                if (
+                    (vars.liquidationThreshold != 0) &&
+                    params.userConfig.isUsingAsCollateral(vars.i)
+                ) {
+                    vars.xTokenType = INToken(vars.xTokenAddress)
+                        .getXTokenType();
+                    if (vars.xTokenType == XTokenType.NTokenUniswapV3) {
+                        (
+                            vars.userBalanceInBaseCurrency,
+                            vars.ltv,
+                            vars.liquidationThreshold
+                        ) = _getUserBalanceForUniswapV3(
+                            reservesData,
+                            params,
+                            vars
+                        );
+                    } else {
+                        vars
+                            .userBalanceInBaseCurrency = _getUserBalanceForERC721(
+                            params,
+                            vars
+                        );
+
+                        vars.liquidationThreshold =
+                            vars.userBalanceInBaseCurrency *
+                            vars.liquidationThreshold;
+
+                        if (vars.ltv == 0) {
+                            vars.hasZeroLtvCollateral = true;
+                        }
+
+                        vars.ltv = vars.userBalanceInBaseCurrency * vars.ltv;
+                    }
+
+                    vars.avgERC721LiquidationThreshold += vars
+                        .liquidationThreshold;
+                    vars.totalERC721CollateralInBaseCurrency += vars
+                        .userBalanceInBaseCurrency;
+                    vars.totalCollateralInBaseCurrency += vars
+                        .userBalanceInBaseCurrency;
+                    vars.avgLtv += vars.ltv;
+                    vars.avgLiquidationThreshold += vars.liquidationThreshold;
+                }
+            }
+
+            unchecked {
+                ++vars.i;
+            }
+        }
+
+        unchecked {
+            vars.avgLtv = vars.totalCollateralInBaseCurrency != 0
+                ? vars.avgLtv / vars.totalCollateralInBaseCurrency
+                : 0;
+            vars.avgLiquidationThreshold = vars.totalCollateralInBaseCurrency !=
+                0
+                ? vars.avgLiquidationThreshold /
+                    vars.totalCollateralInBaseCurrency
+                : 0;
+
+            vars.avgERC721LiquidationThreshold = vars
+                .totalERC721CollateralInBaseCurrency != 0
+                ? vars.avgERC721LiquidationThreshold /
+                    vars.totalERC721CollateralInBaseCurrency
+                : 0;
+        }
+
+        vars.healthFactor = (vars.totalDebtInBaseCurrency == 0)
+            ? type(uint256).max
+            : (
+                vars.totalCollateralInBaseCurrency.percentMul(
+                    vars.avgLiquidationThreshold
+                )
+            ).wadDiv(vars.totalDebtInBaseCurrency);
+
+        vars.erc721HealthFactor = (vars.totalDebtInBaseCurrency == 0 ||
+            vars.payableDebtByERC20Assets >= vars.totalDebtInBaseCurrency)
+            ? type(uint256).max
+            : (
+                vars.totalERC721CollateralInBaseCurrency.percentMul(
+                    vars.avgERC721LiquidationThreshold
+                )
+            ).wadDiv(
+                    vars.totalDebtInBaseCurrency - vars.payableDebtByERC20Assets
+                );
+
+        return (
+            vars.totalCollateralInBaseCurrency,
+            vars.totalERC721CollateralInBaseCurrency,
+            vars.totalDebtInBaseCurrency,
+            vars.avgLtv,
+            vars.avgLiquidationThreshold,
+            vars.avgERC721LiquidationThreshold,
+            vars.payableDebtByERC20Assets,
+            vars.healthFactor,
+            vars.erc721HealthFactor,
+            vars.hasZeroLtvCollateral
+        );
+    }
+
+    /**
+     * @notice Calculates the maximum amount that can be borrowed depending on the available collateral, the total debt
+     * and the average Loan To Value
+     * @param totalCollateralInBaseCurrency The total collateral in the base currency used by the price feed
+     * @param totalDebtInBaseCurrency The total borrow balance in the base currency used by the price feed
+     * @param ltv The average loan to value
+     * @return The amount available to borrow in the base currency of the used by the price feed
+     **/
+    function calculateAvailableBorrows(
+        uint256 totalCollateralInBaseCurrency,
+        uint256 totalDebtInBaseCurrency,
+        uint256 ltv
+    ) internal pure returns (uint256) {
+        uint256 availableBorrowsInBaseCurrency = totalCollateralInBaseCurrency
+            .percentMul(ltv);
+
+        if (availableBorrowsInBaseCurrency < totalDebtInBaseCurrency) {
+            return 0;
+        }
+
+        availableBorrowsInBaseCurrency =
+            availableBorrowsInBaseCurrency -
+            totalDebtInBaseCurrency;
+        return availableBorrowsInBaseCurrency;
+    }
+
+    /**
+     * @notice Calculates total debt of the user in the based currency used to normalize the values of the assets
+     * @dev This fetches the `balanceOf` of the stable and variable debt tokens for the user. For gas reasons, the
+     * variable debt balance is calculated by fetching `scaledBalancesOf` normalized debt, which is cheaper than
+     * fetching `balanceOf`
+     * @param user The address of the user
+     * @param reserve The data of the reserve for which the total debt of the user is being calculated
+     * @param assetPrice The price of the asset for which the total debt of the user is being calculated
+     * @param assetUnit The value representing one full unit of the asset (10^decimals)
+     * @return The total debt of the user normalized to the base currency
+     **/
+    function _getUserDebtInBaseCurrency(
+        address user,
+        DataTypes.ReserveData storage reserve,
+        uint256 assetPrice,
+        uint256 assetUnit
+    ) private view returns (uint256) {
+        // fetching variable debt
+        uint256 userTotalDebt = IScaledBalanceToken(
+            reserve.variableDebtTokenAddress
+        ).scaledBalanceOf(user);
+        if (userTotalDebt != 0) {
+            userTotalDebt = userTotalDebt.rayMul(reserve.getNormalizedDebt());
+            userTotalDebt = assetPrice * userTotalDebt;
+
+            unchecked {
+                return userTotalDebt / assetUnit;
+            }
+        } else {
+            return 0;
+        }
+    }
+
+    /**
+     * @notice Calculates total xToken balance of the user in the based currency used by the price oracle
+     * @dev For gas reasons, the xToken balance is calculated by fetching `scaledBalancesOf` normalized debt, which
+     * is cheaper than fetching `balanceOf`
+     * @return totalValue The total xToken balance of the user normalized to the base currency of the price oracle
+     **/
+    function _getUserBalanceForERC721(
+        DataTypes.CalculateUserAccountDataParams memory params,
+        CalculateUserAccountDataVars memory vars
+    ) private view returns (uint256 totalValue) {
+        INToken nToken = INToken(vars.xTokenAddress);
+        bool isAtomicPrice = nToken.getAtomicPricingConfig();
+        if (isAtomicPrice) {
+            uint256 totalBalance = nToken.balanceOf(params.user);
+
+            for (uint256 index = 0; index < totalBalance; index++) {
+                uint256 tokenId = nToken.tokenOfOwnerByIndex(
+                    params.user,
+                    index
+                );
+                if (
+                    ICollateralizableERC721(vars.xTokenAddress)
+                        .isUsedAsCollateral(tokenId)
+                ) {
+                    totalValue += _getTokenPrice(
+                        params.oracle,
+                        vars.currentReserveAddress,
+                        tokenId
+                    );
+                }
+            }
+        } else {
+            uint256 assetPrice = _getAssetPrice(
+                params.oracle,
+                vars.currentReserveAddress
+            );
+            totalValue =
+                ICollateralizableERC721(vars.xTokenAddress)
+                    .collateralizedBalanceOf(params.user) *
+                assetPrice;
+        }
+    }
+
+    function getLtvAndLTForUniswapV3(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        address uniswapV3Manager,
+        uint256 tokenId,
+        uint256 collectionLTV,
+        uint256 collectionLiquidationThreshold
+    ) internal view returns (uint256 ltv, uint256 liquidationThreshold) {
+        (
+            ,
+            ,
+            address token0,
+            address token1,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+            ,
+
+        ) = INonfungiblePositionManager(uniswapV3Manager).positions(tokenId);
+
+        DataTypes.ReserveConfigurationMap memory token0Configs = reservesData[
+            token0
+        ].configuration;
+        DataTypes.ReserveConfigurationMap memory token1Configs = reservesData[
+            token1
+        ].configuration;
+
+        (
+            uint256 token0Ltv,
+            uint256 token0LiquidationThreshold,
+            ,
+            ,
+
+        ) = token0Configs.getParams();
+        (
+            uint256 token1Ltv,
+            uint256 token1LiquidationThreshold,
+            ,
+            ,
+
+        ) = token1Configs.getParams();
+
+        ltv = Math.min(Math.min(token0Ltv, token1Ltv), collectionLTV);
+        liquidationThreshold = Math.min(
+            Math.min(token0LiquidationThreshold, token1LiquidationThreshold),
+            collectionLiquidationThreshold
+        );
+    }
+
+    function _getUserBalanceForUniswapV3(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        DataTypes.CalculateUserAccountDataParams memory params,
+        CalculateUserAccountDataVars memory vars
+    )
+        private
+        view
+        returns (
+            uint256 totalValue,
+            uint256 totalLTV,
+            uint256 totalLiquidationThreshold
+        )
+    {
+        uint256 totalBalance = INToken(vars.xTokenAddress).balanceOf(
+            params.user
+        );
+        for (uint256 index = 0; index < totalBalance; index++) {
+            uint256 tokenId = IERC721Enumerable(vars.xTokenAddress)
+                .tokenOfOwnerByIndex(params.user, index);
+            if (
+                ICollateralizableERC721(vars.xTokenAddress).isUsedAsCollateral(
+                    tokenId
+                )
+            ) {
+                uint256 tokenPrice = _getTokenPrice(
+                    params.oracle,
+                    vars.currentReserveAddress,
+                    tokenId
+                );
+                totalValue += tokenPrice;
+
+                (
+                    uint256 tmpLTV,
+                    uint256 tmpLiquidationThreshold
+                ) = getLtvAndLTForUniswapV3(
+                        reservesData,
+                        vars.currentReserveAddress,
+                        tokenId,
+                        vars.ltv,
+                        vars.liquidationThreshold
+                    );
+
+                if (tmpLTV == 0) {
+                    vars.hasZeroLtvCollateral = true;
+                }
+
+                totalLTV += tmpLTV * tokenPrice;
+                totalLiquidationThreshold +=
+                    tmpLiquidationThreshold *
+                    tokenPrice;
+            }
+        }
+    }
+
+    /**
+     * @notice Calculates total xToken balance of the user in the based currency used by the price oracle
+     * @dev For gas reasons, the xToken balance is calculated by fetching `scaledBalancesOf` normalized debt, which
+     * is cheaper than fetching `balanceOf`
+     * @param user The address of the user
+     * @param assetUnit The value representing one full unit of the asset (10^decimals)
+     * @return The total xToken balance of the user normalized to the base currency of the price oracle
+     **/
+    function _getUserBalanceForERC20(
+        address user,
+        DataTypes.ReserveData storage reserve,
+        address xTokenAddress,
+        uint256 assetUnit,
+        uint256 assetPrice
+    ) private view returns (uint256) {
+        uint256 balance;
+
+        uint256 normalizedIncome = reserve.getNormalizedIncome();
+        balance =
+            (
+                IScaledBalanceToken(xTokenAddress).scaledBalanceOf(user).rayMul(
+                    normalizedIncome
+                )
+            ) *
+            assetPrice;
+
+        unchecked {
+            return (balance / assetUnit);
+        }
+    }
+
+    function _getAssetPrice(address oracle, address currentReserveAddress)
+        internal
+        view
+        returns (uint256)
+    {
+        return IPriceOracleGetter(oracle).getAssetPrice(currentReserveAddress);
+    }
+
+    function _getTokenPrice(
+        address oracle,
+        address currentReserveAddress,
+        uint256 tokenId
+    ) internal view returns (uint256) {
+        return
+            IPriceOracleGetter(oracle).getTokenPrice(
+                currentReserveAddress,
+                tokenId
+            );
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/GenericLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/LiquidationLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC20} from "../../../dependencies/openzeppelin/contracts//IERC20.sol";
+import {GPv2SafeERC20} from "../../../dependencies/gnosis/contracts/GPv2SafeERC20.sol";
+import {PercentageMath} from "../../libraries/math/PercentageMath.sol";
+import {WadRayMath} from "../../libraries/math/WadRayMath.sol";
+import {Math} from "../../../dependencies/openzeppelin/contracts/Math.sol";
+import {Helpers} from "../../libraries/helpers/Helpers.sol";
+import {DataTypes} from "../../libraries/types/DataTypes.sol";
+import {ReserveLogic} from "./ReserveLogic.sol";
+import {SupplyLogic} from "./SupplyLogic.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import {GenericLogic} from "./GenericLogic.sol";
+import {UserConfiguration} from "../../libraries/configuration/UserConfiguration.sol";
+import {ReserveConfiguration} from "../../libraries/configuration/ReserveConfiguration.sol";
+import {Address} from "../../../dependencies/openzeppelin/contracts/Address.sol";
+import {IPToken} from "../../../interfaces/IPToken.sol";
+import {IWETH} from "../../../misc/interfaces/IWETH.sol";
+import {ICollateralizableERC721} from "../../../interfaces/ICollateralizableERC721.sol";
+import {IAuctionableERC721} from "../../../interfaces/IAuctionableERC721.sol";
+import {INToken} from "../../../interfaces/INToken.sol";
+import {PRBMath} from "../../../dependencies/math/PRBMath.sol";
+import {PRBMathUD60x18} from "../../../dependencies/math/PRBMathUD60x18.sol";
+import {IReserveAuctionStrategy} from "../../../interfaces/IReserveAuctionStrategy.sol";
+import {IVariableDebtToken} from "../../../interfaces/IVariableDebtToken.sol";
+import {IPriceOracleGetter} from "../../../interfaces/IPriceOracleGetter.sol";
+import {IPoolAddressesProvider} from "../../../interfaces/IPoolAddressesProvider.sol";
+import {Errors} from "../../libraries/helpers/Errors.sol";
+
+/**
+ * @title LiquidationLogic library
+ *
+ * @notice Implements actions involving management of collateral in the protocol, the main one being the liquidations
+ **/
+library LiquidationLogic {
+    using PercentageMath for uint256;
+    using ReserveLogic for DataTypes.ReserveCache;
+    using ReserveLogic for DataTypes.ReserveData;
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using PRBMathUD60x18 for uint256;
+    using GPv2SafeERC20 for IERC20;
+
+    /**
+     * @dev Default percentage of borrower's debt to be repaid in a liquidation.
+     * @dev Percentage applied when the users health factor is above `CLOSE_FACTOR_HF_THRESHOLD`
+     * Expressed in bps, a value of 0.5e4 results in 50.00%
+     */
+    uint256 internal constant DEFAULT_LIQUIDATION_CLOSE_FACTOR = 0.5e4;
+
+    /**
+     * @dev Maximum percentage of borrower's debt to be repaid in a liquidation
+     * @dev Percentage applied when the users health factor is below `CLOSE_FACTOR_HF_THRESHOLD`
+     * Expressed in bps, a value of 1e4 results in 100.00%
+     */
+    uint256 public constant MAX_LIQUIDATION_CLOSE_FACTOR = 1e4;
+
+    /**
+     * @dev This constant represents below which health factor value it is possible to liquidate
+     * an amount of debt corresponding to `MAX_LIQUIDATION_CLOSE_FACTOR`.
+     * A value of 0.95e18 results in 95%
+     */
+    uint256 public constant CLOSE_FACTOR_HF_THRESHOLD = 0.95e18;
+
+    // See `IPool` for descriptions
+    event ReserveUsedAsCollateralEnabled(
+        address indexed reserve,
+        address indexed user
+    );
+    event ReserveUsedAsCollateralDisabled(
+        address indexed reserve,
+        address indexed user
+    );
+    event LiquidateERC20(
+        address indexed collateralAsset,
+        address indexed liquidationAsset,
+        address indexed borrower,
+        uint256 liquidationAmount,
+        uint256 liquidatedCollateralAmount,
+        address liquidator,
+        bool receivePToken
+    );
+    event LiquidateERC721(
+        address indexed collateralAsset,
+        address indexed liquidationAsset,
+        address indexed borrower,
+        uint256 liquidationAmount,
+        uint256 liquidatedCollateralTokenId,
+        address liquidator,
+        bool receiveNToken
+    );
+    event AuctionEnded(
+        address indexed user,
+        address indexed collateralAsset,
+        uint256 indexed collateralTokenId
+    );
+
+    struct ExecuteLiquidateLocalVars {
+        //userCollateral from collateralReserve
+        uint256 userCollateral;
+        //userGlobalCollateral from all reserves
+        uint256 userGlobalCollateral;
+        //userDebt from liquadationReserve
+        uint256 userDebt;
+        //userGlobalDebt from all reserves
+        uint256 userGlobalDebt;
+        //actualLiquidationAmount to repay based on collateral
+        uint256 actualLiquidationAmount;
+        //actualCollateral allowed to liquidate
+        uint256 actualCollateralToLiquidate;
+        //liquidationBonusRate from reserve config
+        uint256 liquidationBonus;
+        //user health factor
+        uint256 healthFactor;
+        //liquidation protocol fee to be sent to treasury
+        uint256 liquidationProtocolFee;
+        //liquidation funds payer
+        address payer;
+        //collateral P|N Token
+        address collateralXToken;
+        //auction strategy
+        address auctionStrategyAddress;
+        //liquidation asset reserve id
+        uint16 liquidationAssetReserveId;
+        //whether auction is enabled
+        bool auctionEnabled;
+        //liquidation reserve cache
+        DataTypes.ReserveCache liquidationAssetReserveCache;
+    }
+
+    struct LiquidateParametersLocalVars {
+        uint256 userCollateral;
+        uint256 collateralPrice;
+        uint256 liquidationAssetPrice;
+        uint256 liquidationAssetDecimals;
+        uint256 collateralDecimals;
+        uint256 collateralAssetUnit;
+        uint256 liquidationAssetUnit;
+        uint256 actualCollateralToLiquidate;
+        uint256 actualLiquidationAmount;
+        uint256 actualLiquidationBonus;
+        uint256 liquidationProtocolFeePercentage;
+        uint256 liquidationProtocolFee;
+        // Auction related
+        uint256 auctionMultiplier;
+        uint256 auctionStartTime;
+    }
+
+    /**
+     * @notice Function to liquidate a position if its Health Factor drops below 1. The caller (liquidator)
+     * covers `liquidationAmount` amount of debt of the user getting liquidated, and receives
+     * a proportional amount of the `collateralAsset` plus a bonus to cover market risk
+     * @dev Emits the `LiquidateERC20()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param usersConfig The users configuration mapping that track the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the liquidation function
+     * @return actualLiquidationAmount The actual debt that is getting liquidated.
+     **/
+    function executeLiquidateERC20(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        mapping(address => DataTypes.UserConfigurationMap) storage usersConfig,
+        DataTypes.ExecuteLiquidateParams memory params
+    ) external returns (uint256) {
+        ExecuteLiquidateLocalVars memory vars;
+
+        DataTypes.ReserveData storage collateralReserve = reservesData[
+            params.collateralAsset
+        ];
+        DataTypes.ReserveData storage liquidationAssetReserve = reservesData[
+            params.liquidationAsset
+        ];
+        DataTypes.UserConfigurationMap storage userConfig = usersConfig[
+            params.borrower
+        ];
+        vars.liquidationAssetReserveCache = liquidationAssetReserve.cache();
+        liquidationAssetReserve.updateState(vars.liquidationAssetReserveCache);
+
+        (, , , , , , , vars.healthFactor, , ) = GenericLogic
+            .calculateUserAccountData(
+                reservesData,
+                reservesList,
+                DataTypes.CalculateUserAccountDataParams({
+                    userConfig: userConfig,
+                    reservesCount: params.reservesCount,
+                    user: params.borrower,
+                    oracle: params.priceOracle
+                })
+            );
+
+        (vars.userDebt, vars.actualLiquidationAmount) = _calculateDebt(
+            params,
+            vars
+        );
+
+        (vars.collateralXToken, vars.liquidationBonus) = _getConfigurationData(
+            collateralReserve
+        );
+
+        (
+            vars.userCollateral,
+            vars.actualCollateralToLiquidate,
+            vars.actualLiquidationAmount,
+            vars.liquidationProtocolFee
+        ) = _calculateERC20LiquidationParameters(
+            collateralReserve,
+            params,
+            vars
+        );
+
+        ValidationLogic.validateLiquidateERC20(
+            userConfig,
+            collateralReserve,
+            DataTypes.ValidateLiquidateERC20Params({
+                liquidationAssetReserveCache: vars.liquidationAssetReserveCache,
+                weth: params.weth,
+                liquidationAmount: params.liquidationAmount,
+                actualLiquidationAmount: vars.actualLiquidationAmount,
+                liquidationAsset: params.liquidationAsset,
+                totalDebt: vars.userDebt,
+                healthFactor: vars.healthFactor,
+                priceOracleSentinel: params.priceOracleSentinel
+            })
+        );
+
+        if (vars.userDebt == vars.actualLiquidationAmount) {
+            userConfig.setBorrowing(liquidationAssetReserve.id, false);
+        }
+
+        // If the collateral being liquidated is equal to the user balance,
+        // we set the currency as not being used as collateral anymore
+        if (
+            vars.actualCollateralToLiquidate + vars.liquidationProtocolFee ==
+            vars.userCollateral
+        ) {
+            userConfig.setUsingAsCollateral(collateralReserve.id, false);
+            emit ReserveUsedAsCollateralDisabled(
+                params.collateralAsset,
+                params.borrower
+            );
+        }
+
+        // Transfer fee to treasury if it is non-zero
+        if (vars.liquidationProtocolFee != 0) {
+            IPToken(vars.collateralXToken).transferOnLiquidation(
+                params.borrower,
+                IPToken(vars.collateralXToken).RESERVE_TREASURY_ADDRESS(),
+                vars.liquidationProtocolFee
+            );
+        }
+
+        _burnDebtTokens(liquidationAssetReserve, params, vars);
+
+        if (params.receiveXToken) {
+            _liquidatePTokens(usersConfig, collateralReserve, params, vars);
+        } else {
+            _burnCollateralPTokens(collateralReserve, params, vars);
+        }
+
+        emit LiquidateERC20(
+            params.collateralAsset,
+            params.liquidationAsset,
+            params.borrower,
+            vars.actualLiquidationAmount,
+            vars.actualCollateralToLiquidate,
+            params.liquidator,
+            params.receiveXToken
+        );
+
+        return vars.actualLiquidationAmount;
+    }
+
+    /**
+     * @notice Function to liquidate an ERC721 of a position if its Health Factor drops below 1. The caller (liquidator)
+     * covers `liquidationAmount` amount of debt of the user getting liquidated, and receives
+     * a proportional tokenId of the `collateralAsset` minus a bonus to cover market risk
+     * @dev Emits the `LiquidateERC721()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param usersConfig The users configuration mapping that track the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the liquidation function
+     * @return actualLiquidationAmount The actual liquidation amount.
+     **/
+    function executeLiquidateERC721(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        mapping(address => DataTypes.UserConfigurationMap) storage usersConfig,
+        DataTypes.ExecuteLiquidateParams memory params
+    ) external returns (uint256) {
+        ExecuteLiquidateLocalVars memory vars;
+
+        DataTypes.ReserveData storage collateralReserve = reservesData[
+            params.collateralAsset
+        ];
+        DataTypes.ReserveData storage liquidationAssetReserve = reservesData[
+            params.liquidationAsset
+        ];
+        DataTypes.UserConfigurationMap storage userConfig = usersConfig[
+            params.borrower
+        ];
+
+        vars.liquidationAssetReserveId = liquidationAssetReserve.id;
+        vars.liquidationAssetReserveCache = liquidationAssetReserve.cache();
+        // liquidationAssetReserve.updateState(vars.liquidationAssetReserveCache);
+
+        vars.auctionStrategyAddress = collateralReserve.auctionStrategyAddress;
+        vars.auctionEnabled = vars.auctionStrategyAddress != address(0);
+
+        (
+            vars.userGlobalCollateral,
+            ,
+            vars.userGlobalDebt, //in base currency
+            ,
+            ,
+            ,
+            ,
+            ,
+            vars.healthFactor,
+
+        ) = GenericLogic.calculateUserAccountData(
+            reservesData,
+            reservesList,
+            DataTypes.CalculateUserAccountDataParams({
+                userConfig: userConfig,
+                reservesCount: params.reservesCount,
+                user: params.borrower,
+                oracle: params.priceOracle
+            })
+        );
+
+        (vars.collateralXToken, vars.liquidationBonus) = _getConfigurationData(
+            collateralReserve
+        );
+        if (vars.auctionEnabled) {
+            vars.liquidationBonus = PercentageMath.PERCENTAGE_FACTOR;
+        }
+
+        (
+            vars.userCollateral,
+            vars.actualLiquidationAmount,
+            vars.liquidationProtocolFee,
+            vars.userGlobalDebt
+        ) = _calculateERC721LiquidationParameters(
+            collateralReserve,
+            params,
+            vars
+        );
+
+        ValidationLogic.validateLiquidateERC721(
+            reservesData,
+            userConfig,
+            collateralReserve,
+            DataTypes.ValidateLiquidateERC721Params({
+                liquidationAssetReserveCache: vars.liquidationAssetReserveCache,
+                liquidator: params.liquidator,
+                borrower: params.borrower,
+                globalDebt: vars.userGlobalDebt,
+                actualLiquidationAmount: vars.actualLiquidationAmount,
+                maxLiquidationAmount: params.liquidationAmount,
+                healthFactor: vars.healthFactor,
+                priceOracleSentinel: params.priceOracleSentinel,
+                collateralAsset: params.collateralAsset,
+                tokenId: params.collateralTokenId,
+                xTokenAddress: vars.collateralXToken,
+                auctionEnabled: vars.auctionEnabled,
+                auctionRecoveryHealthFactor: params.auctionRecoveryHealthFactor
+            })
+        );
+
+        if (vars.auctionEnabled) {
+            IAuctionableERC721(vars.collateralXToken).endAuction(
+                params.collateralTokenId
+            );
+            emit AuctionEnded(
+                params.borrower,
+                params.collateralAsset,
+                params.collateralTokenId
+            );
+        }
+
+        _supplyNewCollateral(reservesData, userConfig, params, vars);
+
+        // If the collateral being liquidated is equal to the user balance,
+        // we set the currency as not being used as collateral anymore
+        if (vars.userCollateral == 1) {
+            userConfig.setUsingAsCollateral(collateralReserve.id, false);
+            emit ReserveUsedAsCollateralDisabled(
+                params.collateralAsset,
+                params.borrower
+            );
+        }
+
+        // Transfer fee to treasury if it is non-zero
+        if (vars.liquidationProtocolFee != 0) {
+            IERC20(params.liquidationAsset).safeTransferFrom(
+                vars.payer,
+                IPToken(vars.liquidationAssetReserveCache.xTokenAddress)
+                    .RESERVE_TREASURY_ADDRESS(),
+                vars.liquidationProtocolFee
+            );
+        }
+
+        if (params.receiveXToken) {
+            INToken(vars.collateralXToken).transferOnLiquidation(
+                params.borrower,
+                params.liquidator,
+                params.collateralTokenId
+            );
+        } else {
+            _burnCollateralNTokens(params, vars);
+        }
+
+        emit LiquidateERC721(
+            params.collateralAsset,
+            params.liquidationAsset,
+            params.borrower,
+            vars.actualLiquidationAmount,
+            params.collateralTokenId,
+            params.liquidator,
+            params.receiveXToken
+        );
+
+        return vars.actualLiquidationAmount;
+    }
+
+    /**
+     * @notice Burns the collateral xTokens and transfers the underlying to the liquidator.
+     * @dev   The function also updates the state and the interest rate of the collateral reserve.
+     * @param collateralReserve The data of the collateral reserve
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars The executeLiquidateERC20() function local vars
+     */
+    function _burnCollateralPTokens(
+        DataTypes.ReserveData storage collateralReserve,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        DataTypes.ReserveCache memory collateralReserveCache = collateralReserve
+            .cache();
+        collateralReserve.updateState(collateralReserveCache);
+        collateralReserve.updateInterestRates(
+            collateralReserveCache,
+            params.collateralAsset,
+            0,
+            vars.actualCollateralToLiquidate
+        );
+
+        // Burn the equivalent amount of xToken, sending the underlying to the liquidator
+        IPToken(vars.collateralXToken).burn(
+            params.borrower,
+            params.liquidator,
+            vars.actualCollateralToLiquidate,
+            collateralReserveCache.nextLiquidityIndex
+        );
+    }
+
+    /**
+     * @notice Burns the collateral xTokens and transfers the underlying to the liquidator.
+     * @dev   The function also updates the state and the interest rate of the collateral reserve.
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars The executeLiquidateERC20() function local vars
+     */
+    function _burnCollateralNTokens(
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        // Burn the equivalent amount of xToken, sending the underlying to the liquidator
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = params.collateralTokenId;
+        INToken(vars.collateralXToken).burn(
+            params.borrower,
+            params.liquidator,
+            tokenIds
+        );
+    }
+
+    /**
+     * @notice Liquidates the user xTokens by transferring them to the liquidator.
+     * @dev   The function also checks the state of the liquidator and activates the xToken as collateral
+     *        as in standard transfers if the isolation mode constraints are respected.
+     * @param usersConfig The users configuration mapping that track the supplied/borrowed assets
+     * @param collateralReserve The data of the collateral reserve
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars The executeLiquidateERC20() function local vars
+     */
+    function _liquidatePTokens(
+        mapping(address => DataTypes.UserConfigurationMap) storage usersConfig,
+        DataTypes.ReserveData storage collateralReserve,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        IPToken pToken = IPToken(vars.collateralXToken);
+        uint256 liquidatorPreviousPTokenBalance = pToken.balanceOf(
+            params.liquidator
+        );
+        pToken.transferOnLiquidation(
+            params.borrower,
+            params.liquidator,
+            vars.actualCollateralToLiquidate
+        );
+
+        if (liquidatorPreviousPTokenBalance == 0) {
+            DataTypes.UserConfigurationMap
+                storage liquidatorConfig = usersConfig[params.liquidator];
+
+            liquidatorConfig.setUsingAsCollateral(collateralReserve.id, true);
+            emit ReserveUsedAsCollateralEnabled(
+                params.collateralAsset,
+                params.liquidator
+            );
+        }
+    }
+
+    /**
+     * @notice Burns the debt tokens of the user up to the amount being repaid by the liquidator.
+     * @dev The function alters the `liquidationAssetReserveCache` state in `vars` to update the debt related data.
+     * @param liquidationAssetReserve The data of the liquidation reserve
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars the executeLiquidateERC20() function local vars
+     */
+    function _burnDebtTokens(
+        DataTypes.ReserveData storage liquidationAssetReserve,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        _depositETH(params, vars);
+
+        // Transfers the debt asset being repaid to the xToken, where the liquidity is kept
+        IERC20(params.liquidationAsset).safeTransferFrom(
+            vars.payer,
+            vars.liquidationAssetReserveCache.xTokenAddress,
+            vars.actualLiquidationAmount
+        );
+        // Handle payment
+        IPToken(vars.liquidationAssetReserveCache.xTokenAddress)
+            .handleRepayment(params.liquidator, vars.actualLiquidationAmount);
+        // Burn borrower's debt token
+        vars
+            .liquidationAssetReserveCache
+            .nextScaledVariableDebt = IVariableDebtToken(
+            vars.liquidationAssetReserveCache.variableDebtTokenAddress
+        ).burn(
+                params.borrower,
+                vars.actualLiquidationAmount,
+                vars.liquidationAssetReserveCache.nextVariableBorrowIndex
+            );
+        // Update borrow & supply rate
+        liquidationAssetReserve.updateInterestRates(
+            vars.liquidationAssetReserveCache,
+            params.liquidationAsset,
+            vars.actualLiquidationAmount,
+            0
+        );
+    }
+
+    /**
+     * @notice Supply new collateral for taking out of borrower's another collateral
+     * @param userConfig The user configuration that track the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars the executeLiquidateERC20() function local vars
+     */
+    function _supplyNewCollateral(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        _depositETH(params, vars);
+
+        SupplyLogic.executeSupply(
+            reservesData,
+            userConfig,
+            DataTypes.ExecuteSupplyParams({
+                asset: params.liquidationAsset,
+                amount: vars.actualLiquidationAmount -
+                    vars.liquidationProtocolFee,
+                onBehalfOf: params.borrower,
+                payer: vars.payer,
+                referralCode: 0
+            })
+        );
+
+        if (!userConfig.isUsingAsCollateral(vars.liquidationAssetReserveId)) {
+            userConfig.setUsingAsCollateral(
+                vars.liquidationAssetReserveId,
+                true
+            );
+            emit ReserveUsedAsCollateralEnabled(
+                params.liquidationAsset,
+                params.borrower
+            );
+        }
+    }
+
+    /**
+     * @notice Calculates the total debt of the user and the actual amount to liquidate depending on the health factor
+     * and corresponding close factor. we are always using max closing factor in this version
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars the executeLiquidateERC20() function local vars
+     * @return The total debt of the user
+     * @return The actual debt that is getting liquidated. If liquidation amount passed in by the liquidator is greater then the total user debt, then use the user total debt as the actual debt getting liquidated. If the user total debt is greater than the liquidation amount getting passed in by the liquidator, then use the liquidation amount the user is passing in.
+     */
+    function _calculateDebt(
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal view returns (uint256, uint256) {
+        // userDebt = debt of the borrowed position needed for liquidation
+        uint256 userDebt = Helpers.getUserCurrentDebt(
+            params.borrower,
+            vars.liquidationAssetReserveCache.variableDebtTokenAddress
+        );
+
+        uint256 closeFactor = vars.healthFactor > CLOSE_FACTOR_HF_THRESHOLD
+            ? DEFAULT_LIQUIDATION_CLOSE_FACTOR
+            : MAX_LIQUIDATION_CLOSE_FACTOR;
+
+        uint256 maxLiquidatableDebt = userDebt.percentMul(closeFactor);
+
+        uint256 actualLiquidationAmount = Math.min(
+            params.liquidationAmount,
+            maxLiquidatableDebt
+        );
+
+        return (userDebt, actualLiquidationAmount);
+    }
+
+    /**
+     * @notice Returns the configuration data for the debt and the collateral reserves.
+     * @param collateralReserve The data of the collateral reserve
+     * @return The collateral xToken
+     * @return The liquidation bonus to apply to the collateral
+     */
+    function _getConfigurationData(
+        DataTypes.ReserveData storage collateralReserve
+    ) internal view returns (address, uint256) {
+        address collateralXToken = collateralReserve.xTokenAddress;
+        uint256 liquidationBonus = collateralReserve
+            .configuration
+            .getLiquidationBonus();
+
+        return (collateralXToken, liquidationBonus);
+    }
+
+    /**
+     * @notice Calculates how much of a specific collateral can be liquidated, given
+     * a certain amount of debt asset.
+     * @dev This function needs to be called after all the checks to validate the liquidation have been performed,
+     *   otherwise it might fail.
+     * @param collateralReserve The data of the collateral reserve
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param superVars the executeLiquidateERC20() function local vars
+     * @return The user collateral balance
+     * @return The maximum amount that is possible to liquidate given all the liquidation constraints (user balance, close factor)
+     * @return The amount to repay with the liquidation
+     * @return The fee taken from the liquidation bonus amount to be paid to the protocol
+     **/
+    function _calculateERC20LiquidationParameters(
+        DataTypes.ReserveData storage collateralReserve,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory superVars
+    )
+        internal
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
+        LiquidateParametersLocalVars memory vars;
+
+        vars.userCollateral = IPToken(superVars.collateralXToken).balanceOf(
+            params.borrower
+        );
+        vars.collateralPrice = IPriceOracleGetter(params.priceOracle)
+            .getAssetPrice(params.collateralAsset);
+        vars.liquidationAssetPrice = IPriceOracleGetter(params.priceOracle)
+            .getAssetPrice(params.liquidationAsset);
+
+        vars.collateralDecimals = collateralReserve.configuration.getDecimals();
+        vars.liquidationAssetDecimals = superVars
+            .liquidationAssetReserveCache
+            .reserveConfiguration
+            .getDecimals();
+
+        unchecked {
+            vars.collateralAssetUnit = 10**vars.collateralDecimals;
+            vars.liquidationAssetUnit = 10**vars.liquidationAssetDecimals;
+        }
+
+        vars.liquidationProtocolFeePercentage = collateralReserve
+            .configuration
+            .getLiquidationProtocolFee();
+
+        uint256 maxCollateralToLiquidate = ((vars.liquidationAssetPrice *
+            superVars.actualLiquidationAmount *
+            vars.collateralAssetUnit) /
+            (vars.collateralPrice * vars.liquidationAssetUnit)).percentMul(
+                superVars.liquidationBonus
+            );
+
+        if (maxCollateralToLiquidate > vars.userCollateral) {
+            vars.actualCollateralToLiquidate = vars.userCollateral;
+            vars.actualLiquidationAmount = (
+                ((vars.collateralPrice *
+                    vars.actualCollateralToLiquidate *
+                    vars.liquidationAssetUnit) /
+                    (vars.liquidationAssetPrice * vars.collateralAssetUnit))
+            ).percentDiv(superVars.liquidationBonus);
+        } else {
+            vars.actualCollateralToLiquidate = maxCollateralToLiquidate;
+            vars.actualLiquidationAmount = superVars.actualLiquidationAmount;
+        }
+
+        if (vars.liquidationProtocolFeePercentage != 0) {
+            uint256 bonusCollateral = vars.actualCollateralToLiquidate -
+                vars.actualCollateralToLiquidate.percentDiv(
+                    superVars.liquidationBonus
+                );
+
+            vars.liquidationProtocolFee = bonusCollateral.percentMul(
+                vars.liquidationProtocolFeePercentage
+            );
+
+            return (
+                vars.userCollateral,
+                vars.actualCollateralToLiquidate - vars.liquidationProtocolFee,
+                vars.actualLiquidationAmount,
+                vars.liquidationProtocolFee
+            );
+        } else {
+            return (
+                vars.userCollateral,
+                vars.actualCollateralToLiquidate,
+                vars.actualLiquidationAmount,
+                0
+            );
+        }
+    }
+
+    /**
+     * @notice Calculates how much of a specific collateral can be liquidated, given
+     * a certain amount of debt asset.
+     * @dev This function needs to be called after all the checks to validate the liquidation have been performed,
+     *   otherwise it might fail.
+     * @param collateralReserve The data of the collateral reserve
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param superVars the executeLiquidateERC20() function local vars
+     * @return The user collateral balance
+     * @return The discounted nft price + the liquidationProtocolFee
+     * @return The liquidationProtocolFee
+     * @return The debt price you are paying in (for example, USD or ETH)
+     **/
+    function _calculateERC721LiquidationParameters(
+        DataTypes.ReserveData storage collateralReserve,
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory superVars
+    )
+        internal
+        view
+        returns (
+            uint256,
+            uint256,
+            uint256,
+            uint256
+        )
+    {
+        LiquidateParametersLocalVars memory vars;
+
+        vars.userCollateral = ICollateralizableERC721(
+            superVars.collateralXToken
+        ).collateralizedBalanceOf(params.borrower);
+
+        // price of the asset that is used as collateral
+        if (INToken(superVars.collateralXToken).getAtomicPricingConfig()) {
+            vars.collateralPrice = IPriceOracleGetter(params.priceOracle)
+                .getTokenPrice(
+                    params.collateralAsset,
+                    params.collateralTokenId
+                );
+        } else {
+            vars.collateralPrice = IPriceOracleGetter(params.priceOracle)
+                .getAssetPrice(params.collateralAsset);
+        }
+
+        if (
+            superVars.auctionEnabled &&
+            IAuctionableERC721(superVars.collateralXToken).isAuctioned(
+                params.collateralTokenId
+            )
+        ) {
+            vars.auctionStartTime = IAuctionableERC721(
+                superVars.collateralXToken
+            ).getAuctionData(params.collateralTokenId).startTime;
+            vars.auctionMultiplier = IReserveAuctionStrategy(
+                superVars.auctionStrategyAddress
+            ).calculateAuctionPriceMultiplier(
+                    vars.auctionStartTime,
+                    block.timestamp
+                );
+            vars.collateralPrice = vars.collateralPrice.mul(
+                vars.auctionMultiplier
+            );
+        }
+
+        // price of the asset the liquidator is liquidating with
+        vars.liquidationAssetPrice = IPriceOracleGetter(params.priceOracle)
+            .getAssetPrice(params.liquidationAsset);
+        vars.liquidationAssetDecimals = superVars
+            .liquidationAssetReserveCache
+            .reserveConfiguration
+            .getDecimals();
+
+        unchecked {
+            vars.liquidationAssetUnit = 10**vars.liquidationAssetDecimals;
+        }
+
+        vars.liquidationProtocolFeePercentage = collateralReserve
+            .configuration
+            .getLiquidationProtocolFee();
+
+        uint256 collateralToLiquidate = (vars.collateralPrice *
+            vars.liquidationAssetUnit) / vars.liquidationAssetPrice;
+
+        // base currency to convert to liquidation asset unit.
+        uint256 globalDebtAmount = (superVars.userGlobalDebt *
+            vars.liquidationAssetUnit) / vars.liquidationAssetPrice;
+
+        vars.actualLiquidationAmount = collateralToLiquidate.percentDiv(
+            superVars.liquidationBonus
+        );
+
+        if (vars.liquidationProtocolFeePercentage != 0) {
+            uint256 bonusCollateral = collateralToLiquidate -
+                vars.actualLiquidationAmount;
+
+            vars.liquidationProtocolFee = bonusCollateral.percentMul(
+                vars.liquidationProtocolFeePercentage
+            );
+
+            return (
+                vars.userCollateral,
+                vars.actualLiquidationAmount + vars.liquidationProtocolFee,
+                vars.liquidationProtocolFee,
+                globalDebtAmount
+            );
+        } else {
+            return (
+                vars.userCollateral,
+                vars.actualLiquidationAmount,
+                0,
+                globalDebtAmount
+            );
+        }
+    }
+
+    /**
+     * @notice Convert msg.value to WETH and check if liquidationAsset is WETH (if msg.value > 0)
+     * @param params The additional parameters needed to execute the liquidation function
+     * @param vars the executeLiquidateERC20() function local vars
+     */
+    function _depositETH(
+        DataTypes.ExecuteLiquidateParams memory params,
+        ExecuteLiquidateLocalVars memory vars
+    ) internal {
+        if (msg.value == 0) {
+            vars.payer = msg.sender;
+        } else {
+            vars.payer = address(this);
+            IWETH(params.weth).deposit{value: vars.actualLiquidationAmount}();
+            if (msg.value > vars.actualLiquidationAmount) {
+                Address.sendValue(
+                    payable(msg.sender),
+                    msg.value - vars.actualLiquidationAmount
+                );
+            }
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/LiquidationLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/MarketplaceLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC721} from "../../../dependencies/openzeppelin/contracts/IERC721.sol";
+import {INToken} from "../../../interfaces/INToken.sol";
+import {IPoolAddressesProvider} from "../../../interfaces/IPoolAddressesProvider.sol";
+import {XTokenType} from "../../../interfaces/IXTokenType.sol";
+import {ICollateralizableERC721} from "../../../interfaces/ICollateralizableERC721.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {IPToken} from "../../../interfaces/IPToken.sol";
+import {Errors} from "../helpers/Errors.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import {SupplyLogic} from "./SupplyLogic.sol";
+import {BorrowLogic} from "./BorrowLogic.sol";
+import {SeaportInterface} from "../../../dependencies/seaport/contracts/interfaces/SeaportInterface.sol";
+import {SafeERC20} from "../../../dependencies/openzeppelin/contracts/SafeERC20.sol";
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IERC721} from "../../../dependencies/openzeppelin/contracts/IERC721.sol";
+import {ConsiderationItem, OfferItem} from "../../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {ItemType} from "../../../dependencies/seaport/contracts/lib/ConsiderationEnums.sol";
+import {AdvancedOrder, CriteriaResolver, Fulfillment} from "../../../dependencies/seaport/contracts/lib/ConsiderationStructs.sol";
+import {IWETH} from "../../../misc/interfaces/IWETH.sol";
+import {UserConfiguration} from "../configuration/UserConfiguration.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {IMarketplace} from "../../../interfaces/IMarketplace.sol";
+import {Address} from "../../../dependencies/openzeppelin/contracts/Address.sol";
+
+/**
+ * @title Marketplace library
+ *
+ * @notice Implements the base logic for all the actions related to NFT buy/accept bid
+ */
+library MarketplaceLogic {
+    using UserConfiguration for DataTypes.UserConfigurationMap;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+    using SafeERC20 for IERC20;
+
+    event BuyWithCredit(
+        bytes32 indexed marketplaceId,
+        DataTypes.OrderInfo orderInfo,
+        DataTypes.Credit credit
+    );
+
+    event AcceptBidWithCredit(
+        bytes32 indexed marketplaceId,
+        DataTypes.OrderInfo orderInfo,
+        DataTypes.Credit credit
+    );
+
+    struct MarketplaceLocalVars {
+        bool isETH;
+        address xTokenAddress;
+        address creditToken;
+        uint256 creditAmount;
+        address weth;
+        uint256 ethLeft;
+        bytes32 marketplaceId;
+        bytes payload;
+        DataTypes.Marketplace marketplace;
+        DataTypes.OrderInfo orderInfo;
+    }
+
+    function executeBuyWithCredit(
+        bytes32 marketplaceId,
+        bytes calldata payload,
+        DataTypes.Credit calldata credit,
+        DataTypes.PoolStorage storage ps,
+        IPoolAddressesProvider poolAddressProvider,
+        uint16 referralCode
+    ) external {
+        MarketplaceLocalVars memory vars;
+
+        vars.weth = poolAddressProvider.getWETH();
+        DataTypes.Marketplace memory marketplace = poolAddressProvider
+            .getMarketplace(marketplaceId);
+        DataTypes.OrderInfo memory orderInfo = IMarketplace(marketplace.adapter)
+            .getAskOrderInfo(payload, vars.weth);
+        orderInfo.taker = msg.sender;
+        vars.ethLeft = msg.value;
+
+        _depositETH(vars, orderInfo);
+
+        vars.ethLeft -= _buyWithCredit(
+            ps._reserves,
+            ps._reservesList,
+            ps._usersConfig[orderInfo.taker],
+            DataTypes.ExecuteMarketplaceParams({
+                marketplaceId: marketplaceId,
+                payload: payload,
+                credit: credit,
+                ethLeft: vars.ethLeft,
+                marketplace: marketplace,
+                orderInfo: orderInfo,
+                weth: vars.weth,
+                referralCode: referralCode,
+                reservesCount: ps._reservesCount,
+                oracle: poolAddressProvider.getPriceOracle(),
+                priceOracleSentinel: poolAddressProvider.getPriceOracleSentinel()
+            })
+        );
+
+        _refundETH(vars.ethLeft);
+    }
+
+    /**
+     * @notice Implements the buyWithCredit feature. BuyWithCredit allows users to buy NFT from various NFT marketplaces
+     * including OpenSea, LooksRare, X2Y2 etc. Users can use NFT's credit and will need to pay at most (1 - LTV) * $NFT
+     * @dev  Emits the `BuyWithCredit()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param userConfig The user configuration mapping that tracks the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the buyWithCredit function
+     */
+    function _buyWithCredit(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteMarketplaceParams memory params
+    ) internal returns (uint256) {
+        ValidationLogic.validateBuyWithCredit(params);
+
+        MarketplaceLocalVars memory vars = _cache(params);
+
+        _borrowTo(reservesData, params, vars, address(this));
+
+        (uint256 priceEth, uint256 downpaymentEth) = _delegateToPool(
+            params,
+            vars
+        );
+
+        // delegateCall to avoid extra token transfer
+        Address.functionDelegateCall(
+            params.marketplace.adapter,
+            abi.encodeWithSelector(
+                IMarketplace.matchAskWithTakerBid.selector,
+                params.marketplace.marketplace,
+                params.payload,
+                priceEth
+            )
+        );
+
+        _repay(
+            reservesData,
+            reservesList,
+            userConfig,
+            params,
+            vars,
+            params.orderInfo.taker
+        );
+
+        emit BuyWithCredit(
+            params.marketplaceId,
+            params.orderInfo,
+            params.credit
+        );
+
+        return downpaymentEth;
+    }
+
+    function executeBatchBuyWithCredit(
+        bytes32[] calldata marketplaceIds,
+        bytes[] calldata payloads,
+        DataTypes.Credit[] calldata credits,
+        DataTypes.PoolStorage storage ps,
+        IPoolAddressesProvider poolAddressProvider,
+        uint16 referralCode
+    ) external {
+        MarketplaceLocalVars memory vars;
+
+        vars.weth = poolAddressProvider.getWETH();
+        require(
+            marketplaceIds.length == payloads.length &&
+                payloads.length == credits.length,
+            Errors.INCONSISTENT_PARAMS_LENGTH
+        );
+        vars.ethLeft = msg.value;
+        for (uint256 i = 0; i < marketplaceIds.length; i++) {
+            vars.marketplaceId = marketplaceIds[i];
+            vars.payload = payloads[i];
+            DataTypes.Credit memory credit = credits[i];
+
+            DataTypes.Marketplace memory marketplace = poolAddressProvider
+                .getMarketplace(vars.marketplaceId);
+            DataTypes.OrderInfo memory orderInfo = IMarketplace(
+                marketplace.adapter
+            ).getAskOrderInfo(vars.payload, vars.weth);
+            orderInfo.taker = msg.sender;
+
+            // Once we encounter a listing using WETH, then we convert all our ethLeft to WETH
+            // this also means that the parameters order is very important
+            //
+            // frontend/sdk needs to guarantee that WETH orders will always be put after ALL
+            // ETH orders, all ETH orders after WETH orders will fail
+            //
+            // eg. The following example image that the `taker` owns only ETH and wants to
+            // batch buy bunch of NFTs which are listed using WETH and ETH
+            //
+            // batchBuyWithCredit([ETH, WETH, ETH]) => ko
+            //                            | -> convert all ethLeft to WETH, 3rd purchase will fail
+            // batchBuyWithCredit([ETH, ETH, ETH]) => ok
+            // batchBuyWithCredit([ETH, ETH, WETH]) => ok
+            //
+            _depositETH(vars, orderInfo);
+
+            vars.ethLeft -= _buyWithCredit(
+                ps._reserves,
+                ps._reservesList,
+                ps._usersConfig[orderInfo.taker],
+                DataTypes.ExecuteMarketplaceParams({
+                    marketplaceId: vars.marketplaceId,
+                    payload: vars.payload,
+                    credit: credit,
+                    ethLeft: vars.ethLeft,
+                    marketplace: marketplace,
+                    orderInfo: orderInfo,
+                    weth: vars.weth,
+                    referralCode: referralCode,
+                    reservesCount: ps._reservesCount,
+                    oracle: poolAddressProvider.getPriceOracle(),
+                    priceOracleSentinel: poolAddressProvider
+                        .getPriceOracleSentinel()
+                })
+            );
+        }
+
+        _refundETH(vars.ethLeft);
+    }
+
+    function executeAcceptBidWithCredit(
+        bytes32 marketplaceId,
+        bytes calldata payload,
+        DataTypes.Credit calldata credit,
+        address onBehalfOf,
+        DataTypes.PoolStorage storage ps,
+        IPoolAddressesProvider poolAddressProvider,
+        uint16 referralCode
+    ) external {
+        MarketplaceLocalVars memory vars;
+
+        vars.weth = poolAddressProvider.getWETH();
+        vars.marketplace = poolAddressProvider.getMarketplace(marketplaceId);
+        vars.orderInfo = IMarketplace(vars.marketplace.adapter).getBidOrderInfo(
+            payload
+        );
+        require(vars.orderInfo.taker == onBehalfOf, Errors.INVALID_ORDER_TAKER);
+
+        _acceptBidWithCredit(
+            ps._reserves,
+            ps._reservesList,
+            ps._usersConfig[vars.orderInfo.maker],
+            DataTypes.ExecuteMarketplaceParams({
+                marketplaceId: marketplaceId,
+                payload: payload,
+                credit: credit,
+                ethLeft: 0,
+                marketplace: vars.marketplace,
+                orderInfo: vars.orderInfo,
+                weth: vars.weth,
+                referralCode: referralCode,
+                reservesCount: ps._reservesCount,
+                oracle: poolAddressProvider.getPriceOracle(),
+                priceOracleSentinel: poolAddressProvider.getPriceOracleSentinel()
+            })
+        );
+    }
+
+    function executeBatchAcceptBidWithCredit(
+        bytes32[] calldata marketplaceIds,
+        bytes[] calldata payloads,
+        DataTypes.Credit[] calldata credits,
+        address onBehalfOf,
+        DataTypes.PoolStorage storage ps,
+        IPoolAddressesProvider poolAddressProvider,
+        uint16 referralCode
+    ) external {
+        MarketplaceLocalVars memory vars;
+
+        vars.weth = poolAddressProvider.getWETH();
+        require(
+            marketplaceIds.length == payloads.length &&
+                payloads.length == credits.length,
+            Errors.INCONSISTENT_PARAMS_LENGTH
+        );
+        for (uint256 i = 0; i < marketplaceIds.length; i++) {
+            vars.marketplaceId = marketplaceIds[i];
+            vars.payload = payloads[i];
+            DataTypes.Credit memory credit = credits[i];
+
+            vars.marketplace = poolAddressProvider.getMarketplace(
+                vars.marketplaceId
+            );
+            vars.orderInfo = IMarketplace(vars.marketplace.adapter)
+                .getBidOrderInfo(vars.payload);
+            require(
+                vars.orderInfo.taker == onBehalfOf,
+                Errors.INVALID_ORDER_TAKER
+            );
+
+            _acceptBidWithCredit(
+                ps._reserves,
+                ps._reservesList,
+                ps._usersConfig[vars.orderInfo.maker],
+                DataTypes.ExecuteMarketplaceParams({
+                    marketplaceId: vars.marketplaceId,
+                    payload: vars.payload,
+                    credit: credit,
+                    ethLeft: 0,
+                    marketplace: vars.marketplace,
+                    orderInfo: vars.orderInfo,
+                    weth: vars.weth,
+                    referralCode: referralCode,
+                    reservesCount: ps._reservesCount,
+                    oracle: poolAddressProvider.getPriceOracle(),
+                    priceOracleSentinel: poolAddressProvider
+                        .getPriceOracleSentinel()
+                })
+            );
+        }
+    }
+
+    /**
+     * @notice Implements the acceptBidWithCredit feature. AcceptBidWithCredit allows users to
+     * accept a leveraged bid on ParaSpace NFT marketplace. Users can submit leveraged bid and pay
+     * at most (1 - LTV) * $NFT
+     * @dev  Emits the `AcceptBidWithCredit()` event
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param userConfig The user configuration mapping that tracks the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the acceptBidWithCredit function
+     */
+    function _acceptBidWithCredit(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteMarketplaceParams memory params
+    ) internal {
+        ValidationLogic.validateAcceptBidWithCredit(params);
+
+        MarketplaceLocalVars memory vars = _cache(params);
+
+        _borrowTo(reservesData, params, vars, params.orderInfo.maker);
+
+        // delegateCall to avoid extra token transfer
+        Address.functionDelegateCall(
+            params.marketplace.adapter,
+            abi.encodeWithSelector(
+                IMarketplace.matchBidWithTakerAsk.selector,
+                params.marketplace.marketplace,
+                params.payload
+            )
+        );
+
+        _repay(
+            reservesData,
+            reservesList,
+            userConfig,
+            params,
+            vars,
+            params.orderInfo.maker
+        );
+
+        emit AcceptBidWithCredit(
+            params.marketplaceId,
+            params.orderInfo,
+            params.credit
+        );
+    }
+
+    /**
+     * @notice Transfer payNow portion from taker to this contract. This is only useful
+     * in buyWithCredit.
+     * @dev
+     * @param params The additional parameters needed to execute the buyWithCredit/acceptBidWithCredit function
+     * @param vars The marketplace local vars for caching storage values for future reads
+     */
+    function _delegateToPool(
+        DataTypes.ExecuteMarketplaceParams memory params,
+        MarketplaceLocalVars memory vars
+    ) internal returns (uint256, uint256) {
+        uint256 price = 0;
+
+        for (uint256 i = 0; i < params.orderInfo.consideration.length; i++) {
+            ConsiderationItem memory item = params.orderInfo.consideration[i];
+            require(
+                item.startAmount == item.endAmount,
+                Errors.INVALID_MARKETPLACE_ORDER
+            );
+            require(
+                item.itemType == ItemType.ERC20 ||
+                    (vars.isETH && item.itemType == ItemType.NATIVE),
+                Errors.INVALID_ASSET_TYPE
+            );
+            require(
+                item.token == params.credit.token,
+                Errors.CREDIT_DOES_NOT_MATCH_ORDER
+            );
+            price += item.startAmount;
+        }
+
+        uint256 downpayment = price - vars.creditAmount;
+        if (!vars.isETH) {
+            IERC20(vars.creditToken).safeTransferFrom(
+                params.orderInfo.taker,
+                address(this),
+                downpayment
+            );
+            _checkAllowance(vars.creditToken, params.marketplace.operator);
+            // convert to (priceEth, downpaymentEth)
+            price = 0;
+            downpayment = 0;
+        } else {
+            require(params.ethLeft >= downpayment, Errors.PAYNOW_NOT_ENOUGH);
+        }
+
+        return (price, downpayment);
+    }
+
+    /**
+     * @notice Borrow credit.amount from `credit.token` reserve without collateral. The corresponding
+     * debt will be minted in the same block to the borrower.
+     * @dev
+     * @param reservesData The state of all the reserves
+     * @param params The additional parameters needed to execute the buyWithCredit/acceptBidWithCredit function
+     * @param vars The marketplace local vars for caching storage values for future reads
+     * @param to The receiver of borrowed tokens
+     */
+    function _borrowTo(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        DataTypes.ExecuteMarketplaceParams memory params,
+        MarketplaceLocalVars memory vars,
+        address to
+    ) internal {
+        if (vars.creditAmount == 0) {
+            return;
+        }
+
+        DataTypes.ReserveData storage reserve = reservesData[vars.creditToken];
+        vars.xTokenAddress = reserve.xTokenAddress;
+
+        require(vars.xTokenAddress != address(0), Errors.ASSET_NOT_LISTED);
+        ValidationLogic.validateFlashloanSimple(reserve);
+        // TODO: support PToken
+        IPToken(vars.xTokenAddress).transferUnderlyingTo(to, vars.creditAmount);
+
+        if (vars.isETH) {
+            // No re-entrancy because it sent to our contract address
+            IWETH(params.weth).withdraw(vars.creditAmount);
+        }
+    }
+
+    /**
+     * @notice Repay credit.amount by minting debt to the borrower. Borrower's received NFT
+     * will also need to be supplied to the pool to provide bigger borrow limit.
+     * @dev
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param userConfig The user configuration mapping that tracks the supplied/borrowed assets
+     * @param params The additional parameters needed to execute the buyWithCredit/acceptBidWithCredit function
+     * @param vars The marketplace local vars for caching storage values for future reads
+     * @param onBehalfOf The receiver of minted debt and NToken
+     */
+    function _repay(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.UserConfigurationMap storage userConfig,
+        DataTypes.ExecuteMarketplaceParams memory params,
+        MarketplaceLocalVars memory vars,
+        address onBehalfOf
+    ) internal {
+        for (uint256 i = 0; i < params.orderInfo.offer.length; i++) {
+            OfferItem memory item = params.orderInfo.offer[i];
+            require(
+                item.itemType == ItemType.ERC721,
+                Errors.INVALID_ASSET_TYPE
+            );
+
+            // underlyingAsset
+            address token = item.token;
+            uint256 tokenId = item.identifierOrCriteria;
+            // NToken
+            vars.xTokenAddress = reservesData[token].xTokenAddress;
+
+            // item.token == NToken
+            if (vars.xTokenAddress == address(0)) {
+                address underlyingAsset = INToken(token)
+                    .UNDERLYING_ASSET_ADDRESS();
+                bool isNToken = reservesData[underlyingAsset].xTokenAddress ==
+                    token;
+                require(isNToken, Errors.ASSET_NOT_LISTED);
+                vars.xTokenAddress = token;
+                token = underlyingAsset;
+            }
+
+            require(
+                INToken(vars.xTokenAddress).getXTokenType() !=
+                    XTokenType.NTokenUniswapV3,
+                Errors.UNIV3_NOT_ALLOWED
+            );
+
+            // item.token == underlyingAsset but supplied after listing/offering
+            // so NToken is transferred instead
+            if (INToken(vars.xTokenAddress).ownerOf(tokenId) == address(this)) {
+                _transferAndCollateralize(
+                    reservesData,
+                    userConfig,
+                    vars,
+                    token,
+                    tokenId,
+                    onBehalfOf
+                );
+                // item.token == underlyingAsset and underlyingAsset stays in wallet
+            } else {
+                DataTypes.ERC721SupplyParams[]
+                    memory tokenData = new DataTypes.ERC721SupplyParams[](1);
+                tokenData[0] = DataTypes.ERC721SupplyParams(tokenId, true);
+                SupplyLogic.executeSupplyERC721(
+                    reservesData,
+                    userConfig,
+                    DataTypes.ExecuteSupplyERC721Params({
+                        asset: token,
+                        tokenData: tokenData,
+                        onBehalfOf: onBehalfOf,
+                        payer: address(this),
+                        referralCode: params.referralCode
+                    })
+                );
+            }
+        }
+
+        if (vars.creditAmount == 0) {
+            return;
+        }
+
+        BorrowLogic.executeBorrow(
+            reservesData,
+            reservesList,
+            userConfig,
+            DataTypes.ExecuteBorrowParams({
+                asset: vars.creditToken,
+                user: onBehalfOf,
+                onBehalfOf: onBehalfOf,
+                amount: vars.creditAmount,
+                referralCode: params.referralCode,
+                releaseUnderlying: false,
+                reservesCount: params.reservesCount,
+                oracle: params.oracle,
+                priceOracleSentinel: params.priceOracleSentinel
+            })
+        );
+    }
+
+    function _checkAllowance(address token, address operator) internal {
+        uint256 allowance = IERC20(token).allowance(address(this), operator);
+        if (allowance == 0) {
+            IERC20(token).safeApprove(operator, type(uint256).max);
+        }
+    }
+
+    function _cache(DataTypes.ExecuteMarketplaceParams memory params)
+        internal
+        pure
+        returns (MarketplaceLocalVars memory vars)
+    {
+        vars.isETH = params.credit.token == address(0);
+        vars.creditToken = vars.isETH ? params.weth : params.credit.token;
+        vars.creditAmount = params.credit.amount;
+    }
+
+    function _refundETH(uint256 ethLeft) internal {
+        if (ethLeft > 0) {
+            Address.sendValue(payable(msg.sender), ethLeft);
+        }
+    }
+
+    function _depositETH(
+        MarketplaceLocalVars memory vars,
+        DataTypes.OrderInfo memory orderInfo
+    ) internal {
+        if (
+            vars.ethLeft > 0 &&
+            orderInfo.consideration[0].itemType != ItemType.NATIVE
+        ) {
+            IWETH(vars.weth).deposit{value: vars.ethLeft}();
+            IERC20(vars.weth).safeTransferFrom(
+                address(this),
+                msg.sender,
+                vars.ethLeft
+            );
+            vars.ethLeft = 0;
+        }
+    }
+
+    function _transferAndCollateralize(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        DataTypes.UserConfigurationMap storage userConfig,
+        MarketplaceLocalVars memory vars,
+        address token,
+        uint256 tokenId,
+        address onBehalfOf
+    ) internal {
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = tokenId;
+
+        IERC721(vars.xTokenAddress).safeTransferFrom(
+            address(this),
+            onBehalfOf,
+            tokenId
+        );
+        SupplyLogic.executeCollateralizeERC721(
+            reservesData,
+            userConfig,
+            token,
+            tokenIds,
+            onBehalfOf
+        );
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/MarketplaceLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/PoolLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {GPv2SafeERC20} from "../../../dependencies/gnosis/contracts/GPv2SafeERC20.sol";
+import {Address} from "../../../dependencies/openzeppelin/contracts/Address.sol";
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {IERC721} from "../../../dependencies/openzeppelin/contracts/IERC721.sol";
+import {IPToken} from "../../../interfaces/IPToken.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {Errors} from "../helpers/Errors.sol";
+import {WadRayMath} from "../math/WadRayMath.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {ReserveLogic} from "./ReserveLogic.sol";
+import {ValidationLogic} from "./ValidationLogic.sol";
+import {GenericLogic} from "./GenericLogic.sol";
+import {IXTokenType, XTokenType} from "../../../interfaces/IXTokenType.sol";
+
+/**
+ * @title PoolLogic library
+ *
+ * @notice Implements the logic for Pool specific functions
+ */
+library PoolLogic {
+    using GPv2SafeERC20 for IERC20;
+    using WadRayMath for uint256;
+    using ReserveLogic for DataTypes.ReserveData;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+
+    // See `IPool` for descriptions
+    event MintedToTreasury(address indexed reserve, uint256 amountMinted);
+
+    /**
+     * @notice Initialize an asset reserve and add the reserve to the list of reserves
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param params Additional parameters needed for initiation
+     * @return true if appended, false if inserted at existing empty spot
+     **/
+    function executeInitReserve(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        DataTypes.InitReserveParams memory params
+    ) external returns (bool) {
+        if (params.asset != DataTypes.SApeAddress) {
+            require(Address.isContract(params.asset), Errors.NOT_CONTRACT);
+        }
+        reservesData[params.asset].init(
+            params.xTokenAddress,
+            params.variableDebtAddress,
+            params.interestRateStrategyAddress,
+            params.auctionStrategyAddress
+        );
+
+        bool reserveAlreadyAdded = reservesData[params.asset].id != 0 ||
+            reservesList[0] == params.asset;
+        require(!reserveAlreadyAdded, Errors.RESERVE_ALREADY_ADDED);
+
+        for (uint16 i = 0; i < params.reservesCount; i++) {
+            if (reservesList[i] == address(0)) {
+                reservesData[params.asset].id = i;
+                reservesList[i] = params.asset;
+                return false;
+            }
+        }
+
+        require(
+            params.reservesCount < params.maxNumberReserves,
+            Errors.NO_MORE_RESERVES_ALLOWED
+        );
+        reservesData[params.asset].id = params.reservesCount;
+        reservesList[params.reservesCount] = params.asset;
+        return true;
+    }
+
+    /**
+     * @notice Rescue and transfer tokens locked in this contract
+     * @param assetType The asset type of the token
+     * @param token The address of the token
+     * @param to The address of the recipient
+     * @param amountOrTokenId The amount or id of token to transfer
+     */
+    function executeRescueTokens(
+        DataTypes.AssetType assetType,
+        address token,
+        address to,
+        uint256 amountOrTokenId
+    ) external {
+        if (assetType == DataTypes.AssetType.ERC20) {
+            IERC20(token).safeTransfer(to, amountOrTokenId);
+        } else if (assetType == DataTypes.AssetType.ERC721) {
+            IERC721(token).safeTransferFrom(address(this), to, amountOrTokenId);
+        }
+    }
+
+    /**
+     * @notice Mints the assets accrued through the reserve factor to the treasury in the form of xTokens
+     * @param reservesData The state of all the reserves
+     * @param assets The list of reserves for which the minting needs to be executed
+     **/
+    function executeMintToTreasury(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        address[] calldata assets
+    ) external {
+        for (uint256 i = 0; i < assets.length; i++) {
+            address assetAddress = assets[i];
+
+            DataTypes.ReserveData storage reserve = reservesData[assetAddress];
+
+            DataTypes.ReserveConfigurationMap
+                memory reserveConfiguration = reserve.configuration;
+
+            // this cover both inactive reserves and invalid reserves since the flag will be 0 for both
+            if (
+                !reserveConfiguration.getActive() ||
+                reserveConfiguration.getAssetType() != DataTypes.AssetType.ERC20
+            ) {
+                continue;
+            }
+
+            uint256 accruedToTreasury = reserve.accruedToTreasury;
+
+            if (accruedToTreasury != 0) {
+                reserve.accruedToTreasury = 0;
+                uint256 normalizedIncome = reserve.getNormalizedIncome();
+                uint256 amountToMint = accruedToTreasury.rayMul(
+                    normalizedIncome
+                );
+                IPToken(reserve.xTokenAddress).mintToTreasury(
+                    amountToMint,
+                    normalizedIncome
+                );
+
+                emit MintedToTreasury(assetAddress, amountToMint);
+            }
+        }
+    }
+
+    /**
+     * @notice Drop a reserve
+     * @param reservesData The state of all the reserves
+     * @param reservesList The addresses of all the active reserves
+     * @param asset The address of the underlying asset of the reserve
+     **/
+    function executeDropReserve(
+        mapping(address => DataTypes.ReserveData) storage reservesData,
+        mapping(uint256 => address) storage reservesList,
+        address asset
+    ) external {
+        DataTypes.ReserveData storage reserve = reservesData[asset];
+        ValidationLogic.validateDropReserve(reservesList, reserve, asset);
+        reservesList[reservesData[asset].id] = address(0);
+        delete reservesData[asset];
+    }
+
+    /**
+     * @notice Returns the user account data across all the reserves
+     * @return totalCollateralBase The total collateral of the user in the base currency used by the price feed
+     * @return totalDebtBase The total debt of the user in the base currency used by the price feed
+     * @return availableBorrowsBase The borrowing power left of the user in the base currency used by the price feed
+     * @return currentLiquidationThreshold The liquidation threshold of the user
+     * @return ltv The loan to value of The user
+     * @return healthFactor The current health factor of the user
+     * @return erc721HealthFactor The current erc721 health factor of the user
+     **/
+    function executeGetUserAccountData(
+        address user,
+        DataTypes.PoolStorage storage ps,
+        address oracle
+    )
+        external
+        view
+        returns (
+            uint256 totalCollateralBase,
+            uint256 totalDebtBase,
+            uint256 availableBorrowsBase,
+            uint256 currentLiquidationThreshold,
+            uint256 ltv,
+            uint256 healthFactor,
+            uint256 erc721HealthFactor
+        )
+    {
+        DataTypes.CalculateUserAccountDataParams memory params = DataTypes
+            .CalculateUserAccountDataParams({
+                userConfig: ps._usersConfig[user],
+                reservesCount: ps._reservesCount,
+                user: user,
+                oracle: oracle
+            });
+
+        (
+            totalCollateralBase,
+            ,
+            totalDebtBase,
+            ltv,
+            currentLiquidationThreshold,
+            ,
+            ,
+            healthFactor,
+            erc721HealthFactor,
+
+        ) = GenericLogic.calculateUserAccountData(
+            ps._reserves,
+            ps._reservesList,
+            params
+        );
+
+        availableBorrowsBase = GenericLogic.calculateAvailableBorrows(
+            totalCollateralBase,
+            totalDebtBase,
+            ltv
+        );
+    }
+
+    function executeGetAssetLtvAndLT(
+        DataTypes.PoolStorage storage ps,
+        address asset,
+        uint256 tokenId
+    ) external view returns (uint256 ltv, uint256 lt) {
+        DataTypes.ReserveData storage assetReserve = ps._reserves[asset];
+        DataTypes.ReserveConfigurationMap memory assetConfig = assetReserve
+            .configuration;
+        (uint256 collectionLtv, uint256 collectionLT, , , ) = assetConfig
+            .getParams();
+        XTokenType tokenType = IXTokenType(assetReserve.xTokenAddress)
+            .getXTokenType();
+        if (tokenType == XTokenType.NTokenUniswapV3) {
+            return
+                GenericLogic.getLtvAndLTForUniswapV3(
+                    ps._reserves,
+                    asset,
+                    tokenId,
+                    collectionLtv,
+                    collectionLT
+                );
+        } else {
+            return (collectionLtv, collectionLT);
+        }
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/PoolLogic.sol =====
+// ===== BEGIN SOURCE FILE: contracts/protocol/libraries/logic/ReserveLogic.sol =====
+// SPDX-License-Identifier: BUSL-1.1
+pragma solidity 0.8.10;
+
+import {IERC20} from "../../../dependencies/openzeppelin/contracts/IERC20.sol";
+import {GPv2SafeERC20} from "../../../dependencies/gnosis/contracts/GPv2SafeERC20.sol";
+import {IVariableDebtToken} from "../../../interfaces/IVariableDebtToken.sol";
+import {IReserveInterestRateStrategy} from "../../../interfaces/IReserveInterestRateStrategy.sol";
+import {ReserveConfiguration} from "../configuration/ReserveConfiguration.sol";
+import {MathUtils} from "../math/MathUtils.sol";
+import {WadRayMath} from "../math/WadRayMath.sol";
+import {PercentageMath} from "../math/PercentageMath.sol";
+import {Errors} from "../helpers/Errors.sol";
+import {DataTypes} from "../types/DataTypes.sol";
+import {SafeCast} from "../../../dependencies/openzeppelin/contracts/SafeCast.sol";
+
+/**
+ * @title ReserveLogic library
+ *
+ * @notice Implements the logic to update the reserves state
+ */
+library ReserveLogic {
+    using WadRayMath for uint256;
+    using PercentageMath for uint256;
+    using SafeCast for uint256;
+    using ReserveConfiguration for DataTypes.ReserveConfigurationMap;
+
+    // See `IPool` for descriptions
+    event ReserveDataUpdated(
+        address indexed reserve,
+        uint256 liquidityRate,
+        uint256 variableBorrowRate,
+        uint256 liquidityIndex,
+        uint256 variableBorrowIndex
+    );
+
+    /**
+     * @notice Returns the ongoing normalized income for the reserve.
+     * @dev A value of 1e27 means there is no income. As time passes, the income is accrued
+     * @dev A value of 2*1e27 means for each unit of asset one unit of income has been accrued
+     * @param reserve The reserve object
+     * @return The normalized income, expressed in ray
+     **/
+    function getNormalizedIncome(DataTypes.ReserveData storage reserve)
+        internal
+        view
+        returns (uint256)
+    {
+        uint40 timestamp = reserve.lastUpdateTimestamp;
+
+        //solium-disable-next-line
+        if (timestamp == block.timestamp) {
+            //if the index was updated in the same block, no need to perform any calculation
+            return reserve.liquidityIndex;
+        } else {
+            return
+                MathUtils
+                    .calculateLinearInterest(
+                        reserve.currentLiquidityRate,
+                        timestamp
+                    )
+                    .rayMul(reserve.liquidityIndex);
+        }
+    }
+
+    /**
+     * @notice Returns the ongoing normalized variable debt for the reserve.
+     * @dev A value of 1e27 means there is no debt. As time passes, the debt is accrued
+     * @dev A value of 2*1e27 means that for each unit of debt, one unit worth of interest has been accumulated
+     * @param reserve The reserve object
+     * @return The normalized variable debt, expressed in ray
+     **/
+    function getNormalizedDebt(DataTypes.ReserveData storage reserve)
+        internal
+        view
+        returns (uint256)
+    {
+        uint40 timestamp = reserve.lastUpdateTimestamp;
+
+        //solium-disable-next-line
+        if (timestamp == block.timestamp) {
+            //if the index was updated in the same block, no need to perform any calculation
+            return reserve.variableBorrowIndex;
+        } else {
+            return
+                MathUtils
+                    .calculateCompoundedInterest(
+                        reserve.currentVariableBorrowRate,
+                        timestamp
+                    )
+                    .rayMul(reserve.variableBorrowIndex);
+        }
+    }
+
+    /**
+     * @notice Updates the liquidity cumulative index and the variable borrow index.
+     * @param reserve The reserve object
+     * @param reserveCache The caching layer for the reserve data
+     **/
+    function updateState(
+        DataTypes.ReserveData storage reserve,
+        DataTypes.ReserveCache memory reserveCache
+    ) internal {
+        _updateIndexes(reserve, reserveCache);
+        _accrueToTreasury(reserve, reserveCache);
+    }
+
+    /**
+     * @notice Accumulates a predefined amount of asset to the reserve as a fixed, instantaneous income. Used for example
+     * to accumulate the flashloan fee to the reserve, and spread it between all the suppliers.
+     * @param reserve The reserve object
+     * @param totalLiquidity The total liquidity available in the reserve
+     * @param amount The amount to accumulate
+     * @return The next liquidity index of the reserve
+     **/
+    function cumulateToLiquidityIndex(
+        DataTypes.ReserveData storage reserve,
+        uint256 totalLiquidity,
+        uint256 amount
+    ) internal returns (uint256) {
+        //next liquidity index is calculated this way: `((amount / totalLiquidity) + 1) * liquidityIndex`
+        //division `amount / totalLiquidity` done in ray for precision
+        uint256 result = (amount.wadToRay().rayDiv(totalLiquidity.wadToRay()) +
+            WadRayMath.RAY).rayMul(reserve.liquidityIndex);
+        reserve.liquidityIndex = result.toUint128();
+        return result;
+    }
+
+    /**
+     * @notice Initializes a reserve.
+     * @param reserve The reserve object
+     * @param xTokenAddress The address of the overlying xtoken contract
+     * @param variableDebtTokenAddress The address of the overlying variable debt token contract
+     * @param interestRateStrategyAddress The address of the interest rate strategy contract
+     **/
+    function init(
+        DataTypes.ReserveData storage reserve,
+        address xTokenAddress,
+        address variableDebtTokenAddress,
+        address interestRateStrategyAddress,
+        address auctionStrategyAddress
+    ) internal {
+        require(
+            reserve.xTokenAddress == address(0),
+            Errors.RESERVE_ALREADY_INITIALIZED
+        );
+
+        reserve.liquidityIndex = uint128(WadRayMath.RAY);
+        reserve.variableBorrowIndex = uint128(WadRayMath.RAY);
+        reserve.xTokenAddress = xTokenAddress;
+        reserve.variableDebtTokenAddress = variableDebtTokenAddress;
+        reserve.interestRateStrategyAddress = interestRateStrategyAddress;
+        reserve.auctionStrategyAddress = auctionStrategyAddress;
+    }
+
+    struct UpdateInterestRatesLocalVars {
+        uint256 nextLiquidityRate;
+        uint256 nextVariableRate;
+        uint256 totalVariableDebt;
+    }
+
+    /**
+     * @notice Updates the reserve current stable borrow rate, the current variable borrow rate and the current liquidity rate.
+     * @param reserve The reserve reserve to be updated
+     * @param reserveCache The caching layer for the reserve data
+     * @param reserveAddress The address of the reserve to be updated
+     * @param liquidityAdded The amount of liquidity added to the protocol (supply or repay) in the previous action
+     * @param liquidityTaken The amount of liquidity taken from the protocol (redeem or borrow)
+     **/
+    function updateInterestRates(
+        DataTypes.ReserveData storage reserve,
+        DataTypes.ReserveCache memory reserveCache,
+        address reserveAddress,
+        uint256 liquidityAdded,
+        uint256 liquidityTaken
+    ) internal {
+        UpdateInterestRatesLocalVars memory vars;
+
+        vars.totalVariableDebt = reserveCache.nextScaledVariableDebt.rayMul(
+            reserveCache.nextVariableBorrowIndex
+        );
+
+        (
+            vars.nextLiquidityRate,
+            vars.nextVariableRate
+        ) = IReserveInterestRateStrategy(reserve.interestRateStrategyAddress)
+            .calculateInterestRates(
+                DataTypes.CalculateInterestRatesParams({
+                    liquidityAdded: liquidityAdded,
+                    liquidityTaken: liquidityTaken,
+                    totalVariableDebt: vars.totalVariableDebt,
+                    reserveFactor: reserveCache.reserveFactor,
+                    reserve: reserveAddress,
+                    xToken: reserveCache.xTokenAddress
+                })
+            );
+
+        reserve.currentLiquidityRate = vars.nextLiquidityRate.toUint128();
+        reserve.currentVariableBorrowRate = vars.nextVariableRate.toUint128();
+
+        emit ReserveDataUpdated(
+            reserveAddress,
+            vars.nextLiquidityRate,
+            vars.nextVariableRate,
+            reserveCache.nextLiquidityIndex,
+            reserveCache.nextVariableBorrowIndex
+        );
+    }
+
+    struct AccrueToTreasuryLocalVars {
+        uint256 prevTotalVariableDebt;
+        uint256 currTotalVariableDebt;
+        uint256 totalDebtAccrued;
+        uint256 amountToMint;
+    }
+
+    /**
+     * @notice Mints part of the repaid interest to the reserve treasury as a function of the reserve factor for the
+     * specific asset.
+     * @param reserve The reserve to be updated
+     * @param reserveCache The caching layer for the reserve data
+     **/
+    function _accrueToTreasury(
+        DataTypes.ReserveData storage reserve,
+        DataTypes.ReserveCache memory reserveCache
+    ) internal {
+        AccrueToTreasuryLocalVars memory vars;
+
+        if (reserveCache.reserveFactor == 0) {
+            return;
+        }
+
+        //calculate the total variable debt at moment of the last interaction
+        vars.prevTotalVariableDebt = reserveCache.currScaledVariableDebt.rayMul(
+            reserveCache.currVariableBorrowIndex
+        );
+
+        //calculate the new total variable debt after accumulation of the interest on the index
+        vars.currTotalVariableDebt = reserveCache.currScaledVariableDebt.rayMul(
+            reserveCache.nextVariableBorrowIndex
+        );
+
+        //debt accrued is the sum of the current debt minus the sum of the debt at the last update
+        vars.totalDebtAccrued =
+            vars.currTotalVariableDebt -
+            vars.prevTotalVariableDebt;
+
+        vars.amountToMint = vars.totalDebtAccrued.percentMul(
+            reserveCache.reserveFactor
+        );
+
+        if (vars.amountToMint != 0) {
+            reserve.accruedToTreasury += vars
+                .amountToMint
+                .rayDiv(reserveCache.nextLiquidityIndex)
+                .toUint128();
+        }
+    }
+
+    /**
+     * @notice Updates the reserve indexes and the timestamp of the update.
+     * @param reserve The reserve reserve to be updated
+     * @param reserveCache The cache layer holding the cached protocol data
+     **/
+    function _updateIndexes(
+        DataTypes.ReserveData storage reserve,
+        DataTypes.ReserveCache memory reserveCache
+    ) internal {
+        reserveCache.nextLiquidityIndex = reserveCache.currLiquidityIndex;
+        reserveCache.nextVariableBorrowIndex = reserveCache
+            .currVariableBorrowIndex;
+
+        //only cumulating if there is any income being produced
+        if (reserveCache.currLiquidityRate != 0) {
+            uint256 cumulatedLiquidityInterest = MathUtils
+                .calculateLinearInterest(
+                    reserveCache.currLiquidityRate,
+                    reserveCache.reserveLastUpdateTimestamp
+                );
+            reserveCache.nextLiquidityIndex = cumulatedLiquidityInterest.rayMul(
+                reserveCache.currLiquidityIndex
+            );
+            reserve.liquidityIndex = reserveCache
+                .nextLiquidityIndex
+                .toUint128();
+
+            //as the liquidity rate might come only from stable rate loans, we need to ensure
+            //that there is actual variable debt before accumulating
+            if (reserveCache.currScaledVariableDebt != 0) {
+                uint256 cumulatedVariableBorrowInterest = MathUtils
+                    .calculateCompoundedInterest(
+                        reserveCache.currVariableBorrowRate,
+                        reserveCache.reserveLastUpdateTimestamp
+                    );
+                reserveCache
+                    .nextVariableBorrowIndex = cumulatedVariableBorrowInterest
+                    .rayMul(reserveCache.currVariableBorrowIndex);
+                reserve.variableBorrowIndex = reserveCache
+                    .nextVariableBorrowIndex
+                    .toUint128();
+            }
+        }
+
+        //solium-disable-next-line
+        reserve.lastUpdateTimestamp = uint40(block.timestamp);
+    }
+
+    /**
+     * @notice Creates a cache object to avoid repeated storage reads and external contract calls when updating state and
+     * interest rates.
+     * @param reserve The reserve object for which the cache will be filled
+     * @return The cache object
+     */
+    function cache(DataTypes.ReserveData storage reserve)
+        internal
+        view
+        returns (DataTypes.ReserveCache memory)
+    {
+        DataTypes.ReserveCache memory reserveCache;
+
+        reserveCache.reserveConfiguration = reserve.configuration;
+        reserveCache.xTokenAddress = reserve.xTokenAddress;
+
+        (, , , , DataTypes.AssetType reserveAssetType) = reserveCache
+            .reserveConfiguration
+            .getFlags();
+
+        if (reserveAssetType == DataTypes.AssetType.ERC20) {
+            reserveCache.reserveFactor = reserveCache
+                .reserveConfiguration
+                .getReserveFactor();
+            reserveCache.currLiquidityIndex = reserve.liquidityIndex;
+            reserveCache.currVariableBorrowIndex = reserve.variableBorrowIndex;
+            reserveCache.currLiquidityRate = reserve.currentLiquidityRate;
+            reserveCache.currVariableBorrowRate = reserve
+                .currentVariableBorrowRate;
+
+            reserveCache.variableDebtTokenAddress = reserve
+                .variableDebtTokenAddress;
+
+            reserveCache.reserveLastUpdateTimestamp = reserve
+                .lastUpdateTimestamp;
+
+            reserveCache.currScaledVariableDebt = reserveCache
+                .nextScaledVariableDebt = IVariableDebtToken(
+                reserveCache.variableDebtTokenAddress
+            ).scaledTotalSupply();
+        }
+
+        return reserveCache;
+    }
+}
+// ===== END SOURCE FILE: contracts/protocol/libraries/logic/ReserveLogic.sol =====

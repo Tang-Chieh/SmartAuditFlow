@@ -1,0 +1,1958 @@
+{
+  "benchmark_version": "v1",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "prediction_mode": "legacy",
+  "repositories": [
+    {
+      "ground_truth": [
+        {
+          "description": "PriceAware.getCurrentPriceInPeg() allows callers to request a current-block price. When forceCurBlock is true and the update window has elapsed, the function obtains a Uniswap-style AMM quote and can update the cached token price from that quote. Because the quote is computed from current pair reserves, a flash loan can temporarily distort the reserves and cause the protocol to use a manipulated price.",
+          "finding_id": "H-03",
+          "impact": "Wrong prices break the core functionality of the contracts such as borrowing on margin, liquidations, etc.",
+          "mitigation": "Do not use the current Uniswap spot quote as the token price. Use a TWAP oracle based on Uniswap cumulative price variables.",
+          "review_status": "gold_verified",
+          "title": "[H-03] Price feed can be manipulated",
+          "vulnerable_code": [
+            {
+              "contract": "PriceAware",
+              "end_line": 87,
+              "file": "contracts/PriceAware.sol",
+              "function": "getCurrentPriceInPeg(address,uint256,bool)",
+              "start_line": 60
+            },
+            {
+              "contract": "PriceAware",
+              "end_line": 137,
+              "file": "contracts/PriceAware.sol",
+              "function": "getPriceFromAMM(address,uint256)",
+              "start_line": 111
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Cross-margin liquidation evaluates account collateral and debt using `belowMaintenanceThreshold()`, which calls `holdingsInPeg(account, true)` and `loanInPeg(account, true)`. These functions reach `PriceAware.getCurrentPriceInPeg(..., true)`. Both branches of the forced-price path use the current AMM quote: the stale-cache branch calls `getPriceFromAMM()`, while the recent-cache branch calls `viewCurrentPriceInPeg()`. Both functions invoke `UniswapStyleLib.getAmountsOut()`, which reads live `IUniswapV2Pair.getReserves()` values. The cached `tokenPer1k` value is therefore bypassed for the liquidation decision, and cache bounds only control whether the value is persisted; an out-of-range quote is still returned to the caller. An attacker who moves the configured AMM reserves can consequently alter the collateral/debt comparison and the subsequent `holdingsValue`, `borrowValue`, and maintainer-cut calculations. Once selected, the account is processed and deleted by `deleteAccount()`. The liquidation swaps also use AMM-derived amounts with `amountOutMin` set to zero or `amountInMax` set to `type(uint256).max`, so settlement has no meaningful slippage protection. The same spot-pricing pattern is present in the isolated-margin liquidation path when its configured price controller uses the supplied `PriceAware` implementation, although that deployment wiring is not shown.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "Temporary reserve manipulation can change liquidation eligibility and liquidation accounting, potentially causing incorrect liquidation of candidate accounts, incorrect residual payments and maintainer fees, and protocol losses when collateral is exchanged at an attacker-influenced AMM price. The account state is deleted after processing, and unfavorable liquidation execution can contribute to liquidation shortfalls.",
+          "mitigation": "Use a manipulation-resistant TWAP or independent oracle for liquidation eligibility, collateral/debt accounting, and settlement. Do not return a raw AMM spot quote from the forced liquidation-pricing path; validate freshness, deviation, and minimum liquidity before accepting any AMM observation, and use the validated price consistently throughout one liquidation. If a quote is outside configured bounds, reject it or retain the previous validated price rather than returning the raw value. Add explicit minimum-output and maximum-input slippage limits to liquidation swaps.",
+          "severity": "High",
+          "title": "Liquidation valuation trusts manipulable AMM spot reserves",
+          "vulnerable_code": [
+            {
+              "contract": "PriceAware",
+              "file": "contracts/PriceAware.sol",
+              "function": "getCurrentPriceInPeg"
+            },
+            {
+              "contract": "PriceAware",
+              "file": "contracts/PriceAware.sol",
+              "function": "getPriceFromAMM"
+            },
+            {
+              "contract": "CrossMarginAccounts",
+              "file": "contracts/CrossMarginAccounts.sol",
+              "function": "belowMaintenanceThreshold"
+            },
+            {
+              "contract": "CrossMarginLiquidation",
+              "file": "contracts/CrossMarginLiquidation.sol",
+              "function": "liquidate"
+            },
+            {
+              "contract": "MarginRouter",
+              "file": "contracts/MarginRouter.sol",
+              "function": "authorizedSwapExactT4T"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2021-04-marginswap"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "Synth.realise() calculates baseValueLP with Utils.calcLiquidityHoldings() from the pool's current baseAmount/tokenAmount reserves and total LP supply, and calculates baseValueSynth with Utils.calcActualSynthUnits() using the same current reserve ratio. If the manipulated values make the LP holdings appear to exceed the synth value, realise() treats the difference as a premium and burns LP tokens from the pool. A flash loan or a large LP holder can shift the AMM ratio before calling realise(), then shift it back and repeat the operation.",
+          "finding_id": "H-05",
+          "impact": "An attacker can use transient AMM-ratio manipulation to cause LP tokens held by Synth to be burned, then redeem their own LP tokens for a larger share of the pool's underlying assets, extracting value from other pool LP holders.",
+          "mitigation": "Do not value LP tokens with the instantaneous AMM spot price. Use a manipulation-resistant TWAP or Chainlink oracle for token pricing, or use an anti-flash-loan LP valuation formula such as Alpha Finance's fair-LP formula.",
+          "review_status": "gold_verified",
+          "title": "[H-05] Synth realise is vulnerable to flash loan attacks",
+          "vulnerable_code": [
+            {
+              "contract": "Synth",
+              "end_line": 199,
+              "file": "contracts/Synth.sol",
+              "function": "realise(address)",
+              "start_line": 187
+            },
+            {
+              "contract": "Utils",
+              "end_line": 125,
+              "file": "contracts/Utils.sol",
+              "function": "calcLiquidityHoldings(uint,address,address)",
+              "start_line": 114
+            },
+            {
+              "contract": "Utils",
+              "end_line": 216,
+              "file": "contracts/Utils.sol",
+              "function": "calcActualSynthUnits(uint,address)",
+              "start_line": 210
+            }
+          ]
+        },
+        {
+          "description": "SynthVault._deposit() converts the deposited synth amount into BASE weight using Utils.calcSpotValueInBase(), which ultimately computes amount * pool.baseAmount() / pool.tokenAmount() from current AMM reserves. The resulting weight is stored and later used by calcReward() to allocate an unrelated BASE reward reserve. An attacker can temporarily increase the BASE-per-token spot price, deposit synth while the price is distorted, and then restore the pool; the inflated stored weight remains after the manipulation ends.",
+          "finding_id": "H-06",
+          "impact": "The attacker can inflate their stored SynthVault weight relative to the deposited synth amount and claim a large share of BASE-funded rewards. The cost of manipulation depends on pool liquidity and the potential profit depends on the reward reserve, so the attack can be profitable under certain circumstances.",
+          "mitigation": "Track a TWAP price of the synth, store deposited synth amounts, and calculate user and total weight on the fly from the TWAP multiplied by the deposit amount instead of at deposit time.",
+          "review_status": "gold_verified",
+          "title": "[H-06] SynthVault rewards can be gamed",
+          "vulnerable_code": [
+            {
+              "contract": "SynthVault",
+              "end_line": 116,
+              "file": "contracts/synthVault.sol",
+              "function": "_deposit(address,address,uint256)",
+              "start_line": 102
+            },
+            {
+              "contract": "Utils",
+              "end_line": 163,
+              "file": "contracts/Utils.sol",
+              "function": "calcSpotValueInBase(address,uint256)",
+              "start_line": 160
+            },
+            {
+              "contract": "Utils",
+              "end_line": 190,
+              "file": "contracts/Utils.sol",
+              "function": "calcSpotValueInBaseWithPool(address,uint256)",
+              "start_line": 186
+            }
+          ]
+        },
+        {
+          "description": "DAO.bond() calls handleTransferIn(), which calculates the BASE allocation for a bonded token amount through Utils.calcSwapValueInBase() using the pool's current reserves before adding the token and BASE as liquidity for BondVault. Because the reserve-dependent swap calculation can be changed by manipulating the pool, an attacker can distort the allocation, repeatedly trigger bonding, and then reverse the manipulation.",
+          "finding_id": "M-14",
+          "impact": "An attacker can cause the DAO's Bond allocation to be stolen by making the DAO commit BASE at manipulated exchange rates and then recovering a disproportionate share of the BASE supplied to the pool.",
+          "mitigation": "Track a TWAP spot price for the TOKEN/BASE pair and verify that the BASE incentive is within an acceptable range of the TWAP before the DAO commits BASE at the manipulated price.",
+          "review_status": "gold_verified",
+          "title": "[M-14] BondVault `BASE` incentive can be gamed",
+          "vulnerable_code": [
+            {
+              "contract": "Dao",
+              "end_line": 253,
+              "file": "contracts/Dao.sol",
+              "function": "bond(address,uint256)",
+              "start_line": 239
+            },
+            {
+              "contract": "Utils",
+              "end_line": 173,
+              "file": "contracts/Utils.sol",
+              "function": "calcSwapValueInBase(address,uint)",
+              "start_line": 170
+            },
+            {
+              "contract": "Utils",
+              "end_line": 202,
+              "file": "contracts/Utils.sol",
+              "function": "calcSwapValueInBaseWithPool(address,uint)",
+              "start_line": 198
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Utils.getPoolShareWeight() values LP tokens using the current Pool.baseAmount() and LP totalSupply(). Pool.baseAmount() is directly changed by public swaps through Pool._setPoolAmounts(), and Pool.sync() can also replace the recorded reserve with the current token balance. DaoVault.increaseWeight() stores this spot-derived value in the member and vault weight mappings after Dao.deposit(), and BondVault weight updates use the same calculation. The stored weight is not automatically recomputed when the pool price later returns to normal. Dao.calcReward() and Dao.harvest() then use the persisted weight to calculate and pay reserve-funded rewards, providing a concrete path from manipulated AMM state to excess reward allocation.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "An attacker can temporarily increase a pool's recorded BASE reserve, trigger a vault weight update while the manipulated state is active, and retain an overstated reward weight after reversing the price movement. This can divert reserve emissions from other participants and may also distort stored governance weight used by proposal quorum and majority checks.",
+          "mitigation": "Use a manipulation-resistant valuation for LP weight, such as a sufficiently long TWAP or an independent oracle with freshness, deviation, and minimum-liquidity checks. Avoid persisting a weight derived from a single spot reserve state; use delayed or epoch-based snapshots for rewards and governance. Restrict or validate sync operations so arbitrary balance changes cannot directly redefine the valuation state.",
+          "severity": "High",
+          "title": "AMM spot-price manipulation inflates stored LP valuation weights",
+          "vulnerable_code": [
+            {
+              "contract": "Utils",
+              "file": "contracts/Utils.sol",
+              "function": "getPoolShareWeight"
+            },
+            {
+              "contract": "Pool",
+              "file": "contracts/Pool.sol",
+              "function": "swapTo"
+            },
+            {
+              "contract": "Pool",
+              "file": "contracts/Pool.sol",
+              "function": "sync"
+            },
+            {
+              "contract": "DaoVault",
+              "file": "contracts/DaoVault.sol",
+              "function": "increaseWeight"
+            },
+            {
+              "contract": "Dao",
+              "file": "contracts/Dao.sol",
+              "function": "calcReward"
+            }
+          ]
+        },
+        {
+          "description": "Router.swapTo(), buyTo(), and sellTo(), together with Pool.swapTo(), calculate swap output from the pool's current baseAmount and tokenAmount but accept no caller-supplied minimum output or maximum price bound. An attacker can execute a preceding swap that moves these reserves against a victim's trade. The victim's transaction then executes at the manipulated spot price and transfers the calculated output without checking whether it remains acceptable. The same issue applies to multi-hop and asymmetric swap paths that ultimately call Pool.swapTo() or Pool.swap().",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "Victims can receive materially less of the requested asset after an attacker-induced reserve movement. The absence of a slippage bound permits sandwich-style price manipulation to settle successfully rather than reverting when the execution price is unfavorable.",
+          "mitigation": "Add a minAmountOut parameter to every swap and liquidity-related swap path, and require the final output to meet that bound. Propagate the bound through every leg of multi-hop and synth conversions, and add a deadline or equivalent freshness constraint so stale transactions cannot execute after an attacker has moved the reserves.",
+          "severity": "Medium",
+          "title": "Swap entry points lack minimum-output protection against reserve manipulation",
+          "vulnerable_code": [
+            {
+              "contract": "Router",
+              "file": "contracts/Router.sol",
+              "function": "swapTo"
+            },
+            {
+              "contract": "Router",
+              "file": "contracts/Router.sol",
+              "function": "buyTo"
+            },
+            {
+              "contract": "Router",
+              "file": "contracts/Router.sol",
+              "function": "sellTo"
+            },
+            {
+              "contract": "Pool",
+              "file": "contracts/Pool.sol",
+              "function": "swapTo"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2021-07-spartan"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "AssetHandler.getLiquidityTokenValue() loads the current market and values a liquidity token from its proportional asset-cash and fCash claims. getCashClaims() and getHaircutCashClaims() derive those claims from mutable totalAssetCash and totalfCash reserves relative to totalLiquidity, while the fCash component is discounted using the lagged oracleRate. A flash-loan-funded lend or borrow can atomically change the reserve composition. Although this manipulation only increases the token's unadjusted value, the risk-adjusted collateral value can fall because the fCash claim receives an additional fCash haircut while the asset-cash claim does not.",
+          "finding_id": "H-10",
+          "impact": "An attacker can temporarily reduce a direct liquidity provider's risk-adjusted collateral value and cause an account near minimum collateralization to appear undercollateralized and become eligible for liquidation.",
+          "mitigation": "Do not use current market reserves to determine liquidity-token collateral value. Use a manipulation-resistant TWAP to determine the liquidity token's collateral value.",
+          "review_status": "gold_verified",
+          "title": "[H-10] Liquidity token value can be manipulated",
+          "vulnerable_code": [
+            {
+              "contract": "AssetHandler",
+              "end_line": 138,
+              "file": "contracts/internal/valuation/AssetHandler.sol",
+              "function": "getHaircutCashClaims(PortfolioAsset,MarketParameters,CashGroupParameters)",
+              "start_line": 120
+            },
+            {
+              "contract": "AssetHandler",
+              "end_line": 148,
+              "file": "contracts/internal/valuation/AssetHandler.sol",
+              "function": "_calcToken(int256,int256,int256,int256)",
+              "start_line": 141
+            },
+            {
+              "contract": "AssetHandler",
+              "end_line": 216,
+              "file": "contracts/internal/valuation/AssetHandler.sol",
+              "function": "getLiquidityTokenValue(uint256,CashGroupParameters,MarketParameters,PortfolioAsset[],uint256,bool)",
+              "start_line": 151
+            }
+          ]
+        },
+        {
+          "description": "Borrowing a large amount of an asset changes the market's lastImpliedRate. Because the rate oracle is updated with a lagged time window, the manipulated rate can be used during fCash valuation before the oracle fully reflects the prior market state. The resulting risk-adjusted present value can decrease even though the underlying borrowing action is otherwise permitted.",
+          "finding_id": "M-07",
+          "impact": "An attacker can make an account near the minimum collateralization threshold appear undercollateralized and force its liquidation by temporarily moving the market rate through a large borrow.",
+          "mitigation": "Increase the rate oracle's time window so that a short-lived rate change caused by a large borrow has less immediate influence on fCash valuation and liquidation eligibility.",
+          "review_status": "gold_verified",
+          "title": "[M-07] Attackers can force liquidations by borrowing large amounts of an asset.",
+          "vulnerable_code": [
+            {
+              "contract": "Market",
+              "end_line": 140,
+              "file": "contracts/internal/markets/Market.sol",
+              "function": "calculateTrade(MarketParameters,CashGroupParameters,int256,uint256,uint256)",
+              "start_line": 81
+            },
+            {
+              "contract": "Market",
+              "end_line": 466,
+              "file": "contracts/internal/markets/Market.sol",
+              "function": "_updateRateOracle(uint256,uint256,uint256,uint256,uint256)",
+              "start_line": 435
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "The nToken redemption paths derive proceeds from current market state that can be changed by preceding Notional trades. `nTokenRedeem` and `nTokenRedeemViaBatch` share `_redeem`, which loads each market and calls `Market.removeLiquidity`. That calculation uses the current `totalAssetCash`, `totalfCash`, and `totalLiquidity` to determine the liquidity-token cash and fCash claims. When fCash is sold, `_sellfCashAssets` calls `Market.calculateTrade`, which prices the sale from the current AMM curve and state, including `totalfCash`, `totalAssetCash`, and `lastImpliedRate`. Public trading actions persist changes to these values through `market.setMarketStorage()`. The redemption interfaces provide no minimum asset-cash output, maximum execution-rate or price-impact bound, or deviation check against the lagged `oracleRate`. Consequently, an attacker can trade before a redemption, cause the redemption to remove liquidity and sell fCash at the altered state, and optionally trade back afterward. The same exposure exists in batch redemption, which forces `sellTokenAssets = true`. The ERC1155 post-transfer action can additionally invoke redemption after a callback has changed market state, but the underlying root cause is the unbounded AMM-priced redemption.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A redeemer may receive materially less asset cash than expected, or a favorable manipulated redemption may transfer value from remaining nToken holders and the market to the redeemer. The output is finalized directly into the redeemer's cash balance, so the unfavorable or favorable execution is not merely a quoted view result.",
+          "mitigation": "Add a caller-supplied minimum redemption output, denominated in the requested asset or underlying, and enforce it after all liquidity removal and fCash sales but before finalizing balances. For stronger protocol-level protection, bound each execution price against the lagged oracle or another manipulation-resistant reference using a governance-configured maximum deviation, and apply equivalent checks to `nTokenRedeemViaBatch` and callback-triggered redemption.",
+          "severity": "Medium",
+          "title": "nToken redemption executes against manipulable AMM state without output protection",
+          "vulnerable_code": [
+            {
+              "contract": "nTokenRedeemAction",
+              "file": "contracts/external/actions/nTokenRedeemAction.sol",
+              "function": "nTokenRedeem"
+            },
+            {
+              "contract": "nTokenRedeemAction",
+              "file": "contracts/external/actions/nTokenRedeemAction.sol",
+              "function": "_removeLiquidityTokens"
+            },
+            {
+              "contract": "nTokenRedeemAction",
+              "file": "contracts/external/actions/nTokenRedeemAction.sol",
+              "function": "_sellfCashAssets"
+            },
+            {
+              "contract": "Market",
+              "file": "contracts/internal/markets/Market.sol",
+              "function": "removeLiquidity"
+            },
+            {
+              "contract": "Market",
+              "file": "contracts/internal/markets/Market.sol",
+              "function": "calculateTrade"
+            }
+          ]
+        },
+        {
+          "description": "The nToken mint calculation uses current AMM reserve state for the cash component of nToken portfolio value. `nTokenMintAction.calculateTokensToMint` computes `tokensToMint` as `amountToDepositInternal * nToken.totalSupply / assetCashPV`. The portfolio valuation calls `AssetHandler.getLiquidityTokenValue`, which loads the current market and calculates the liquidity-token cash claim as `market.totalAssetCash * token.notional / market.totalLiquidity`. These market values can be changed by trades or liquidity operations through `TradingAction` and persisted with `market.setMarketStorage()`. The ERC1155 flow makes this manipulation composable in one transaction: `safeTransferFrom` calls the recipient's `onERC1155Received` callback before the asset transfer and then permits a post-transfer `batchBalanceAction` or `batchBalanceAndTradeAction`. A controlled recipient can therefore change the relevant market state in the callback, receive the transferred assets, and execute nToken minting against the altered spot-derived valuation. The lagged `oracleRate` is used for fCash present-value components but does not constrain the spot-derived cash claim, and no mint-specific deviation or minimum-mint protection is shown.",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "An attacker may receive more nTokens than justified by the unmanipulated value of the deposited assets, diluting existing nToken holders or extracting value from the nToken portfolio after restoring the market state. The exact economic gain depends on market composition, liquidity, and execution costs, but the supplied code shows the complete path from mutable AMM state to mint quantity.",
+          "mitigation": "Value liquidity-token cash claims using a manipulation-resistant TWAP or independent reference rather than unbounded current reserve ratios, or reject minting when spot-derived valuation deviates beyond a configured threshold from that reference. Add a caller-supplied minimum nToken output or equivalent maximum accepted valuation, and consider preventing callback-initiated market-state changes from being combined with sensitive minting unless the relevant market state is snapshotted and deviation-checked.",
+          "severity": "Medium",
+          "title": "Callback-composed nToken minting values liquidity positions from manipulable spot reserves",
+          "vulnerable_code": [
+            {
+              "contract": "nTokenMintAction",
+              "file": "contracts/external/actions/nTokenMintAction.sol",
+              "function": "calculateTokensToMint"
+            },
+            {
+              "contract": "nTokenHandler",
+              "file": "contracts/internal/nTokenHandler.sol",
+              "function": "getNTokenAssetPV"
+            },
+            {
+              "contract": "AssetHandler",
+              "file": "contracts/internal/valuation/AssetHandler.sol",
+              "function": "getLiquidityTokenValue"
+            },
+            {
+              "contract": "ERC1155Action",
+              "file": "contracts/external/actions/ERC1155Action.sol",
+              "function": "safeTransferFrom"
+            },
+            {
+              "contract": "ERC1155Action",
+              "file": "contracts/external/actions/ERC1155Action.sol",
+              "function": "_checkPostTransferEvent"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2021-08-notional"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains Malt's current market price from UniswapHandler.maltMarketPrice(), which derives the price directly from the Uniswap pool reserves. exitEarly() uses the calculated Malt quantity to mint Malt, sell it for collateral, and transfer the output to the exiting user. A flash loan can manipulate the reserves and therefore the spot price used for this early-exit settlement.",
+          "finding_id": "M-22",
+          "impact": "An attacker can manipulate the Uniswap spot price during an early exit and extract funds from the protocol.",
+          "mitigation": "Use a TWAP oracle to track Malt's price instead of the current Uniswap reserve ratio.",
+          "review_status": "gold_verified",
+          "title": "[M-22] `_calculateMaltRequiredForExit` Uses Spot Price To Calculate Malt Quantity In `exitEarly`",
+          "vulnerable_code": [
+            {
+              "contract": "UniswapHandler",
+              "end_line": 109,
+              "file": "src/contracts/DexHandlers/UniswapHandler.sol",
+              "function": "maltMarketPrice()",
+              "start_line": 80
+            },
+            {
+              "contract": "AuctionEscapeHatch",
+              "end_line": 213,
+              "file": "src/contracts/AuctionEscapeHatch.sol",
+              "function": "_calculateMaltRequiredForExit(uint256,uint256)",
+              "start_line": 168
+            },
+            {
+              "contract": "AuctionEscapeHatch",
+              "end_line": 92,
+              "file": "src/contracts/AuctionEscapeHatch.sol",
+              "function": "exitEarly(uint256,uint256,uint256)",
+              "start_line": 65
+            }
+          ]
+        },
+        {
+          "description": "StabilizerNode.stabilize() uses MaltDataLab's moving-average price to decide whether supply should be adjusted, but the supply-distribution path obtains the required minting trade size from UniswapHandler._calculateTradeSize(), which reads the current AMM reserves directly. A flash loan can temporarily distort those reserves before stabilize() is called, causing the protocol to mint and sell an excessive amount of Malt while distributing the received reward tokens.",
+          "finding_id": "M-25",
+          "impact": "An attacker can cause the protocol to remove most of the reward tokens from the AMM pool and distribute them as rewards, damaging the pool and destabilizing protocol accounting.",
+          "mitigation": "Use a short TWAP or another manipulation-resistant price source to calculate the stabilization trade size instead of reading the current AMM reserves directly.",
+          "review_status": "gold_verified",
+          "title": "[M-25] AMM Pool Can Be Drained Using a Flash Loan and Calling `stabilize`",
+          "vulnerable_code": [
+            {
+              "contract": "UniswapHandler",
+              "end_line": 275,
+              "file": "src/contracts/DexHandlers/UniswapHandler.sol",
+              "function": "_calculateTradeSize(address,address,uint256)",
+              "start_line": 250
+            }
+          ]
+        },
+        {
+          "description": "MaltDataLab derives Malt price and pool-reserve samples from current AMM reserves through trackMaltPrice(), trackPoolReserves(), and trackPool(), and writes those spot-derived observations into MovingAverage contracts. A well-funded actor can manipulate the AMM state around updater calls so that distorted observations are incorporated into the moving averages. Protocol operations that consume the resulting price or reserve averages can then act on manipulated economic data.",
+          "finding_id": "M-30",
+          "impact": "Manipulated moving-average observations can cause auction, stabilization, collateral valuation, LP valuation, or reward-allocation operations to use incorrect economic data, enabling value extraction or protocol instability.",
+          "mitigation": "Replace AMM spot-derived samples in MaltDataLab's moving averages with cumulative price observations, a TWAP implementation, or another manipulation-resistant oracle design so that updater calls cannot record attacker-controlled spot observations.",
+          "review_status": "gold_verified",
+          "title": "[M-30] Malt Protocol Uses Stale Results From `MaltDataLab` Which Can Be Abused By Users",
+          "vulnerable_code": [
+            {
+              "contract": "MaltDataLab",
+              "end_line": 151,
+              "file": "src/contracts/MaltDataLab.sol",
+              "function": "trackMaltPrice()",
+              "start_line": 133
+            },
+            {
+              "contract": "MaltDataLab",
+              "end_line": 170,
+              "file": "src/contracts/MaltDataLab.sol",
+              "function": "trackPoolReserves()",
+              "start_line": 153
+            },
+            {
+              "contract": "MaltDataLab",
+              "end_line": 197,
+              "file": "src/contracts/MaltDataLab.sol",
+              "function": "trackPool()",
+              "start_line": 172
+            },
+            {
+              "contract": "MovingAverage",
+              "end_line": 246,
+              "file": "src/contracts/MovingAverage.sol",
+              "function": "update(uint256)",
+              "start_line": 142
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "StabilizerNode uses MaltDataLab moving averages only to decide whether stabilization is required. The subsequent trade-size calculations call UniswapHandler.calculateMintingTradeSize() or calculateBurningTradeSize(), which read the live Uniswap V2 reserves through getReserves(). These attacker-influenceable reserves directly determine the amount of Malt minted and sold, the amount of collateral used by SwingTrader, and the residual purchaseAmount assigned to a new auction as both fullRequirement and maxCommitments. The resulting protocol swaps in UniswapHandler.buyMalt() and sellMalt() use amountOutMin == 0, so the protocol accepts execution at an attacker-manipulated rate without an oracle-based price or slippage bound.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "An attacker can temporarily move the Malt/reward-token AMM reserves before a public stabilization operation and cause the protocol to calculate an incorrect expansion or contraction amount. The protocol may mint or sell an excessive amount of Malt, spend collateral for insufficient Malt, sell Malt for insufficient collateral, or create an incorrectly sized auction. The zero-output bounds allow the manipulated execution price to be accepted, transferring value from protocol-controlled balances or reducing stabilization effectiveness.",
+          "mitigation": "Derive stabilization trade sizes and expected swap outputs from a manipulation-resistant TWAP or independent oracle. Add freshness, minimum-liquidity, and maximum-deviation checks between the oracle and AMM state. Apply protocol-configured trade-size caps and pass a nonzero, oracle-derived amountOutMin to buyMalt() and sellMalt(). Revalidate the price immediately before execution and independently cap auction fullRequirement and maxCommitments.",
+          "severity": "High",
+          "title": "AMM spot manipulation controls stabilization sizing and execution",
+          "vulnerable_code": [
+            {
+              "contract": "UniswapHandler",
+              "file": "contracts/DexHandlers/UniswapHandler.sol",
+              "function": "_calculateTradeSize"
+            },
+            {
+              "contract": "UniswapHandler",
+              "file": "contracts/DexHandlers/UniswapHandler.sol",
+              "function": "buyMalt"
+            },
+            {
+              "contract": "UniswapHandler",
+              "file": "contracts/DexHandlers/UniswapHandler.sol",
+              "function": "sellMalt"
+            },
+            {
+              "contract": "StabilizerNode",
+              "file": "contracts/StabilizerNode.sol",
+              "function": "_distributeSupply"
+            },
+            {
+              "contract": "StabilizerNode",
+              "file": "contracts/StabilizerNode.sol",
+              "function": "_startAuction"
+            },
+            {
+              "contract": "Auction",
+              "file": "contracts/Auction.sol",
+              "function": "_triggerAuction"
+            }
+          ]
+        },
+        {
+          "description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains currentPrice from dexHandler.maltMarketPrice(). UniswapHandler.maltMarketPrice() computes that value directly from current Uniswap V2 reserves, without a TWAP, independent oracle, freshness check, or deviation bound. The manipulated price determines fullReturn, the permitted early-exit profit, and the amount of newly minted Malt that is sold through the AMM. The resulting collateral amount is then transferred to the exiting account. The corresponding earlyExitReturn() view also exposes the same raw spot-price dependency.",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "A participant or attacker who can influence the AMM reserves can cause the escape hatch to calculate an incorrect early-exit return and mint an incorrect amount of Malt for the payout. Depending on the manipulation direction and exit timing, this can permit an excessive collateral payout or otherwise distort auction participation accounting. The subsequent sale also uses amountOutMin == 0, so execution at the manipulated AMM rate is not rejected by protocol-controlled slippage protection.",
+          "mitigation": "Use a validated TWAP or independent oracle for early-exit valuation, with freshness and maximum-deviation checks. Calculate the permitted payout and required Malt from one validated price snapshot, enforce a protocol-controlled minimum output based on that price and bounded slippage, and reject exits when AMM liquidity or execution-price deviation is outside configured limits.",
+          "severity": "Medium",
+          "title": "Manipulable AMM spot price determines auction escape-hatch payouts",
+          "vulnerable_code": [
+            {
+              "contract": "AuctionEscapeHatch",
+              "file": "contracts/AuctionEscapeHatch.sol",
+              "function": "_calculateMaltRequiredForExit"
+            },
+            {
+              "contract": "AuctionEscapeHatch",
+              "file": "contracts/AuctionEscapeHatch.sol",
+              "function": "exitEarly"
+            },
+            {
+              "contract": "AuctionEscapeHatch",
+              "file": "contracts/AuctionEscapeHatch.sol",
+              "function": "earlyExitReturn"
+            },
+            {
+              "contract": "UniswapHandler",
+              "file": "contracts/DexHandlers/UniswapHandler.sol",
+              "function": "maltMarketPrice"
+            },
+            {
+              "contract": "UniswapHandler",
+              "file": "contracts/DexHandlers/UniswapHandler.sol",
+              "function": "sellMalt"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2021-11-malt"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "VaderPoolV2.burn() redeems an LP position against the pool's current reserves and passes the released asset amounts together with the position's original deposits to VaderMath.calculateLoss(). Because the reserves can be manipulated before liquidity removal, an LP can create an artificial impermanent loss value. VaderRouterV2.removeLiquidity() then submits the resulting coveredLoss to the reserve for reimbursement.",
+          "finding_id": "H-06",
+          "impact": "An LP can receive VADER compensation for artificially engineered impermanent loss. With a sufficiently large LP position, the reserve payout can exceed the manipulation costs and allow profitable extraction of reserve funds.",
+          "mitigation": "Use a manipulation-resistant oracle, such as a TWAP, for the relative prices of the pool's assets when calculating impermanent loss.",
+          "review_status": "gold_verified",
+          "title": "[H-06] LPs of VaderPoolV2 can manipulate pool reserves to extract funds from the reserve.",
+          "vulnerable_code": [
+            {
+              "contract": "BasePoolV2",
+              "end_line": 246,
+              "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+              "function": "_burn(uint256,address)",
+              "start_line": 203
+            },
+            {
+              "contract": "VaderPoolV2",
+              "end_line": 296,
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "burn(uint256,address)",
+              "start_line": 265
+            },
+            {
+              "contract": "VaderMath",
+              "end_line": 92,
+              "file": "contracts/dex/math/VaderMath.sol",
+              "function": "calculateLoss(uint256,uint256,uint256,uint256)",
+              "start_line": 72
+            },
+            {
+              "contract": "VaderRouterV2",
+              "end_line": 221,
+              "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+              "function": "removeLiquidity(address,address,uint256,uint256,uint256,address,uint256)",
+              "start_line": 173
+            }
+          ]
+        },
+        {
+          "description": "LiquidityBasedTWAP.syncVaderPrice() rebuilds the VADER liquidity weights from zero and skips pairs whose update window has not elapsed. The skipped pair's previous weight is neither copied into pastLiquidityWeights nor added to the recomputed total, and a subsequent synchronization can therefore overwrite totalLiquidityWeight[Paths.VADER] with zero. _calculateVaderPrice() then uses the inconsistent weights and total when computing the VADER price, including division by the zero aggregate.",
+          "finding_id": "H-04",
+          "impact": "An attacker can cause VADER price calculations to use incomplete pair weights, making the oracle easier to manipulate, or force dependent price queries to revert. This can block protocol operations that call the VADER price, including USDV minting and reserve-funded impermanent-loss reimbursement.",
+          "mitigation": "When a pair is not eligible for a TWAP update, preserve its previous liquidity evaluation in pastLiquidityWeights and include that value in _totalLiquidityWeight instead of leaving the pair weight at zero or resetting the aggregate.",
+          "review_status": "gold_verified",
+          "title": "[H-04] Vader TWAP weights can be corrupted and price queries can be forced to revert.",
+          "vulnerable_code": [
+            {
+              "contract": "LiquidityBasedTWAP",
+              "end_line": 148,
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "syncVaderPrice()",
+              "start_line": 113
+            }
+          ]
+        },
+        {
+          "description": "VaderPoolV2.mintSynth() reads the current native and foreign reserves and passes them to VaderMath.calculateSwap() to determine the synth amount. VaderPoolV2.burnSynth() reads the reserves again and uses the same reserve-based calculation to determine the native amount returned. Because the associated pool reserves can be moved before these operations, an attacker can mint synths at a manipulated exchange rate, restore or move the pool price, and redeem them at a more favorable rate.",
+          "finding_id": "H-07",
+          "impact": "An attacker can extract native-asset reserves from the associated VaderPoolV2 by manipulating the reserve-based exchange rate between synth minting and burning.",
+          "mitigation": "Use a manipulation-resistant oracle for the exchange rates used by both synth minting and synth burning instead of relying on the pool's current reserves.",
+          "review_status": "gold_verified",
+          "title": "[H-07] Synth minting and redemption use manipulable pool reserves to drain native assets.",
+          "vulnerable_code": [
+            {
+              "contract": "VaderPoolV2",
+              "end_line": 194,
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "mintSynth(IERC20,uint256,address,address)",
+              "start_line": 153
+            },
+            {
+              "contract": "VaderPoolV2",
+              "end_line": 246,
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "burnSynth(IERC20,uint256,address)",
+              "start_line": 206
+            }
+          ]
+        },
+        {
+          "description": "LiquidityBasedTWAP._updateUSDVPrice() calculates each USDV pair's currentLiquidityEvaluation by multiplying the pair's current native and foreign reserves by their configured asset prices. syncUSDVPrice() uses that value as the pair's liquidity weight, and _calculateUSDVPrice() weights the final oracle result with those values. An attacker can skew one underlying pool's reserves so its weight dominates the other pairs, causing the oracle to effectively price USDV/VADER from that pair alone.",
+          "finding_id": "M-06",
+          "impact": "This reduces oracle resilience to a faulty or deprecated Chainlink feed. If the dominated pair's external feed is malfunctioning or deprecated, the manipulated weighting can cause the final oracle price to rely on that faulty feed and return an incorrect price; the finding does not establish direct fund loss by itself.",
+          "mitigation": "Calculate fair reserves using the pool invariant and the fair prices of the two assets.",
+          "review_status": "gold_verified",
+          "title": "[M-06] Manipulated pool reserves can make the oracle rely on a single pair.",
+          "vulnerable_code": [
+            {
+              "contract": "LiquidityBasedTWAP",
+              "end_line": 383,
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "_updateUSDVPrice(IERC20,ExchangePair,uint256)",
+              "start_line": 353
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "VaderPoolV2.mintSynth and burnSynth calculate synth issuance and native-asset redemption exclusively from the pair's current stored reserves through VaderMath.calculateSwap. Those reserves are updated by permissionless swaps exposed through VaderRouterV2. An attacker can move the reserve ratio with a large swap, call mintSynth or burnSynth while the manipulated reserves are recorded, and optionally reverse the swap afterward. Neither function uses cumulative-price/TWAP data, an independent oracle, freshness or deviation checks, liquidity bounds, or user-provided price limits. The existing cumulative-price mechanism is therefore ineffective for these operations because it is not consumed by either pricing path.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A temporary reserve distortion changes the number of synths minted for a fixed native deposit or the native assets paid for a fixed synth amount. This can result in over-issuance, over-redemption, or depletion of the pool's native reserves, depending on the manipulation direction and available liquidity.",
+          "mitigation": "Price synth issuance and redemption using a sufficiently long, validated TWAP or an independent oracle rather than the current reserves alone. Enforce freshness and deviation bounds, minimum liquidity requirements, and explicit maximum-redemption or minimum-output limits. Also verify that the calculated redemption amount does not exceed the pool's actual available native-asset balance before transferring funds.",
+          "severity": "High",
+          "title": "Synth issuance and redemption use manipulable AMM spot reserves",
+          "vulnerable_code": [
+            {
+              "contract": "VaderPoolV2",
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "mintSynth"
+            },
+            {
+              "contract": "VaderPoolV2",
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "burnSynth"
+            },
+            {
+              "contract": "BasePoolV2",
+              "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+              "function": "swap"
+            }
+          ]
+        },
+        {
+          "description": "Both liquidity-minting implementations calculate LP units from instantaneous AMM reserves and do not protect the depositor with an effective minimum-liquidity or ratio bound. In the V2 path, BasePoolV2._mint reads reserves and applies VaderMath.calculateLiquidityUnits, while VaderRouterV2.addLiquidity discards amountAMin and amountBMin and performs no post-mint minimum check. In the legacy path, VaderRouter._addLiquidity accepts the full desired amounts without ratio validation, and BasePool.mint calculates liquidity from the current reserves and balance-derived deposits. An attacker can front-run a visible liquidity deposit with a large swap, skew the reserves, allow the victim's deposit to be evaluated against the manipulated ratio, and back-run with an opposing swap. The victim's assets are transferred while the resulting liquidity position can be materially smaller than expected.",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "A depositor may provide the full requested amounts but receive fewer LP units and a lower-value liquidity position. The value attributable to the unfavorable deposit ratio remains with existing liquidity providers, including an attacker who holds liquidity. The advertised minimum parameters do not prevent this outcome in either router path.",
+          "mitigation": "Add and enforce a minimum LP-units-out parameter for every liquidity mint. Make amountAMin and amountBMin functional where those parameters are exposed, or remove them and replace them with explicit slippage controls. Calculate the expected deposit ratio using a validated TWAP or independent oracle and reject deposits whose ratio or resulting liquidity deviates beyond the user's configured bounds.",
+          "severity": "High",
+          "title": "AMM reserve manipulation can reduce liquidity minted to depositors",
+          "vulnerable_code": [
+            {
+              "contract": "VaderRouterV2",
+              "file": "contracts/dex-v2/router/VaderRouterV2.sol",
+              "function": "addLiquidity"
+            },
+            {
+              "contract": "BasePoolV2",
+              "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+              "function": "_mint"
+            },
+            {
+              "contract": "VaderRouter",
+              "file": "contracts/dex/router/VaderRouter.sol",
+              "function": "_addLiquidity"
+            },
+            {
+              "contract": "BasePool",
+              "file": "contracts/dex/pool/BasePool.sol",
+              "function": "mint"
+            }
+          ]
+        },
+        {
+          "description": "The V2 and legacy LP redemption paths derive the reimbursable loss from redemption amounts calculated using current AMM state. BasePoolV2._burn uses stored reserves, while BasePool._burn uses current token balances that are updated by swaps. VaderPoolV2.burn and VaderPool.burn pass those amounts to VaderMath.calculateLoss, and the router then forwards coveredLoss to VaderReserve.reimburseImpermanentLoss. The reimbursement conversion may use an LBT price, but the loss amount has already been determined from the manipulated spot reserve or balance ratio. An attacker holding an LP position can move the pool price before redemption, redeem while the manipulated state is active, and cause the reserve-funded reimbursement calculation to reflect that transient state. Router amountAMin and amountBMin checks only constrain token quantities and do not validate coveredLoss against an oracle or TWAP.",
+          "finding_id": "SAF-bundle-0001-003",
+          "impact": "The reserve can pay VADER for a loss amount that is overstated or otherwise distorted by temporary AMM manipulation. This can extract reserve assets or misallocate impermanent-loss compensation, subject to the cost of manipulating the pool and the attacker's LP position.",
+          "mitigation": "Calculate impermanent loss using a manipulation-resistant TWAP or independent oracle valuation rather than the redemption-time reserve ratio or raw balances. Apply freshness, deviation, and liquidity checks, cap reimbursement against an oracle-derived maximum loss, and consider delaying reimbursement until a subsequent validated price observation is available.",
+          "severity": "Medium",
+          "title": "LP impermanent-loss reimbursement is calculated from manipulable redemption values",
+          "vulnerable_code": [
+            {
+              "contract": "BasePoolV2",
+              "file": "contracts/dex-v2/pool/BasePoolV2.sol",
+              "function": "_burn"
+            },
+            {
+              "contract": "VaderPoolV2",
+              "file": "contracts/dex-v2/pool/VaderPoolV2.sol",
+              "function": "burn"
+            },
+            {
+              "contract": "BasePool",
+              "file": "contracts/dex/pool/BasePool.sol",
+              "function": "_burn"
+            },
+            {
+              "contract": "VaderPool",
+              "file": "contracts/dex/pool/VaderPool.sol",
+              "function": "burn"
+            },
+            {
+              "contract": "VaderReserve",
+              "file": "contracts/reserve/VaderReserve.sol",
+              "function": "reimburseImpermanentLoss"
+            }
+          ]
+        },
+        {
+          "description": "LiquidityBasedTWAP time-weights the AMM price component but computes each pair's liquidity weight from a single current reserve snapshot. _updateVaderPrice and _updateUSDVPrice calculate currentLiquidityEvaluation from pair.getReserves or vaderPool.getReserves and persist it as pastLiquidityEvaluation. That persisted value is used during a later aggregate price calculation, allowing reserve manipulation at synchronization time to change a pair's future weight even if the pair's TWAP price itself is not materially changed. The aggregate calculations also use prior observations without enforcing a maximum age, and getChainlinkPrice checks round consistency and positivity but not updatedAt freshness. The resulting LBT prices are consumed by USDV.mint, USDV.burn, and VaderReserve.reimburseImpermanentLoss. No deviation check, minimum reserve requirement, or complete-update/freshness requirement prevents manipulated, stale, or partially updated observations from affecting those financial outcomes.",
+          "finding_id": "SAF-bundle-0001-004",
+          "impact": "An attacker who can manipulate a configured pair's reserves until synchronization, or cause an included pair's reserve-derived weight to become dominant, can bias the aggregate VADER or USDV price. Downstream effects include excess USDV issuance, excess VADER redemption, or distorted reserve-funded impermanent-loss reimbursement. Stale or partially updated observations can likewise cause these operations to use an unvalidated price.",
+          "mitigation": "Derive liquidity weights from time-weighted reserve-value observations over the same measurement window as the price TWAP, rather than from a single synchronization-time reserve snapshot. Enforce maximum observation age, Chainlink updatedAt freshness, normalized TWAP-to-independent-oracle deviation limits, minimum liquidity thresholds, bounded weight changes, and coherent updates across all configured pairs before returning a price.",
+          "severity": "High",
+          "title": "LiquidityBasedTWAP uses attacker-influenced spot weights and lacks effective freshness validation",
+          "vulnerable_code": [
+            {
+              "contract": "LiquidityBasedTWAP",
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "_updateVaderPrice"
+            },
+            {
+              "contract": "LiquidityBasedTWAP",
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "_updateUSDVPrice"
+            },
+            {
+              "contract": "LiquidityBasedTWAP",
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "syncVaderPrice"
+            },
+            {
+              "contract": "LiquidityBasedTWAP",
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "syncUSDVPrice"
+            },
+            {
+              "contract": "LiquidityBasedTWAP",
+              "file": "contracts/lbt/LiquidityBasedTWAP.sol",
+              "function": "getChainlinkPrice"
+            },
+            {
+              "contract": "USDV",
+              "file": "contracts/tokens/USDV.sol",
+              "function": "mint"
+            },
+            {
+              "contract": "USDV",
+              "file": "contracts/tokens/USDV.sol",
+              "function": "burn"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2021-12-vader"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "FlanBackstop.purchasePyroFlan() computes priceBefore and tiltedPrice directly from the instantaneous FLAN/stablecoin Uniswap pair balances. These values determine growth, flanToMint, and the premium ultimately minted to the caller as PyroFlan. An attacker can temporarily skew the pair balances with a flash loan or large trade and can split the operation into repeated smaller calls. The acceptableHighestPrice check only caps each observed tilted price and therefore does not make the spot inputs manipulation-resistant or stop a repeated attack within the configured limit.",
+          "finding_id": "H-05",
+          "impact": "An attacker can manipulate the FLAN/stablecoin LP, especially when it is new or has low liquidity, to receive large amounts of PyroFlan backed by newly minted FLAN. By reducing the volume of each flash-loan attack and repeating it, the attacker can accumulate this gain while remaining below the per-call price ceiling.",
+          "mitigation": "Use a TWAP instead of the pool price at a single point in time to increase the cost of a flash-loan sandwich attack.",
+          "review_status": "gold_verified",
+          "title": "[H-05] Flash loan price manipulation in purchasePyroFlan()",
+          "vulnerable_code": [
+            {
+              "contract": "FlanBackstop",
+              "end_line": 114,
+              "file": "contracts/FlanBackstop.sol",
+              "function": "purchasePyroFlan(address,uint256)",
+              "start_line": 75
+            }
+          ]
+        },
+        {
+          "description": "LimboDAO.setEYEBasedAssetStake() and LimboDAO.burnAsset() calculate the EYE value of an EYE-based LP asset from the underlying EYE balance divided by the LP token total supply. Because the underlying pool balance is read at execution time, an attacker can temporarily manipulate the pool reserves before the LP asset is staked or burned and cause the protocol to use an inflated LP value.",
+          "finding_id": "H-07",
+          "impact": "An attacker can manipulate the underlying LP reserves to receive excess fate for an LP asset. The excess fate can provide disproportionate voting power and may be converted to Flan for direct profit.",
+          "mitigation": "Use a fair pricing formula for LP tokens, such as a manipulation-resistant formula proposed by Alpha Finance.",
+          "review_status": "gold_verified",
+          "title": "[H-07] LP pricing formula is vulnerable to flashloan manipulation",
+          "vulnerable_code": [
+            {
+              "contract": "LimboDAO",
+              "end_line": 366,
+              "file": "contracts/DAO/LimboDAO.sol",
+              "function": "setEYEBasedAssetStake(uint256,uint256,uint256,address)",
+              "start_line": 356
+            },
+            {
+              "contract": "LimboDAO",
+              "end_line": 397,
+              "file": "contracts/DAO/LimboDAO.sol",
+              "function": "burnAsset(address,uint256)",
+              "start_line": 392
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "FlanBackstop.purchasePyroFlan derives both priceBefore and tiltedPrice from the current ERC20 balances of the configured Flan/stablecoin LP. These balances are attacker-influenceable through AMM swaps or other temporary balance changes. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the additional premium. Both values are then used to mint PyroFlan to the caller. An attacker can distort the LP price before calling purchasePyroFlan, execute the purchase while the manipulated state is active, and restore the AMM position afterward if economically feasible. The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not verify either price against a TWAP or independent oracle, constrain deviation, or require sufficient liquidity. Consequently, a manipulated price below the configured cap can cause excess PyroFlan to be minted. The supplied source does not include the PyroFlan implementation or redemption paths, so the exact extractable loss cannot be quantified, but the attacker-controlled AMM state to security-critical mint path is explicit.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "The backstop may over-issue PyroFlan relative to the stablecoin supplied, diluting existing PyroFlan holders and potentially enabling value extraction through downstream redemption, trading, or collateral use. Manipulation of priceBefore can additionally inflate the premium, while manipulation of tiltedPrice directly increases the base PyroFlan issuance.",
+          "mitigation": "Calculate the issuance price and premium from a sufficiently long-window AMM TWAP or an independent oracle, with freshness and maximum-deviation checks. Do not use same-transaction LP balances as the sole valuation source. Add minimum-liquidity and price-impact limits, cap the premium independently, and optionally require a caller-specified minimum PyroFlan output. Retain acceptableHighestPrice only as a secondary circuit breaker rather than the primary manipulation defense.",
+          "severity": "High",
+          "title": "Manipulable AMM spot balances control PyroFlan issuance",
+          "vulnerable_code": [
+            {
+              "contract": "FlanBackstop",
+              "file": "contracts/FlanBackstop.sol",
+              "function": "purchasePyroFlan"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2022-01-behodler"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "NonUSTStrategy.investedAssets() converts the strategy's UST exposure into the vault's underlying asset using Curve's current get_dy_underlying() quote. Vault.totalUnderlying() includes that result, and deposit and withdrawal share calculations use totalUnderlyingMinusSponsored(). An attacker can temporarily move the Curve pool with a flash loan, make the same UST position appear to be worth more or less underlying, and deposit or withdraw while the vault uses that transient exchange rate.",
+          "finding_id": "H-03",
+          "impact": "An attacker can mint too many vault shares or withdraw more underlying than their fair share at the expense of existing depositors.",
+          "mitigation": "Value the UST exposure with a manipulation-resistant oracle or sufficiently long TWAP instead of Curve's transaction-local quote.",
+          "review_status": "gold_verified",
+          "title": "[H-03] Vaults with non-UST underlying asset vulnerable to flash loan attack on curve pool",
+          "vulnerable_code": [
+            {
+              "contract": "NonUSTStrategy",
+              "end_line": 136,
+              "file": "sandclock/contracts/strategy/NonUSTStrategy.sol",
+              "function": "investedAssets()",
+              "start_line": 120
+            }
+          ]
+        },
+        {
+          "description": "Vault.setStrategy() only permits replacing the current strategy when strategy.investedAssets() is zero. BaseStrategy.investedAssets() includes the raw aUST token balance held by the strategy, so anyone can transfer aUST directly to the strategy and make the zero-invested-assets check fail. The attacker can repeat this griefing after the protocol initiates and completes the required redemption flow.",
+          "finding_id": "M-11",
+          "impact": "An attacker can repeatedly prevent the protocol from replacing its strategy, delaying strategy maintenance or migration and forcing the protocol to process the outstanding aUST redemption flow before retrying.",
+          "mitigation": "Track the strategy's internal aUST balance and update it on deposits and redemptions, then use that accounting instead of the raw aUST token balance when checking whether the strategy is empty. Alternatively, allow the strategy to transfer aUST back to the vault.",
+          "review_status": "gold_verified",
+          "title": "[M-11] Changing a strategy can be bricked",
+          "vulnerable_code": [
+            {
+              "contract": "Vault",
+              "end_line": 119,
+              "file": "sandclock/contracts/Vault.sol",
+              "function": "setStrategy(address)",
+              "start_line": 103
+            },
+            {
+              "contract": "BaseStrategy",
+              "end_line": 277,
+              "file": "sandclock/contracts/strategy/BaseStrategy.sol",
+              "function": "investedAssets()",
+              "start_line": 263
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2022-01-sandclock"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "ERC4626Oracle.getPrice() values an ERC4626 vault share by calling previewRedeem() for a share amount and multiplying the returned assets by the oracle price of the underlying asset. previewRedeem() delegates to convertToAssets(), which derives the assets-per-share value from the vault's current totalAssets() and totalSupply. Because deposits, mints, withdrawals, and redemptions can change those spot accounting values within a transaction or block, an attacker can temporarily inflate or deflate the LP-token price returned by the oracle.",
+          "finding_id": "M-10",
+          "impact": "An attacker can make an ERC4626 LP token appear substantially more or less valuable than the underlying asset warrants. This can increase the attacker's borrowing power beyond the intended collateral value or make another account's collateral appear insufficient and trigger premature liquidation.",
+          "mitigation": "Avoid using previewRedeem function to calculate the price of the LP token of an ERC4626 vault. Consider implementing TWAP so that the price cannot be inflated or deflated within a single block/transaction or   within a short period of time.",
+          "review_status": "gold_verified",
+          "title": "M-10: ERC4626Oracle Vulnerable To Price Manipulation",
+          "vulnerable_code": [
+            {
+              "contract": "ERC4626Oracle",
+              "end_line": 43,
+              "file": "oracle/src/erc4626/ERC4626Oracle.sol",
+              "function": "getPrice(address)",
+              "start_line": 35
+            }
+          ]
+        },
+        {
+          "description": "ERC4626.deposit() derives minted shares through previewDeposit() and convertToShares(), which rounds down assets multiplied by totalSupply and divided by totalAssets(). LToken.totalAssets() includes the underlying token balance held by the LToken, so an early depositor can mint a very small initial share balance and then transfer additional underlying assets directly to the LToken. This increases totalAssets() without increasing totalSupply, causing later deposits to receive an unfairly small number of shares.",
+          "finding_id": "H-1",
+          "impact": "The attacker can capture value from future users' deposits. Later users can lose a material portion of their deposited assets when redeeming the shares minted at the manipulated price per share.",
+          "mitigation": "Require a minimum amount of shares to be minted for the first minter.",
+          "review_status": "gold_verified",
+          "title": "H-1: LToken pricePerShare can be manipulated by an early depositor",
+          "vulnerable_code": [
+            {
+              "contract": "ERC4626",
+              "end_line": 60,
+              "file": "protocol/src/tokens/utils/ERC4626.sol",
+              "function": "deposit(uint256 assets, address receiver)",
+              "start_line": 48
+            },
+            {
+              "contract": "ERC4626",
+              "end_line": 140,
+              "file": "protocol/src/tokens/utils/ERC4626.sol",
+              "function": "previewDeposit(uint256 assets)",
+              "start_line": 138
+            },
+            {
+              "contract": "ERC4626",
+              "end_line": 130,
+              "file": "protocol/src/tokens/utils/ERC4626.sol",
+              "function": "convertToShares(uint256 assets)",
+              "start_line": 126
+            },
+            {
+              "contract": "LToken",
+              "end_line": 193,
+              "file": "protocol/src/tokens/LToken.sol",
+              "function": "totalAssets()",
+              "start_line": 191
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2022-08-sentiment"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "Balancer strategy vaults mint strategy tokens from a deposit using the pre-deposit BPT balance and global strategy-token supply, then convert strategy tokens back to BPT using the current total BPT balance and the unchanged global supply. A user can enter immediately before the permissionless reinvestReward operation adds reward BPT, so the user's newly minted strategy tokens participate in the reward distribution without any deposit-duration snapshot. The user can then redeem those tokens immediately and receive a disproportionate share of the newly reinvested BPT.",
+          "finding_id": "M-7",
+          "impact": "Loss of assets for the users as their BPT gain (rewards) can be stolen.",
+          "mitigation": "Use snapshot-based reward accounting so BPT gains are weighted by deposit duration, and prevent users from entering and exiting in the same transaction or block. As additional defenses, restrict reinvestReward to authorized Notional callers, charge fees to users who do not borrow from Notional, and submit reinvestment transactions privately to reduce front-running.",
+          "review_status": "gold_verified",
+          "title": "[M-7] Gain From Balancer Vaults Can Be Stolen",
+          "vulnerable_code": [
+            {
+              "contract": "StrategyUtils",
+              "end_line": 24,
+              "file": "leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol",
+              "function": "_convertStrategyTokensToBPTClaim(StrategyContext,uint256)",
+              "start_line": 17
+            },
+            {
+              "contract": "StrategyUtils",
+              "end_line": 39,
+              "file": "leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol",
+              "function": "_convertBPTClaimToStrategyTokens(StrategyContext,uint256)",
+              "start_line": 26
+            },
+            {
+              "contract": "MetaStable2TokenAuraVault",
+              "end_line": 166,
+              "file": "leveraged-vaults/contracts/vaults/MetaStable2TokenAuraVault.sol",
+              "function": "reinvestReward(ReinvestRewardParams)",
+              "start_line": 164
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Both vault deposit paths join the Balancer pool using the current pool state without validating the pool price against an independent oracle or TWAP. `Boosted3TokenAuraVault._depositFromNotional` calls `Boosted3TokenPoolUtils._deposit`, and `MetaStable2TokenAuraVault._depositFromNotional` calls `TwoTokenPoolUtils._deposit`; both ultimately invoke `BalancerUtils._joinPoolExactTokensIn`, which accepts the caller-supplied `minBPT`. The deposit paths do not call the corresponding spot-price validation functions, and `minBPT` may be permissive, including zero. An attacker can temporarily alter Balancer pool balances through swaps, execute a deposit while the BPT output is calculated from the manipulated state, and receive strategy tokens based on the returned BPT amount. The resulting BPT amount is converted into strategy tokens by `StrategyUtils._convertBPTClaimToStrategyTokens`, so the manipulated join result directly affects share issuance. The supplied source does not quantify profitability or prove the exact favorable manipulation magnitude, but it demonstrates the concrete attacker-influenceable pool-state-to-strategy-token-minting path.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A manipulated join can cause an attacker to receive an economically favorable number of BPT-backed strategy tokens, potentially diluting existing strategy-token holders and creating incorrect vault-share accounting. Subsequent redemption or use of those strategy tokens may transfer more underlying value than warranted by the attacker’s deposit.",
+          "mitigation": "Before accepting BPT from a normal deposit, validate the current pool price and relevant pool composition against an independent Chainlink reference, a Balancer TWAP, or another manipulation-resistant oracle in the same transaction. Derive a conservative minimum BPT amount from that reference rather than relying solely on caller-provided `minBPT`, and reject deposits when the pool price, invariant, liquidity, or reserve change exceeds configured bounds.",
+          "severity": "Medium",
+          "title": "Normal vault deposits accept BPT amounts determined by manipulable pool state",
+          "vulnerable_code": [
+            {
+              "contract": "Boosted3TokenAuraVault",
+              "file": "contracts/vaults/Boosted3TokenAuraVault.sol",
+              "function": "_depositFromNotional"
+            },
+            {
+              "contract": "MetaStable2TokenAuraVault",
+              "file": "contracts/vaults/MetaStable2TokenAuraVault.sol",
+              "function": "_depositFromNotional"
+            },
+            {
+              "contract": "Boosted3TokenPoolUtils",
+              "file": "contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol",
+              "function": "_deposit"
+            },
+            {
+              "contract": "TwoTokenPoolUtils",
+              "file": "contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol",
+              "function": "_deposit"
+            },
+            {
+              "contract": "BalancerUtils",
+              "file": "contracts/vaults/balancer/internal/pool/BalancerUtils.sol",
+              "function": "_joinPoolExactTokensIn"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2022-09-notional"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "UniswapV3OracleWrapper.getOnchainPositionData() reads the pool's current price, but getTokenPrice() does not use that value. Instead, getTokenPrice() derives a square-root price from the protocol's token oracles and passes it to LiquidityAmounts.getAmountsForLiquidity(), then sums the resulting token amounts and pending fees at those oracle prices. The wrapper does not require a pool whitelist or a minimum TVL before valuing the position. An attacker can create a low-liquidity pool whose position is primarily theirs, deposit that position as collateral, borrow against the reported value, and swap the pool so the position's actual token composition no longer supports the collateral value.",
+          "finding_id": "H-05",
+          "impact": "An attacker can use a self-created low-TVL Uniswap V3 position as overvalued collateral, borrow from Paraspace, and then alter the position's pool composition so its realizable value falls below the outstanding debt, leaving the Lending Pool with a loss.",
+          "mitigation": "Only allow Uniswap V3 positions from whitelisted pools that satisfy a sufficiently high TVL threshold before accepting them as collateral.",
+          "review_status": "gold_verified",
+          "title": "[H-05] Attacker can manipulate low TVL Uniswap V3 pool to borrow and swap to make Lending Pool in loss",
+          "vulnerable_code": [
+            {
+              "contract": "UniswapV3OracleWrapper",
+              "end_line": 181,
+              "file": "paraspace-core/contracts/misc/UniswapV3OracleWrapper.sol",
+              "function": "getTokenPrice(uint256)",
+              "start_line": 156
+            }
+          ]
+        },
+        {
+          "description": "When ParaSpaceOracle.getAssetPrice() has no nonzero primary-source price, it delegates to ParaSpaceFallbackOracle.getAssetPrice(), which derives the token price from the current WETH/token Uniswap V2 reserves and the router's getAmountOut(). Because these reserves are mutable spot state and the fallback does not use a manipulation-resistant oracle, a flash-loan attacker can move the pool price used for fallback valuation before a protocol operation reads it.",
+          "finding_id": "M-04",
+          "impact": "If the primary oracle is unavailable, an attacker can manipulate the fallback spot price to overvalue collateral and borrow more than the collateral supports, or cause a malicious liquidation, leaving ParaSpace with bad debt.",
+          "mitigation": "Do not use the Uniswap V2 spot price as a fallback when the primary oracle is unavailable; revert instead of returning a manipulable fallback price.",
+          "review_status": "gold_verified",
+          "title": "[M-04] Fallback oracle is using spot price in Uniswap liquidity pool, which is very vulnerable to flashloan price manipulation",
+          "vulnerable_code": [
+            {
+              "contract": "ParaSpaceOracle",
+              "end_line": 136,
+              "file": "paraspace-core/contracts/misc/ParaSpaceOracle.sol",
+              "function": "getAssetPrice(address)",
+              "start_line": 115
+            },
+            {
+              "contract": "ParaSpaceFallbackOracle",
+              "end_line": 60,
+              "file": "paraspace-core/contracts/misc/ParaSpaceFallbackOracle.sol",
+              "function": "getAssetPrice(address)",
+              "start_line": 34
+            }
+          ]
+        },
+        {
+          "description": "NFTFloorOracle.setPrice() allows an administrator to finalize a price directly, while non-admin feeders pass through _checkValidity() and _combine(). For a newly added asset whose aggregated twap and updatedAt are zero, _checkValidity() accepts any positive first price and _combine() returns that feeder's value. A compromised feeder can front-run the administrator's enabling flow and submit an arbitrary initial price before the normal multi-feeder protections apply, making the newly accepted NFT appear overvalued.",
+          "finding_id": "M-05",
+          "impact": "A compromised feeder can set an arbitrary initial NFT price, use the overvalued NFT as collateral, and borrow protocol funds, potentially draining protocol liquidity.",
+          "mitigation": "Require an administrator to set a nonzero initial price before a new asset can be unpaused, or otherwise prevent an asset with a zero price from entering the feeder update flow.",
+          "review_status": "gold_verified",
+          "title": "[M-05] Front-running admin setPrice call allows a single compromised oracle to set any price, allowing the oracle manipulator to drain all protocol funds",
+          "vulnerable_code": [
+            {
+              "contract": "NFTFloorOracle",
+              "end_line": 216,
+              "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+              "function": "setPrice(address,uint256)",
+              "start_line": 195
+            },
+            {
+              "contract": "NFTFloorOracle",
+              "end_line": 364,
+              "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+              "function": "_checkValidity(address,uint256)",
+              "start_line": 351
+            },
+            {
+              "contract": "NFTFloorOracle",
+              "end_line": 407,
+              "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+              "function": "_combine(address,uint256)",
+              "start_line": 397
+            }
+          ]
+        },
+        {
+          "description": "NFTFloorOracle._checkValidity() compares a proposed twap only with the immediately prior aggregated twap and rejects a single update when its ratio reaches config.maxPriceDeviation. Because setPrice() can be called repeatedly and each accepted value becomes the next reference, individually permitted updates can compound within a short period; the oracle has no elapsed-time bound that limits the cumulative price movement.",
+          "finding_id": "M-22",
+          "impact": "The configured maxPriceDeviation does not bound NFT floor-price movement over a short period, allowing the protocol to rely on a materially manipulated price despite the per-update deviation check.",
+          "mitigation": "Use elapsed time and lastUpdated data to limit the maximum price change per oracle over a time interval, rather than only comparing consecutive updates.",
+          "review_status": "gold_verified",
+          "title": "[M-22] Price can deviate by much more than maxDeviationRate",
+          "vulnerable_code": [
+            {
+              "contract": "NFTFloorOracle",
+              "end_line": 216,
+              "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+              "function": "setPrice(address,uint256)",
+              "start_line": 195
+            },
+            {
+              "contract": "NFTFloorOracle",
+              "end_line": 374,
+              "file": "paraspace-core/contracts/misc/NFTFloorOracle.sol",
+              "function": "_checkValidity(address,uint256)",
+              "start_line": 351
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2022-11-paraspace"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "StakingModule.stakedByAt() reads an account's stake history through CheckpointsUpgradeable.getAtBlock(). When an account stakes and exits in the same block, the checkpoint history can contain both the large stake and the zeroed post-exit value for that block. The historical lookup can then return the earlier same-block stake value, causing balanceOfAt() to expose an incorrect historical balance even though the account no longer retains the corresponding stake.",
+          "finding_id": "H-1",
+          "impact": "A same-block stake and exit can cause balanceOfAt() to report an incorrect historical stake. In this repository, the value is exposed through a standalone view and the slashing path uses the latest stake value instead. The direct consequence is inaccurate historical stake reporting; further loss requires a downstream integration that relies on this view.",
+          "mitigation": "Require an account's exit to occur at least one block after the block in which the original stake was created, so a stake cannot be opened and closed within the same checkpoint block.",
+          "review_status": "gold_verified",
+          "title": "H-1: Flashloan `TEL` tokens to stake and exit in the same block can fake a huge amount of stake with minimal material cost",
+          "vulnerable_code": [
+            {
+              "contract": "StakingModule",
+              "end_line": 149,
+              "file": "contracts/StakingModule.sol",
+              "function": "stakedByAt(address,uint256)",
+              "start_line": 147
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2022-11-telcoin"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "BLVaultLido allows an owner to deposit and withdraw around an external oracle update without a minimum holding period. On withdrawal it caps returned wstETH using only the current oracle price, while the Balancer exit executes against the pool state. An attacker can deposit while the pool matches the pre-update oracle, move the pool toward the known post-update price, wait for the oracle update, and then withdraw. Because the withdrawal check now uses the updated oracle, the vault returns the full manipulated wstETH amount instead of capturing the arbitrage for the Treasury.",
+          "finding_id": "H-1",
+          "impact": "An attacker can repeatedly sandwich predictable oracle updates to extract value from the vault, causing recurring losses to remaining vault liquidity.",
+          "mitigation": "Lock the user into the vault for a minimum amount of time (i.e. 24 hours).",
+          "review_status": "gold_verified",
+          "title": "H-1: Adversary can sandwich oracle updates to exploit vault",
+          "vulnerable_code": [
+            {
+              "contract": "BLVaultLido",
+              "end_line": 200,
+              "file": "sherlock-olympus/src/policies/BoostedLiquidity/BLVaultLido.sol",
+              "function": "deposit(uint256,uint256)",
+              "start_line": 143
+            },
+            {
+              "contract": "BLVaultLido",
+              "end_line": 256,
+              "file": "sherlock-olympus/src/policies/BoostedLiquidity/BLVaultLido.sol",
+              "function": "withdraw(uint256,uint256[],bool)",
+              "start_line": 203
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2023-03-olympus"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "CurveOracle.getPrice() retrieves the price of each underlying token in a Curve LP pool, selects the minimum price, and multiplies it by the LP token's virtual price to calculate its USD value. If the price of one or more underlying tokens is manipulated, the minimum-price calculation can be skewed and produce an incorrect USD value for the LP token. An attacker can exploit this incorrect valuation to profit at the expense of other users.",
+          "finding_id": "H-4",
+          "impact": "An attacker can manipulate the price used to value Curve LP tokens and profit at the expense of other users. Exploitation can result in significant financial losses for affected users.",
+          "mitigation": "Use TWAP prices for the Curve pool's underlying assets.",
+          "review_status": "gold_verified",
+          "title": "H-4: Potential flash loan attack vulnerability in `getPrice` function of CurveOracle",
+          "vulnerable_code": [
+            {
+              "contract": "CurveOracle",
+              "end_line": 134,
+              "file": "blueberry-core/contracts/oracle/CurveOracle.sol",
+              "function": "getPrice(address)",
+              "start_line": 122
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "The Curve and Convex close flows redeem LP collateral into the position's debt token using the current Curve pool state while passing a hard-coded minimum output of zero. In `CurveSpell.closePositionFarm` and `ConvexSpell.closePositionFarm`, the position collateral is taken and burned, then `ICurvePool.remove_liquidity_one_coin(amountPosRemove, tokenIndex, 0)` determines the debt-token proceeds from attacker-influenceable pool balances. Neither path uses `ClosePosParam.sellSlippage`, a TWAP, an independent oracle quote, or another execution-price bound. An attacker can temporarily skew the Curve pool before the close transaction, causing the same LP amount to produce fewer debt tokens. If the reduced proceeds still cover the caller-specified repayment, the close succeeds and only the reduced remainder is refunded; if the close leaves a solvent remaining position, the later LTV checks do not detect the unfavorable execution. Aura's Balancer close path has the same missing-output-bound issue because `minAmountsOut` is initialized to zero for every token in `exitPool`.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A position owner can lose value when LP collateral is redeemed under manipulated Curve or Balancer state. Reduced proceeds can result in less debt repayment and a smaller refund, or can cause full-close transactions to fail when proceeds no longer cover the requested repayment.",
+          "mitigation": "Require a caller-authorized minimum debt-token output for Curve redemptions and minimum amounts for Balancer exits, and pass those values to `remove_liquidity_one_coin` and `exitPool`. Enforce a realistic deadline and, where protocol protection is required, validate the minimum against an independent oracle or TWAP with a bounded deviation and liquidity check. Keep the post-close solvency checks as secondary controls rather than relying on them for execution-price protection.",
+          "severity": "Medium",
+          "title": "Zero minimum output permits manipulated LP redemptions during close",
+          "vulnerable_code": [
+            {
+              "contract": "CurveSpell",
+              "file": "contracts/spell/CurveSpell.sol",
+              "function": "closePositionFarm"
+            },
+            {
+              "contract": "ConvexSpell",
+              "file": "contracts/spell/ConvexSpell.sol",
+              "function": "closePositionFarm"
+            },
+            {
+              "contract": "AuraSpell",
+              "file": "contracts/spell/AuraSpell.sol",
+              "function": "closePositionFarm"
+            }
+          ]
+        },
+        {
+          "description": "The Curve, Convex, and Aura close flows convert harvested rewards into the debt token through a caller-supplied Uniswap-V2-compatible router and path using `swapExactTokensForTokens(rewards, 0, ..., address(this), type(uint256).max)`. The zero `amountOutMin` and unbounded deadline provide no protection against temporary reserve manipulation or sandwiching. The resulting debt-token balance is subsequently used by `_doRepay`, and any remainder is refunded through `_doRefund`. An attacker can trade against the relevant reward/debt pool before the close transaction, causing fewer debt tokens to be received for the same reward amount. If the result remains sufficient for the requested repayment, the transaction succeeds with a reduced refund or repayment; if not, a full-close transaction can revert.",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "The position owner may receive materially less value from reward liquidation, retain more debt after a partial close, or be unable to complete a close that requires full repayment. The missing output bound allows attacker-influenced AMM execution to directly affect repayment and refund amounts.",
+          "mitigation": "Require a nonzero, user-authorized `amountOutMin` for every reward swap and use a realistic deadline. Derive or validate the minimum using an independent oracle or TWAP and bounded slippage/deviation controls, and measure the actual debt-token balance increase before repayment. Restrict routers and paths to approved routes where appropriate.",
+          "severity": "Medium",
+          "title": "Reward-token swaps accept arbitrarily poor AMM execution",
+          "vulnerable_code": [
+            {
+              "contract": "CurveSpell",
+              "file": "contracts/spell/CurveSpell.sol",
+              "function": "closePositionFarm"
+            },
+            {
+              "contract": "ConvexSpell",
+              "file": "contracts/spell/ConvexSpell.sol",
+              "function": "closePositionFarm"
+            },
+            {
+              "contract": "AuraSpell",
+              "file": "contracts/spell/AuraSpell.sol",
+              "function": "closePositionFarm"
+            }
+          ]
+        },
+        {
+          "description": "`CurveSpell.openPositionFarm` and `ConvexSpell.openPositionFarm` pass the caller-provided `minLPMint` directly to Curve `add_liquidity` without requiring a meaningful minimum or validating it against an independent quote. A caller can submit zero, while an attacker can temporarily manipulate the Curve pool's state before execution so the borrowed assets mint fewer LP tokens than expected. The reduced LP balance is then wrapped and deposited into `BlueBerryBank` as collateral while the borrowed amount remains unchanged. `_validateMaxLTV` checks the resulting collateral and debt values, but does not compare the LP amount received with an expected amount, so a transaction can succeed whenever the reduced collateral remains above the configured threshold.",
+          "finding_id": "SAF-bundle-0001-003",
+          "impact": "The user can receive materially less LP collateral for the same borrowed assets, losing value and creating a position with a smaller collateral buffer than intended. The protocol may accept a position closer to liquidation than the user expected, provided the post-operation LTV checks still pass.",
+          "mitigation": "Reject zero `minLPMint` values and require a caller-signed minimum LP output derived from the intended deposit amounts and a bounded slippage tolerance. Where protocol-level protection is required, validate the expected LP output against a manipulation-resistant oracle or TWAP and enforce liquidity/deviation limits before accepting the resulting LP tokens as collateral.",
+          "severity": "Medium",
+          "title": "Caller-controlled zero LP-mint minimum permits manipulated leveraged deposits",
+          "vulnerable_code": [
+            {
+              "contract": "CurveSpell",
+              "file": "contracts/spell/CurveSpell.sol",
+              "function": "openPositionFarm"
+            },
+            {
+              "contract": "ConvexSpell",
+              "file": "contracts/spell/ConvexSpell.sol",
+              "function": "openPositionFarm"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2023-04-blueberry"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "USSDRebalancer.getSupplyProportion() uses the raw USSD/DAI token balances held by a Uniswap V3 pool to calculate the rebalance amount. In Uniswap V3, those balances need not correspond to the current pool price because they include accumulated fees and can reflect liquidity placed in different price ranges. Consequently, when USSD is below peg, USSDamount can be lower than DAIamount and the subtraction in rebalance() can revert. When USSD is above peg, an attacker can use high-range single-sided DAI liquidity to inflate DAIamount, causing rebalance() to mint and sell more USSD than required to restore the peg.",
+          "finding_id": "H-9",
+          "impact": "Rebalancing can malfunction when the USSD/DAI balance proportion is not as expected. An attacker can manipulate that proportion so the protocol mints and sells more USSD than required to restore the peg. If the collateral asset is also manipulated, the protocol can trade at a manipulated price, causing greater damage to the protocol.",
+          "mitigation": "Replace the pool-balance-based rebalance delta with a formula that accounts for the Uniswap V3 liquidity range when calculating the amount required to restore the peg.",
+          "review_status": "gold_verified",
+          "title": "H-9: Uniswap v3 pool token balance proportion does not necessarily correspond to the price, and it is easy to manipulate.",
+          "vulnerable_code": [
+            {
+              "contract": "USSDRebalancer",
+              "end_line": 90,
+              "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+              "function": "getSupplyProportion()",
+              "start_line": 83
+            },
+            {
+              "contract": "USSDRebalancer",
+              "end_line": 107,
+              "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+              "function": "rebalance()",
+              "start_line": 92
+            }
+          ]
+        },
+        {
+          "description": "USSDRebalancer.getOwnValuation() reads sqrtPriceX96 from the Uniswap V3 DAI-USSD pool's slot0() and derives the USSD valuation from the instantaneous pool price instead of a time-weighted average price. A user can temporarily move this spot price by buying or selling assets, including with flash-loaned funds, and then call rebalance() using the manipulated valuation.",
+          "finding_id": "H-5",
+          "impact": "The USSD price used by rebalance() can be manipulated within a transaction, allowing an attacker to trigger rebalancing with an attacker-controlled valuation.",
+          "mitigation": "Use a TWAP price instead of the instantaneous slot0 price when calculating the USSD valuation.",
+          "review_status": "gold_verified",
+          "title": "H-5: Price calculation susceptible to flashloan exploits",
+          "vulnerable_code": [
+            {
+              "contract": "USSDRebalancer",
+              "end_line": 80,
+              "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+              "function": "getOwnValuation()",
+              "start_line": 71
+            },
+            {
+              "contract": "USSDRebalancer",
+              "end_line": 107,
+              "file": "ussd-contracts/contracts/USSDRebalancer.sol",
+              "function": "rebalance()",
+              "start_line": 92
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "USSDRebalancer.rebalance() is publicly callable and selects financially consequential operations using getOwnValuation(), which reads the configured Uniswap V3 pool's instantaneous slot0().sqrtPriceX96. No TWAP, independent oracle, freshness check, deviation bound, or liquidity control validates this value. An attacker who temporarily moves the configured pool price can cause the rebalancer to select either the low-price branch, which sells protocol collateral and buys USSD for burning, or the high-price branch, which mints USSD and sells it for collateral. getSupplyProportion() also derives sizing inputs from the pool's live token balances, which are affected by swaps. The resulting swaps call USSD.UniV3SwapInput(), where amountOutMinimum is hardcoded to zero, allowing execution at an adverse manipulated price. The supplied source establishes the spot-price-to-rebalance-to-asset-movement path; exact profitability depends on deployment liquidity, balances, and configured routes not included in the bundle.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "The protocol can be induced to mint USSD, sell collateral, buy and burn USSD, or exchange assets at attacker-influenced prices. This can reduce the value or alter the composition of USSD collateral reserves and transfer value to parties trading against the manipulated pool.",
+          "mitigation": "Replace the slot0-based valuation with a sufficiently long Uniswap V3 TWAP or an independent oracle, and require freshness and maximum-deviation checks before selecting or sizing a rebalance. Add liquidity and maximum-trade-size limits, and derive nonzero amountOutMinimum values from a validated reference price for every rebalancer swap. Revalidate the execution price or revert when the observed spot price materially deviates from the protected reference.",
+          "severity": "High",
+          "title": "Rebalancer trusts manipulable Uniswap V3 spot price",
+          "vulnerable_code": [
+            {
+              "contract": "USSDRebalancer",
+              "file": "contracts/USSDRebalancer.sol",
+              "function": "getOwnValuation"
+            },
+            {
+              "contract": "USSDRebalancer",
+              "file": "contracts/USSDRebalancer.sol",
+              "function": "rebalance"
+            },
+            {
+              "contract": "USSDRebalancer",
+              "file": "contracts/USSDRebalancer.sol",
+              "function": "getSupplyProportion"
+            },
+            {
+              "contract": "USSD",
+              "file": "contracts/USSD.sol",
+              "function": "UniV3SwapInput"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2023-05-ussd"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "EUSDMiningIncentives.stakedLBRLpValue() values a user's staked WETH/LBR LP tokens from the pair contract's current WETH and LBR token balances. During a Uniswap V2 flash-swap callback, the transferred-out assets temporarily reduce those balances before the swap is repaid. An attacker can therefore understate a victim's LP value, make isOtherEarningsClaimable() return true, and call purchaseOtherEarnings() while the eligibility check is using the manipulated value.",
+          "finding_id": "M-13",
+          "impact": "An attacker can redirect a victim's accumulated mining reward to themselves even though the victim has staked enough WETH/LBR LP tokens for the reward to remain protected from buyout.",
+          "mitigation": "Use the WETH/LBR pair's recorded reserves returned by getReserves() instead of its live token balances when calculating the staked LP value.",
+          "review_status": "gold_verified",
+          "title": "[M-13] It is possible to manipulate WETH/LBR pair to claim reward of the users which shouldn't be claimed",
+          "vulnerable_code": [
+            {
+              "contract": "EUSDMiningIncentives",
+              "end_line": 156,
+              "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+              "function": "stakedLBRLpValue(address)",
+              "start_line": 149
+            },
+            {
+              "contract": "EUSDMiningIncentives",
+              "end_line": 190,
+              "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+              "function": "isOtherEarningsClaimable(address)",
+              "start_line": 188
+            },
+            {
+              "contract": "EUSDMiningIncentives",
+              "end_line": 224,
+              "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+              "function": "purchaseOtherEarnings(address,bool)",
+              "start_line": 202
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Configurator.distributeRewards() uses the instantaneous CurvePool.get_dy_underlying(0, 2, 1e18) quote as both the decision variable for selecting direct EUSD distribution versus premium trading and the basis for the exchange_underlying() minimum output. The quote is not validated against a TWAP, independent oracle, freshness requirement, deviation bound, or liquidity/price-impact limit. The 998/1000 factor is derived from the same manipulable quote and therefore provides no independent manipulation resistance. An attacker who temporarily changes the configured Curve pool state through a swap or flash-loan-assisted trade can influence the branch and, when the swap executes, the amount of stableToken transferred to ProtocolRewardsPool. That amount is then passed to notifyRewardAmount(amount, 1), which increases rewardPerTokenStored and changes staker reward entitlements. The quote is also obtained for 1e18 units while the actual swap uses the entire EUSD balance, so the small-size spot quote is linearly scaled to a potentially much larger trade. The supplied source does not include the Curve implementation, reserves, or deployed balances; therefore, the exact manipulation cost and profitability cannot be quantified.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "The protocol can exchange accumulated EUSD rewards at an attacker-influenced rate, causing ProtocolRewardsPool to receive and account for an economically incorrect stablecoin amount. This can reduce or distort rewards available to esLBR stakers and alter the reward-asset accounting path. When distribution is triggered through purchaseOtherEarnings() or LybraPeUSDVaultBase._repay(), a swap failure caused by the manipulated quote is caught and ignored, allowing the surrounding operation to continue while the associated reward distribution is skipped or the fee remains in the Configurator.",
+          "mitigation": "Use a manipulation-resistant reference price, such as a sufficiently long Curve TWAP or an independent oracle, and require freshness and bounded deviation before selecting the distribution branch. Derive the minimum output from that independently validated price rather than from the same instantaneous Curve quote. Obtain an execution quote for the actual EUSD balance, enforce maximum trade-size and price-impact/liquidity limits, and consider a circuit breaker for abnormal prices. Do not silently discard required reward distribution failures; either make the operation atomic or record undistributed rewards for an explicit retry.",
+          "severity": "Medium",
+          "title": "Curve spot price manipulation can distort protocol reward conversion",
+          "vulnerable_code": [
+            {
+              "contract": "Configurator",
+              "file": "contracts/lybra/configuration/LybraConfigurator.sol",
+              "function": "distributeRewards"
+            },
+            {
+              "contract": "ProtocolRewardsPool",
+              "file": "contracts/lybra/miner/ProtocolRewardsPool.sol",
+              "function": "notifyRewardAmount"
+            },
+            {
+              "contract": "EUSDMiningIncentives",
+              "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+              "function": "purchaseOtherEarnings"
+            },
+            {
+              "contract": "LybraPeUSDVaultBase",
+              "file": "contracts/lybra/pools/base/LybraPeUSDVaultBase.sol",
+              "function": "_repay"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2023-06-lybra"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "Multipool.getSlots() reads each underlying Uniswap V3 pool's transaction-local slot0 price. _getReserves() feeds that price into LiquidityAmounts.getAmountsForLiquidity() to value the Multipool's positions, and deposit() uses the resulting reserves to optimize deposit amounts and calculate newly minted LP tokens. Because slot0 can be moved within a transaction, an attacker can distort the reserve ratio used for share issuance without changing the Multipool's durable economic value.",
+          "finding_id": "H-3",
+          "impact": "A manipulated reserve calculation can cause deposits to mint an incorrect number of Multipool LP tokens, diluting other liquidity providers and causing them to receive fewer LP tokens or a smaller share of pool assets than intended.",
+          "mitigation": "Use a manipulation-resistant TWAP or another independently validated price for reserve and share calculations instead of raw slot0. Reject deposits when each underlying pool's current price deviates beyond a configured bound from its weighted-average reference price.",
+          "review_status": "gold_verified",
+          "title": "H-3: Usage of `slot0` is extremely easy to manipulate",
+          "vulnerable_code": [
+            {
+              "contract": "Multipool",
+              "end_line": 486,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "deposit(uint256,uint256,uint256,uint256)",
+              "snippet": "slots = getSlots(); (uint256 reserve0, uint256 reserve1, , ) = _getReserves(slots); ... lpAmount = l0 < l1 ? l0 : l1;",
+              "start_line": 433
+            },
+            {
+              "contract": "Multipool",
+              "end_line": 602,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "getSlots()",
+              "snippet": "(slots[i].currentSqrtRatioX96, slots[i].tick, , , , , ) = IUniswapV3Pool(position.poolAddress).slot0();",
+              "start_line": 589
+            },
+            {
+              "contract": "Multipool",
+              "end_line": 768,
+              "file": "concentrator/contracts/Multipool.sol",
+              "function": "_getReserves(Slot0Data[])",
+              "snippet": "(uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(slots[i].currentSqrtRatioX96, ...); reserve0 += amount0; reserve1 += amount1;",
+              "start_line": 693
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "Multipool.deposit() calculates the pool reserves, optimized deposit ratio, LP amount, and underlying liquidity using attacker-influenceable Uniswap V3 spot state. The function calls getSlots(), which reads each configured pool's live slot0().sqrtPriceX96 and tick. Those values are passed to _getReserves(), where LiquidityAmounts.getAmountsForLiquidity() values existing concentrated-liquidity positions. The resulting reserve0 and reserve1 determine _optimizeAmounts() and the LP issuance formula: lpAmount = min(amount0Desired * totalSupply / reserve0, amount1Desired * totalSupply / reserve1). The same spot-derived slots are then used by _deposit() when calculating new underlying liquidity before _mint(msg.sender, lpAmount). An attacker-controlled temporary swap-induced price displacement can therefore alter the reserves, accepted token ratio, and LP shares minted during a deposit. The deposit path has no TWAP, independent oracle, freshness, or spot-deviation validation. amount0Min and amount1Min are caller-supplied and only constrain the optimized token amounts; they do not validate the price or enforce a minimum LP output.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A manipulated deposit can receive an LP share amount or underlying position composition that is inconsistent with the pool's economic value after the underlying price returns, potentially diluting existing LP holders or transferring value between depositors and existing holders. The exact profitability depends on deployed liquidity, position ranges, and manipulation magnitude, which are not supplied.",
+          "mitigation": "Use a manipulation-resistant reference price, such as a sufficiently long and validated TWAP or independent oracle, when valuing existing positions and calculating the deposit ratio and LP issuance. Reject deposits when live spot deviates from the reference beyond a configured bound, include freshness and liquidity/deviation checks, and add a caller-specified minimum LP-output check. The protected reference must be applied consistently to reserve valuation, deposit optimization, and share minting rather than relying on raw slot0() values.",
+          "severity": "High",
+          "title": "Spot-price manipulation can misprice LP-token issuance",
+          "vulnerable_code": [
+            {
+              "contract": "Multipool",
+              "file": "contracts/Multipool.sol",
+              "function": "deposit"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2023-06-real-wagmi"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "MavEthOracle.getPriceInEth() reads the current token reserves of a Maverick boosted position, multiplies them by externally sourced token prices, and divides by boosted-position total supply. A flash-loan-funded swap can move the Maverick pool, alter getReserves(), and raise or lower the oracle LP-token value before reversing the swap.",
+          "finding_id": "H-15",
+          "impact": "Decreasing the oracle price can lower the totalDebt of LMPVault and let a user receive more LMPVault shares. Increasing the oracle price can raise the totalDebt of LMPVault and let a user receive more withdrawn tokens. Manipulating the oracle price can also cause protocol miscalculations in the Stats contracts.",
+          "mitigation": "Replace the transaction-local reserve-sum valuation with a Maverick-specific fair-LP calculation that derives fair reserves from trusted component prices and the position's applicable invariant.",
+          "review_status": "gold_verified",
+          "title": "H-15: Maverick oracle can be manipulated",
+          "vulnerable_code": [
+            {
+              "contract": "MavEthOracle",
+              "end_line": 75,
+              "file": "v2-core-audit-2023-07-14/src/oracles/providers/MavEthOracle.sol",
+              "function": "getPriceInEth(address)",
+              "start_line": 58
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2023-06-tokemak"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "RdpxV2Core.bond() accepts a user-controlled bonding amount and, when reLP is active, passes that amount to ReLPContract.reLP(). The reLP operation then removes liquidity, swaps part of the removed WETH for rDPX, and adds liquidity again through Uniswap V2. Because the caller can control the size of this transaction-local liquidity operation through bond(), an attacker can manipulate the pool before bond() and profit from the resulting reLP sequence.",
+          "finding_id": "M-08",
+          "impact": "An attacker can steal value from RdpxV2Core by crafting a profitable sandwich attack around bond() and its indirectly triggered reLP operation.",
+          "mitigation": "Remove ReLPContract.reLP() from bond() and trigger it separately to prevent users from controlling the reLP operation indirectly.",
+          "review_status": "gold_verified",
+          "title": "[M-08] `reLPContract.reLP()` is susceptible to sandwich attack due to user control over `bond()`",
+          "vulnerable_code": [
+            {
+              "contract": "RdpxV2Core",
+              "end_line": 930,
+              "file": "contracts/core/RdpxV2Core.sol",
+              "function": "bond(uint256,uint256,address)",
+              "start_line": 894
+            },
+            {
+              "contract": "ReLPContract",
+              "end_line": 295,
+              "file": "contracts/reLP/ReLPContract.sol",
+              "function": "reLP(uint256)",
+              "start_line": 202
+            }
+          ]
+        },
+        {
+          "description": "PerpetualAtlanticVaultLP.deposit() mints LP shares through convertToShares(). When the vault is empty, the initial deposit receives shares directly from the deposited assets, while later deposits calculate shares from totalSupply and totalVaultCollateral. Option settlement can add RDPX collateral to the vault and increase totalVaultCollateral without minting corresponding shares, so a malicious early depositor can make future deposits receive too few shares and then redeem an unfair portion of the vault assets.",
+          "finding_id": "M-09",
+          "impact": "A malicious early depositor can profit from future deposits, causing later depositors to lose part of their deposited collateral.",
+          "mitigation": "Require a non-trivial minimum initial share supply, for example by minting and permanently locking dead shares, so a small first deposit cannot disproportionately influence the share exchange rate.",
+          "review_status": "gold_verified",
+          "title": "[M-09] A malicious early depositor can manipulate the LP-Token price per share to take an unfair share of future user deposits",
+          "vulnerable_code": [
+            {
+              "contract": "PerpetualAtlanticVaultLP",
+              "end_line": 135,
+              "file": "contracts/perp-vault/PerpetualAtlanticVaultLP.sol",
+              "function": "deposit(uint256,address)",
+              "start_line": 118
+            },
+            {
+              "contract": "PerpetualAtlanticVaultLP",
+              "end_line": 284,
+              "file": "contracts/perp-vault/PerpetualAtlanticVaultLP.sol",
+              "function": "convertToShares(uint256)",
+              "start_line": 274
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2023-08-dopex"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "MagicLpAggregator.latestAnswer() calculates the MagicLP token price from pool reserves. Because those reserve values can be manipulated, an attacker can use a flash loan to inflate the MagicLP oracle price.",
+          "finding_id": "H-04",
+          "impact": "A flash-loan-funded swap can substantially inflate the MagicLP oracle valuation within one transaction.",
+          "mitigation": "Before using pool reserves, compare the pool's base/quote price with the Chainlink-derived base/quote price and revert when the deviation exceeds a defined limit.",
+          "review_status": "gold_verified",
+          "title": "[H-04] Oracle price can be manipulated",
+          "vulnerable_code": [
+            {
+              "contract": "MagicLpAggregator",
+              "end_line": 35,
+              "file": "src/oracles/aggregators/MagicLpAggregator.sol",
+              "function": "_getReserves()",
+              "start_line": 33
+            },
+            {
+              "contract": "MagicLpAggregator",
+              "end_line": 46,
+              "file": "src/oracles/aggregators/MagicLpAggregator.sol",
+              "function": "latestAnswer()",
+              "start_line": 37
+            }
+          ]
+        },
+        {
+          "description": "Because _twapUpdate() runs after the reserves change, an attacker can make the TWAP accumulator attribute the entire elapsed interval to the manipulated post-update price. An integrating application that later reads the TWAP may therefore receive an attacker-controlled price.",
+          "finding_id": "H-01",
+          "impact": "Applications that use MagicLP's TWAP to determine token prices can execute trades or other price-dependent operations at an attacker-controlled price, allowing value to be extracted from the integrating application.",
+          "mitigation": "Call _twapUpdate() before updating the reserves.",
+          "review_status": "gold_verified",
+          "title": "[H-01] Anyone making use of the MagicLP's TWAP to determine token prices will be exploitable.",
+          "vulnerable_code": [
+            {
+              "contract": "MagicLP",
+              "end_line": 522,
+              "file": "src/mimswap/MagicLP.sol",
+              "function": "ratioSync()",
+              "start_line": 504
+            },
+            {
+              "contract": "MagicLP",
+              "end_line": 543,
+              "file": "src/mimswap/MagicLP.sol",
+              "function": "_resetTargetAndReserve()",
+              "start_line": 528
+            },
+            {
+              "contract": "MagicLP",
+              "end_line": 558,
+              "file": "src/mimswap/MagicLP.sol",
+              "function": "_twapUpdate()",
+              "start_line": 545
+            },
+            {
+              "contract": "MagicLP",
+              "end_line": 565,
+              "file": "src/mimswap/MagicLP.sol",
+              "function": "_setReserve(uint256,uint256)",
+              "start_line": 560
+            },
+            {
+              "contract": "MagicLP",
+              "end_line": 579,
+              "file": "src/mimswap/MagicLP.sol",
+              "function": "_sync()",
+              "start_line": 567
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2024-03-abracadabra-money"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "V3Oracle.getValue() computes position token amounts from the current Uniswap V3 slot0() price and values them using oracle-derived token prices. _checkPoolPrice() bounds the current pool price against the oracle-implied pool price through maxPoolPriceDifference, but an overly permissive setting can still materially distort the valuation of tight-range positions.",
+          "finding_id": "M-19",
+          "impact": "With a tight-range position and a fringe or incorrect maxPoolPriceDifference configuration, an attacker can cause non-dust collateral misvaluation and borrow against an overstated position value. The check limits the effect for wide-range positions and properly constrained configurations; repay() is unaffected because it does not use the oracle.",
+          "mitigation": "Calculate amount0 and amount1 from the oracle-derived price rather than the current pool spot price returned by slot0().",
+          "review_status": "gold_verified",
+          "title": "[M-19] `V3Oracle` susceptible to price manipulation",
+          "vulnerable_code": [
+            {
+              "contract": "V3Oracle",
+              "end_line": 131,
+              "file": "src/V3Oracle.sol",
+              "function": "getValue(uint256,address)",
+              "start_line": 95
+            },
+            {
+              "contract": "V3Oracle",
+              "end_line": 181,
+              "file": "src/V3Oracle.sol",
+              "function": "getPositionBreakdown(uint256)",
+              "start_line": 162
+            },
+            {
+              "contract": "V3Oracle",
+              "end_line": 423,
+              "file": "src/V3Oracle.sol",
+              "function": "_initializeState(uint256)",
+              "start_line": 395
+            },
+            {
+              "contract": "V3Oracle",
+              "end_line": 442,
+              "file": "src/V3Oracle.sol",
+              "function": "_getAmounts(PositionState)",
+              "start_line": 426
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "V3Oracle.setTokenConfig permits Mode.TWAP with twapSeconds == 0. In that configuration, _getReferenceTokenPriceX96() calls _getTWAPPriceX96(), which calls _getReferencePoolPriceX96() and reads pool.slot0() instead of historical observations. V3Oracle.getValue() uses this price to calculate collateral value, while V3Vault._checkLoanIsHealthy() uses that value to authorize borrowing and determine liquidation health. The additional _checkPoolPrice() control also reads the current position-pool slot0() price. If the configured reference pool is the same pool, or otherwise jointly manipulable with the position pool, the derived price and verification price can be moved consistently, allowing a temporary AMM-price change to pass the deviation check and influence the borrow-health calculation. The supplied bundle does not establish that this configuration is active in deployment; the finding is conditional on an owner configuring a collateral token this way.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "Under the permitted configuration, an attacker able to temporarily move the relevant Uniswap V3 pool price may inflate the LP collateral valuation, pass V3Vault.borrow() health checks, and receive more vault assets than the position supports at the unmanipulated price. Restoring the pool price can leave the vault with undercollateralized debt. The same manipulated valuation can also affect liquidation eligibility and liquidation amounts.",
+          "mitigation": "Reject zero-duration configurations for every mode that relies on a pool TWAP or TWAP verification, and enforce a protocol-defined minimum observation period. Do not use the same current spot price both as the effective collateral-price source and as its verification source. Require an independent, fresh oracle source or an independent nonzero-duration TWAP with explicit deviation, liquidity, and observation-history checks. The configuration should also prevent a collateral position pool from serving as its own valuation reference where practical.",
+          "severity": "High",
+          "title": "Zero-duration TWAP mode permits spot-price manipulation of collateral valuation",
+          "vulnerable_code": [
+            {
+              "contract": "V3Oracle",
+              "file": "src/V3Oracle.sol",
+              "function": "setTokenConfig"
+            },
+            {
+              "contract": "V3Oracle",
+              "file": "src/V3Oracle.sol",
+              "function": "_getReferencePoolPriceX96"
+            },
+            {
+              "contract": "V3Oracle",
+              "file": "src/V3Oracle.sol",
+              "function": "_checkPoolPrice"
+            },
+            {
+              "contract": "V3Vault",
+              "file": "src/V3Vault.sol",
+              "function": "_checkLoanIsHealthy"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2024-03-revert-lend"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "WooPPV2 enforces maxNotionalSwap and maxGamma independently for each swap, then writes the swap's newPrice back to WooracleV2_2. A later swap in the same transaction reads that already-moved price as its starting state. Consequently, an attacker can split a flash-loaned WOO sale into multiple individually permitted swaps, compound the WOO price downward, and then sell a small amount of quote token at the manipulated price to receive more WOO than was borrowed. For a token without a configured Chainlink reference, WooracleV2_2 treats the nonzero internal price as in-bound, so the feasibility check does not provide an independent anchor.",
+          "finding_id": "H-1",
+          "impact": "An attacker can extract the pool's base-token reserves and repay the flash loan from the proceeds, retaining the excess tokens as profit.",
+          "mitigation": "Explicitly declare that tokens without a Chainlink price feed are not supported.",
+          "review_status": "gold_verified",
+          "title": "H-1: Pool can be drained",
+          "vulnerable_code": [
+            {
+              "contract": "WooPPV2",
+              "end_line": 465,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_sellBase(address,uint256,uint256,address,address)",
+              "start_line": 420
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 511,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_sellQuote(address,uint256,uint256,address,address)",
+              "start_line": 467
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 619,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_calcQuoteAmountSellBase(address,uint256,IWooracleV2.State)",
+              "start_line": 591
+            },
+            {
+              "contract": "WooPPV2",
+              "end_line": 648,
+              "file": "WooPoolV2/contracts/WooPPV2.sol",
+              "function": "_calcBaseAmountSellQuote(address,uint256,IWooracleV2.State)",
+              "start_line": 621
+            },
+            {
+              "contract": "WooracleV2_2",
+              "end_line": 260,
+              "file": "WooPoolV2/contracts/wooracle/WooracleV2_2.sol",
+              "function": "price(address)",
+              "start_line": 243
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "The Wooracle implementations obtain Chainlink data through latestRoundData(), but do not validate updatedAt, answer positivity, round completeness, or maximum feed age. When the manually posted Wooracle price is stale, price() falls back to the Chainlink value whenever cloPreferred is enabled and marks it feasible solely because the computed price is nonzero. WooPPV2 and WooPPV3 consume this result through state() and require only state.woFeasible before calculating swap outputs. Consequently, a stale nonzero Chainlink answer can directly determine the amount of base, quote, or USD tokens transferred by a public swap.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "If the configured Chainlink fallback is stale while the market price has moved, a trader can execute swaps at an outdated valuation and receive excess pool assets, subject to pool liquidity and swap limits. The same stale valuation can affect cross-chain conversions that route through WooPP swaps.",
+          "mitigation": "Validate every Chainlink round before using it as a fallback: require answer > 0, updatedAt != 0, updatedAt <= block.timestamp, answeredInRound >= roundId, and block.timestamp - updatedAt <= a configured maximum age. For quote-relative prices, validate both the base and quote feeds and mark the oracle state infeasible if either feed fails validation. Ensure WooPP swaps reject an invalid fallback rather than treating any nonzero answer as feasible.",
+          "severity": "High",
+          "title": "Stale Chainlink fallback prices are accepted for WooPP swaps",
+          "vulnerable_code": [
+            {
+              "contract": "WooracleV2",
+              "file": "contracts/wooracle/WooracleV2.sol",
+              "function": "price"
+            },
+            {
+              "contract": "WooracleV2",
+              "file": "contracts/wooracle/WooracleV2.sol",
+              "function": "_cloPriceInQuote"
+            },
+            {
+              "contract": "WooPPV2",
+              "file": "contracts/WooPPV2.sol",
+              "function": "_sellQuote"
+            },
+            {
+              "contract": "WooPPV3",
+              "file": "contracts/WooPPV3/WooPPV3.sol",
+              "function": "_swapUsdToBase"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2024-03-woofi-swap"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "PanopticFactory._mintFullRange() reads the Uniswap V3 pool's instantaneous sqrt price from slot0() and uses it to calculate the full-range liquidity minted during deployNewPool(). Because the factory does not validate this price against an oracle or a time-weighted average, an attacker can manipulate the spot price with flash-loaned funds before deployment and cause a highly inaccurate liquidity calculation.",
+          "finding_id": "M-01",
+          "impact": "The manipulated spot price can cause the factory to mint an inaccurate amount of liquidity for each token, resulting in an unbalanced newly deployed pool.",
+          "mitigation": "Consider using the TWAP price instead of the spot price.",
+          "review_status": "gold_verified",
+          "title": "[M-01] `PanopticFactory` uses spot price when deploying new pools, resulting in liquidity manipulation when minting",
+          "vulnerable_code": [
+            {
+              "contract": "PanopticFactory",
+              "end_line": 411,
+              "file": "contracts/PanopticFactory.sol",
+              "function": "_mintFullRange(IUniswapV3Pool,address,address,uint24)",
+              "start_line": 335
+            }
+          ]
+        }
+      ],
+      "predictions": [
+        {
+          "description": "PanopticPool.liquidate checks the AMM spot against the TWAP before burning the liquidatee's positions, but then burns with unrestricted tick limits using Constants.MIN_V3POOL_TICK and Constants.MAX_V3POOL_TICK. The burn path can execute SFPM.swapInAMM, which directly swaps against Uniswap and changes slot0().tick. Afterward, liquidate reads finalTick and passes it to PanopticMath.getLiquidationBonus and PanopticMath.haircutPremia for cross-token bonus, protocol-loss, and premium-haircut conversions. It also passes finalTick as both currentTick and atTick to _checkSolvencyAtTick for the liquidator. No post-burn TWAP/deviation check, price-impact bound, or independent-oracle valuation constrains finalTick before these financial outcomes are calculated. Thus, when the burned position causes a sufficiently large AMM price movement, the liquidation bonus composition and the liquidator's solvency assessment depend on the resulting attacker-influenceable spot price rather than the protected TWAP.",
+          "finding_id": "SAF-bundle-0001-001",
+          "impact": "A liquidation-induced price movement can alter the amount and token composition of liquidation compensation and premium haircuts. It can also make a liquidator's collateral or remaining positions appear solvent at finalTick even if they would fail at the liquidation TWAP, potentially transferring value from the liquidatee, collateral providers, or protocol and leaving post-liquidation bad debt. The supplied source does not provide deployment-specific liquidity or position sizes, so the magnitude of any price movement cannot be quantified.",
+          "mitigation": "Use the validated liquidation TWAP, or another independently validated oracle price, for liquidation bonus, haircut, and liquidator-solvency calculations. Alternatively, after all liquidation burns and swaps, enforce a post-operation deviation check between finalTick and the liquidation TWAP before using finalTick, and apply an explicit maximum price-impact/slippage bound to liquidation-induced swaps. The liquidator should additionally be required to satisfy solvency at the independent TWAP or a conservative oracle valuation.",
+          "severity": "High",
+          "title": "Liquidation payouts and liquidator solvency use an unvalidated post-burn spot price",
+          "vulnerable_code": [
+            {
+              "contract": "PanopticPool",
+              "file": "contracts/PanopticPool.sol",
+              "function": "liquidate"
+            },
+            {
+              "contract": "SemiFungiblePositionManager",
+              "file": "contracts/SemiFungiblePositionManager.sol",
+              "function": "swapInAMM"
+            },
+            {
+              "contract": "PanopticMath",
+              "file": "contracts/libraries/PanopticMath.sol",
+              "function": "getLiquidationBonus"
+            }
+          ]
+        },
+        {
+          "description": "PanopticPool.forceExercise uses getUniV3TWAP only to determine whether the position is exercisable, but captures the instantaneous Uniswap slot0().tick as currentTick and passes it to CollateralTracker.exerciseCost. No spot/TWAP deviation or independent-price check is applied. CollateralTracker.exerciseCost computes maxNumRangesFromStrike from currentTick and applies an exponentially decaying fee using FORCE_EXERCISE_COST >> (maxNumRangesFromStrike - 1). It also uses currentTick to compare current liquidity values with the TWAP values. An attacker can temporarily move the underlying AMM spot while leaving the TWAP sufficiently unchanged, then call forceExercise; the position can remain exercisable at the TWAP while the manipulated spot increases its apparent distance from the strike and reduces the fee paid to the exercisee.",
+          "finding_id": "SAF-bundle-0001-002",
+          "impact": "The forced-exercise caller can pay less compensation than intended, reducing the refund received by the exercisee. The difference can be captured by the caller and the exercisee can be underpaid. The source does not establish a particular deployment's achievable price displacement, but it shows the complete path from mutable AMM spot state to the forced-exercise fee and settlement amount.",
+          "mitigation": "Calculate the forced-exercise fee using the manipulation-resistant TWAP or another independently validated reference tick instead of raw slot0().tick. If the current spot is retained for any calculation, enforce a spot/TWAP deviation bound before calculating and settling the fee, and ensure any AMM state changes during the burn cannot invalidate that bound.",
+          "severity": "High",
+          "title": "Forced-exercise compensation is calculated from an unvalidated spot tick",
+          "vulnerable_code": [
+            {
+              "contract": "PanopticPool",
+              "file": "contracts/PanopticPool.sol",
+              "function": "forceExercise"
+            },
+            {
+              "contract": "CollateralTracker",
+              "file": "contracts/CollateralTracker.sol",
+              "function": "exerciseCost"
+            }
+          ]
+        }
+      ],
+      "repo_id": "2024-04-panoptic"
+    },
+    {
+      "ground_truth": [
+        {
+          "description": "PanopticPool.pokeOracle() is permissionless and passes the current Uniswap pool tick to RiskEngine.computeInternalMedian(). OraclePack.computeInternalMedian() records the observation only when the current epoch differs from the recorded epoch. An attacker can manipulate the pool's current tick before an update, cause that value to be clamped and inserted into the internal oracle, and prevent later calls in the same epoch from replacing it. Repeating this across epochs can progressively move the oracle away from the legitimate market price.",
+          "finding_id": "M-11",
+          "impact": "Manipulating the internal oracle causes positions to be evaluated at incorrect prices, which can produce incorrect solvency validations, unfair liquidations, or allow insolvent positions to remain active.",
+          "mitigation": "Update the oracle continuously with the current tick as time progresses, similar to a Uniswap TWAP, instead of allowing only one update per epoch. Alternatively, restrict pokeOracle() to trusted callers or use a commit-reveal scheme to prevent frontrunning.",
+          "review_status": "gold_verified",
+          "title": "[M-11] An attacker can manipulate oracle easily",
+          "vulnerable_code": [
+            {
+              "contract": "OraclePackLibrary",
+              "end_line": 567,
+              "file": "contracts/types/OraclePack.sol",
+              "function": "computeInternalMedian(OraclePack,int24,uint96,int24)",
+              "start_line": 536
+            },
+            {
+              "contract": "PanopticPool",
+              "end_line": 558,
+              "file": "contracts/PanopticPool.sol",
+              "function": "pokeOracle()",
+              "start_line": 552
+            }
+          ]
+        },
+        {
+          "description": "RiskEngine.twapEMA() destructures OraclePack.getEMAs() in the wrong order: it treats the returned (spotEMA, fastEMA, slowEMA, eonsEMA, medianTick) tuple as (eonsEMA, slowEMA, fastEMA, ...). The intended weighted TWAP therefore uses the wrong EMA values, includes the spot EMA in place of the eons EMA, and omits the eons EMA. PanopticPool.getTWAP() uses this value in liquidation and force-exercise checks, so rapid adverse price movements can leave the TWAP near a stale value and cause an unhealthy account to appear solvent at that check.",
+          "finding_id": "M-03",
+          "impact": "Unhealthy accounts can appear solvent at that tick and block liquidation/force-exercise (`NotMarginCalled`), delaying cleanup and risking larger bad debt or mispriced exercises/settlements.",
+          "mitigation": "Destructure the EMAs in the correct order so the intended fast/slow/eons weighting is applied, and add a regression test proving that twapEMA uses those three EMAs rather than the spot EMA.",
+          "review_status": "gold_verified",
+          "title": "[M-03] TWAP misweights EMAs in RiskEngine, anchoring liquidation price to slow EMA and letting insolvent accounts dodge liquidation",
+          "vulnerable_code": [
+            {
+              "contract": "RiskEngine",
+              "end_line": 840,
+              "file": "contracts/RiskEngine.sol",
+              "function": "twapEMA(OraclePack)",
+              "start_line": 836
+            },
+            {
+              "contract": "OraclePackLibrary",
+              "end_line": 226,
+              "file": "contracts/types/OraclePack.sol",
+              "function": "getEMAs(OraclePack)",
+              "start_line": 209
+            }
+          ]
+        },
+        {
+          "description": "When riskParameters.feeRecipient() is zero, CollateralTracker.settleMint() and settleBurn() burn shares from the option owner without removing the corresponding assets. This decreases totalSupply while leaving totalAssets approximately unchanged, immediately increasing the share value for holders at that moment. RiskEngine maps builderCode == 0 to address(0), and PanopticPool's liquidation and force-exercise paths request getRiskParameters(0), so a searcher can deposit before a commission-burn event and exit after it to capture value intended for incumbent liquidity providers.",
+          "finding_id": "M-15",
+          "impact": "Just-In-Time entrants can capture commission distributions intended for longer-term liquidity providers. A sufficiently dominant entrant can also reduce the effective commission through fee self-rebating, weakening the fee model and LP incentives.",
+          "mitigation": "Avoid instantaneous burn-based commission distribution. Treat builderCode == 0 as a non-zero protocol or treasury recipient, or distribute commissions through a time-weighted or streamed mechanism; any cooldown must also account for transfers so it cannot be bypassed.",
+          "review_status": "gold_verified",
+          "title": "[M-15] Commission share-burn distribution is JIT-capturable when `builderCode == 0` (default)",
+          "vulnerable_code": [
+            {
+              "contract": "CollateralTracker",
+              "end_line": 1561,
+              "file": "contracts/CollateralTracker.sol",
+              "function": "settleMint(address,int128,int128,int128,RiskParameters)",
+              "start_line": 1553
+            },
+            {
+              "contract": "CollateralTracker",
+              "end_line": 1640,
+              "file": "contracts/CollateralTracker.sol",
+              "function": "settleBurn(address,int128,int128,int128,int128,RiskParameters)",
+              "start_line": 1635
+            },
+            {
+              "contract": "RiskEngine",
+              "end_line": 255,
+              "file": "contracts/RiskEngine.sol",
+              "function": "_computeBuilderWallet(uint256)",
+              "start_line": 253
+            },
+            {
+              "contract": "PanopticPool",
+              "end_line": 839,
+              "file": "contracts/PanopticPool.sol",
+              "function": "_burnAllOptionsFrom(address,int24,int24,bool,TokenId[])",
+              "start_line": 837
+            },
+            {
+              "contract": "PanopticPool",
+              "end_line": 1634,
+              "file": "contracts/PanopticPool.sol",
+              "function": "_forceExercise(address,TokenId,int24,int24)",
+              "start_line": 1630
+            }
+          ]
+        }
+      ],
+      "predictions": [],
+      "repo_id": "2025-12-panoptic"
+    }
+  ]
+}

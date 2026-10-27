@@ -1,0 +1,26 @@
+{
+  "repo_id": "2022-01-behodler",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Manipulable AMM spot balances control PyroFlan issuance",
+      "description": "FlanBackstop.purchasePyroFlan derives both priceBefore and tiltedPrice from the current ERC20 balances of the configured Flan/stablecoin LP. These balances are attacker-influenceable through AMM swaps or other temporary balance changes. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the additional premium. Both values are then used to mint PyroFlan to the caller. An attacker can distort the LP price before calling purchasePyroFlan, execute the purchase while the manipulated state is active, and restore the AMM position afterward if economically feasible. The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not verify either price against a TWAP or independent oracle, constrain deviation, or require sufficient liquidity. Consequently, a manipulated price below the configured cap can cause excess PyroFlan to be minted. The supplied source does not include the PyroFlan implementation or redemption paths, so the exact extractable loss cannot be quantified, but the attacker-controlled AMM state to security-critical mint path is explicit.",
+      "impact": "The backstop may over-issue PyroFlan relative to the stablecoin supplied, diluting existing PyroFlan holders and potentially enabling value extraction through downstream redemption, trading, or collateral use. Manipulation of priceBefore can additionally inflate the premium, while manipulation of tiltedPrice directly increases the base PyroFlan issuance.",
+      "mitigation": "Calculate the issuance price and premium from a sufficiently long-window AMM TWAP or an independent oracle, with freshness and maximum-deviation checks. Do not use same-transaction LP balances as the sole valuation source. Add minimum-liquidity and price-impact limits, cap the premium independently, and optionally require a caller-specified minimum PyroFlan output. Retain acceptableHighestPrice only as a secondary circuit breaker rather than the primary manipulation defense.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/FlanBackstop.sol",
+          "contract": "FlanBackstop",
+          "function": "purchasePyroFlan",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ]
+}

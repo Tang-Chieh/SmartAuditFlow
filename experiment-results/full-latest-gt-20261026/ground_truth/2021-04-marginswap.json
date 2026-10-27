@@ -1,0 +1,29 @@
+{
+  "repo_id": "2021-04-marginswap",
+  "ground_truth": [
+    {
+      "title": "[H-03] Price feed can be manipulated",
+      "description": "PriceAware.getCurrentPriceInPeg() allows callers to request a current-block price. When forceCurBlock is true and the update window has elapsed, the function obtains a Uniswap-style AMM quote and can update the cached token price from that quote. Because the quote is computed from current pair reserves, a flash loan can temporarily distort the reserves and cause the protocol to use a manipulated price.",
+      "impact": "Wrong prices break the core functionality of the contracts such as borrowing on margin, liquidations, etc.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/PriceAware.sol",
+          "contract": "PriceAware",
+          "function": "getCurrentPriceInPeg(address,uint256,bool)",
+          "start_line": 60,
+          "end_line": 87
+        },
+        {
+          "file": "contracts/PriceAware.sol",
+          "contract": "PriceAware",
+          "function": "getPriceFromAMM(address,uint256)",
+          "start_line": 111,
+          "end_line": 137
+        }
+      ],
+      "mitigation": "Do not use the current Uniswap spot quote as the token price. Use a TWAP oracle based on Uniswap cumulative price variables.",
+      "finding_id": "H-03",
+      "review_status": "gold_verified"
+    }
+  ]
+}

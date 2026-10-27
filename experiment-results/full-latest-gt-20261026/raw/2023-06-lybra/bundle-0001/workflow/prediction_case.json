@@ -1,0 +1,47 @@
+{
+  "repo_id": "2023-06-lybra",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-price-manipulation-full-24-v1",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Curve spot price manipulation can distort protocol reward conversion",
+      "description": "Configurator.distributeRewards() uses the instantaneous CurvePool.get_dy_underlying(0, 2, 1e18) quote as both the decision variable for selecting direct EUSD distribution versus premium trading and the basis for the exchange_underlying() minimum output. The quote is not validated against a TWAP, independent oracle, freshness requirement, deviation bound, or liquidity/price-impact limit. The 998/1000 factor is derived from the same manipulable quote and therefore provides no independent manipulation resistance. An attacker who temporarily changes the configured Curve pool state through a swap or flash-loan-assisted trade can influence the branch and, when the swap executes, the amount of stableToken transferred to ProtocolRewardsPool. That amount is then passed to notifyRewardAmount(amount, 1), which increases rewardPerTokenStored and changes staker reward entitlements. The quote is also obtained for 1e18 units while the actual swap uses the entire EUSD balance, so the small-size spot quote is linearly scaled to a potentially much larger trade. The supplied source does not include the Curve implementation, reserves, or deployed balances; therefore, the exact manipulation cost and profitability cannot be quantified.",
+      "impact": "The protocol can exchange accumulated EUSD rewards at an attacker-influenced rate, causing ProtocolRewardsPool to receive and account for an economically incorrect stablecoin amount. This can reduce or distort rewards available to esLBR stakers and alter the reward-asset accounting path. When distribution is triggered through purchaseOtherEarnings() or LybraPeUSDVaultBase._repay(), a swap failure caused by the manipulated quote is caught and ignored, allowing the surrounding operation to continue while the associated reward distribution is skipped or the fee remains in the Configurator.",
+      "mitigation": "Use a manipulation-resistant reference price, such as a sufficiently long Curve TWAP or an independent oracle, and require freshness and bounded deviation before selecting the distribution branch. Derive the minimum output from that independently validated price rather than from the same instantaneous Curve quote. Obtain an execution quote for the actual EUSD balance, enforce maximum trade-size and price-impact/liquidity limits, and consider a circuit breaker for abnormal prices. Do not silently discard required reward distribution failures; either make the operation atomic or record undistributed rewards for an explicit retry.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/lybra/configuration/LybraConfigurator.sol",
+          "contract": "Configurator",
+          "function": "distributeRewards",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lybra/miner/ProtocolRewardsPool.sol",
+          "contract": "ProtocolRewardsPool",
+          "function": "notifyRewardAmount",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+          "contract": "EUSDMiningIncentives",
+          "function": "purchaseOtherEarnings",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/lybra/pools/base/LybraPeUSDVaultBase.sol",
+          "contract": "LybraPeUSDVaultBase",
+          "function": "_repay",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "repo_id": "2021-11-malt",
+  "ground_truth": [
+    {
+      "title": "[M-22] `_calculateMaltRequiredForExit` Uses Spot Price To Calculate Malt Quantity In `exitEarly`",
+      "description": "AuctionEscapeHatch._calculateMaltRequiredForExit() obtains Malt's current market price from UniswapHandler.maltMarketPrice(), which derives the price directly from the Uniswap pool reserves. exitEarly() uses the calculated Malt quantity to mint Malt, sell it for collateral, and transfer the output to the exiting user. A flash loan can manipulate the reserves and therefore the spot price used for this early-exit settlement.",
+      "impact": "An attacker can manipulate the Uniswap spot price during an early exit and extract funds from the protocol.",
+      "vulnerable_code": [
+        {
+          "file": "src/contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "maltMarketPrice()",
+          "start_line": 80,
+          "end_line": 109
+        },
+        {
+          "file": "src/contracts/AuctionEscapeHatch.sol",
+          "contract": "AuctionEscapeHatch",
+          "function": "_calculateMaltRequiredForExit(uint256,uint256)",
+          "start_line": 168,
+          "end_line": 213
+        },
+        {
+          "file": "src/contracts/AuctionEscapeHatch.sol",
+          "contract": "AuctionEscapeHatch",
+          "function": "exitEarly(uint256,uint256,uint256)",
+          "start_line": 65,
+          "end_line": 92
+        }
+      ],
+      "mitigation": "Use a TWAP oracle to track Malt's price instead of the current Uniswap reserve ratio.",
+      "finding_id": "M-22",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-25] AMM Pool Can Be Drained Using a Flash Loan and Calling `stabilize`",
+      "description": "StabilizerNode.stabilize() uses MaltDataLab's moving-average price to decide whether supply should be adjusted, but the supply-distribution path obtains the required minting trade size from UniswapHandler._calculateTradeSize(), which reads the current AMM reserves directly. A flash loan can temporarily distort those reserves before stabilize() is called, causing the protocol to mint and sell an excessive amount of Malt while distributing the received reward tokens.",
+      "impact": "An attacker can cause the protocol to remove most of the reward tokens from the AMM pool and distribute them as rewards, damaging the pool and destabilizing protocol accounting.",
+      "vulnerable_code": [
+        {
+          "file": "src/contracts/DexHandlers/UniswapHandler.sol",
+          "contract": "UniswapHandler",
+          "function": "_calculateTradeSize(address,address,uint256)",
+          "start_line": 250,
+          "end_line": 275
+        }
+      ],
+      "mitigation": "Use a short TWAP or another manipulation-resistant price source to calculate the stabilization trade size instead of reading the current AMM reserves directly.",
+      "finding_id": "M-25",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-30] Malt Protocol Uses Stale Results From `MaltDataLab` Which Can Be Abused By Users",
+      "description": "MaltDataLab derives Malt price and pool-reserve samples from current AMM reserves through trackMaltPrice(), trackPoolReserves(), and trackPool(), and writes those spot-derived observations into MovingAverage contracts. A well-funded actor can manipulate the AMM state around updater calls so that distorted observations are incorporated into the moving averages. Protocol operations that consume the resulting price or reserve averages can then act on manipulated economic data.",
+      "impact": "Manipulated moving-average observations can cause auction, stabilization, collateral valuation, LP valuation, or reward-allocation operations to use incorrect economic data, enabling value extraction or protocol instability.",
+      "vulnerable_code": [
+        {
+          "file": "src/contracts/MaltDataLab.sol",
+          "contract": "MaltDataLab",
+          "function": "trackMaltPrice()",
+          "start_line": 133,
+          "end_line": 151
+        },
+        {
+          "file": "src/contracts/MaltDataLab.sol",
+          "contract": "MaltDataLab",
+          "function": "trackPoolReserves()",
+          "start_line": 153,
+          "end_line": 170
+        },
+        {
+          "file": "src/contracts/MaltDataLab.sol",
+          "contract": "MaltDataLab",
+          "function": "trackPool()",
+          "start_line": 172,
+          "end_line": 197
+        },
+        {
+          "file": "src/contracts/MovingAverage.sol",
+          "contract": "MovingAverage",
+          "function": "update(uint256)",
+          "start_line": 142,
+          "end_line": 246
+        }
+      ],
+      "mitigation": "Replace AMM spot-derived samples in MaltDataLab's moving averages with cumulative price observations, a TWAP implementation, or another manipulation-resistant oracle design so that updater calls cannot record attacker-controlled spot observations.",
+      "finding_id": "M-30",
+      "review_status": "gold_verified"
+    }
+  ]
+}

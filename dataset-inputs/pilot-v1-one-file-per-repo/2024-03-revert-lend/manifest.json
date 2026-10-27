@@ -1,0 +1,324 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2024-03-revert-lend",
+  "source_repo_dir": "2024-03-revert-lend",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "435b054f9ad2404173f36f0f74a5096c894b12b7",
+  "actual_git_head": "435b054f9ad2404173f36f0f74a5096c894b12b7",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 18,
+  "excluded_solidity_file_count": 8,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 47520,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 47520,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "lib/AggregatorV3Interface.sol",
+          "sha256": "d521558e25651e849518d436329153d41b642c0d55a00ddb711ab65446b7d5e9",
+          "source_bytes_utf8": 400,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 17
+        },
+        {
+          "file": "lib/IUniversalRouter.sol",
+          "sha256": "7b9e13568844875d2161a9ab28ad3cb94a740aed326525d310850f402625ea3c",
+          "source_bytes_utf8": 561,
+          "source_line_count": 10,
+          "imports": [],
+          "bundle_marker_line": 19,
+          "bundle_source_start_line": 20,
+          "bundle_source_end_line": 29
+        },
+        {
+          "file": "lib/IWETH9.sol",
+          "sha256": "3adc5710ed3678d72c764305b8a3f94c0fe1359bdf7f071bc6ea08849f0c33ac",
+          "source_bytes_utf8": 376,
+          "source_line_count": 13,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 31,
+          "bundle_source_start_line": 32,
+          "bundle_source_end_line": 44
+        },
+        {
+          "file": "src/automators/AutoExit.sol",
+          "sha256": "02fa016d00973321428de357213c7ff4419e8eae2448966f59bece8d255dd761",
+          "source_bytes_utf8": 9412,
+          "source_line_count": 245,
+          "imports": [
+            "./Automator.sol"
+          ],
+          "bundle_marker_line": 46,
+          "bundle_source_start_line": 47,
+          "bundle_source_end_line": 291
+        },
+        {
+          "file": "src/automators/Automator.sol",
+          "sha256": "e0cc1a348ee6f3777bca51cb395ea9e1c2ac9455edea66cb499f7001f57cd71d",
+          "source_bytes_utf8": 9041,
+          "source_line_count": 256,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/utils/math/SafeCast.sol",
+            "v3-core/interfaces/IUniswapV3Factory.sol",
+            "v3-core/interfaces/IUniswapV3Pool.sol",
+            "v3-core/libraries/TickMath.sol",
+            "v3-core/libraries/FullMath.sol",
+            "v3-periphery/interfaces/INonfungiblePositionManager.sol",
+            "../../lib/IWETH9.sol",
+            "../utils/Swapper.sol",
+            "../interfaces/IVault.sol"
+          ],
+          "bundle_marker_line": 293,
+          "bundle_source_start_line": 294,
+          "bundle_source_end_line": 549
+        },
+        {
+          "file": "src/InterestRateModel.sol",
+          "sha256": "cd9b224825e883185fa5659e67b76579e3b216ae1416df8dcd2afe0213bd1ab1",
+          "source_bytes_utf8": 4193,
+          "source_line_count": 102,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "./interfaces/IInterestRateModel.sol",
+            "./interfaces/IErrors.sol"
+          ],
+          "bundle_marker_line": 551,
+          "bundle_source_start_line": 552,
+          "bundle_source_end_line": 653
+        },
+        {
+          "file": "src/interfaces/IErrors.sol",
+          "sha256": "c0ee13efa77838d6baa3d18bf062a2f0f03d94fc5cabc7e19acfe765541ebf9c",
+          "source_bytes_utf8": 1382,
+          "source_line_count": 56,
+          "imports": [],
+          "bundle_marker_line": 655,
+          "bundle_source_start_line": 656,
+          "bundle_source_end_line": 711
+        },
+        {
+          "file": "src/interfaces/IInterestRateModel.sol",
+          "sha256": "6269fa1ba8ebc3c8032ddb3cb2f1863df02f8c34d65e20099b36d25c1797db98",
+          "source_bytes_utf8": 306,
+          "source_line_count": 10,
+          "imports": [],
+          "bundle_marker_line": 713,
+          "bundle_source_start_line": 714,
+          "bundle_source_end_line": 723
+        },
+        {
+          "file": "src/interfaces/IV3Oracle.sol",
+          "sha256": "cab80dd4c6097e867b2fac7c74c07595b4dda3e0727df07822ceff0c60a331f3",
+          "source_bytes_utf8": 871,
+          "source_line_count": 27,
+          "imports": [],
+          "bundle_marker_line": 725,
+          "bundle_source_start_line": 726,
+          "bundle_source_end_line": 752
+        },
+        {
+          "file": "src/interfaces/IVault.sol",
+          "sha256": "3a2bbb14418d897e2a519d2cc636104acf8adca5e52003f20c66e8294da7c198",
+          "source_bytes_utf8": 3280,
+          "source_line_count": 92,
+          "imports": [
+            "@openzeppelin/contracts/interfaces/IERC4626.sol"
+          ],
+          "bundle_marker_line": 754,
+          "bundle_source_start_line": 755,
+          "bundle_source_end_line": 846
+        },
+        {
+          "file": "src/transformers/AutoCompound.sol",
+          "sha256": "6ee7a468c35bd1024e1e491a40e3181d3fac6310b0b431c56fa4637a73d5f489",
+          "source_bytes_utf8": 11859,
+          "source_line_count": 287,
+          "imports": [
+            "@openzeppelin/contracts/security/ReentrancyGuard.sol",
+            "@openzeppelin/contracts/utils/Multicall.sol",
+            "@openzeppelin/contracts/utils/math/SafeMath.sol",
+            "v3-periphery/interfaces/INonfungiblePositionManager.sol",
+            "../automators/Automator.sol"
+          ],
+          "bundle_marker_line": 848,
+          "bundle_source_start_line": 849,
+          "bundle_source_end_line": 1135
+        },
+        {
+          "file": "src/transformers/AutoRange.sol",
+          "sha256": "4aab27d98438d25b345f3e6d12f9fad381464ad57710104fef11a671a6c54a8f",
+          "source_bytes_utf8": 13509,
+          "source_line_count": 315,
+          "imports": [
+            "../automators/Automator.sol"
+          ],
+          "bundle_marker_line": 1137,
+          "bundle_source_start_line": 1138,
+          "bundle_source_end_line": 1452
+        },
+        {
+          "file": "src/transformers/LeverageTransformer.sol",
+          "sha256": "b71cef6330bcafc05478446c7cf7e4a021892fcdc463c53385426667e80f3093",
+          "source_bytes_utf8": 7369,
+          "source_line_count": 176,
+          "imports": [
+            "@openzeppelin/contracts/utils/math/SafeCast.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "../utils/Swapper.sol",
+            "../interfaces/IVault.sol"
+          ],
+          "bundle_marker_line": 1454,
+          "bundle_source_start_line": 1455,
+          "bundle_source_end_line": 1630
+        },
+        {
+          "file": "src/transformers/V3Utils.sol",
+          "sha256": "e0072bd2e643726ad5d9b89b49bbd2ed30641ad20dd8cf3e11ef7597cff84440",
+          "source_bytes_utf8": 37047,
+          "source_line_count": 919,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol",
+            "@openzeppelin/contracts/utils/math/SafeCast.sol",
+            "permit2/interfaces/IPermit2.sol",
+            "../utils/Swapper.sol"
+          ],
+          "bundle_marker_line": 1632,
+          "bundle_source_start_line": 1633,
+          "bundle_source_end_line": 2551
+        },
+        {
+          "file": "src/utils/FlashloanLiquidator.sol",
+          "sha256": "2c716a5b81866d16e0fa620c3d223e59363a3ae818ede153cf5707b7570d6db8",
+          "source_bytes_utf8": 4652,
+          "source_line_count": 110,
+          "imports": [
+            "v3-core/interfaces/IUniswapV3Pool.sol",
+            "v3-core/interfaces/callback/IUniswapV3FlashCallback.sol",
+            "../interfaces/IVault.sol",
+            "./Swapper.sol"
+          ],
+          "bundle_marker_line": 2553,
+          "bundle_source_start_line": 2554,
+          "bundle_source_end_line": 2663
+        },
+        {
+          "file": "src/utils/Swapper.sol",
+          "sha256": "a54733a1b67563e275b6e39eb7f03b802db04ef352ea9fd4d5518420dbf41864",
+          "source_bytes_utf8": 6991,
+          "source_line_count": 174,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "v3-core/interfaces/callback/IUniswapV3SwapCallback.sol",
+            "v3-core/interfaces/IUniswapV3Pool.sol",
+            "v3-core/libraries/TickMath.sol",
+            "v3-periphery/interfaces/INonfungiblePositionManager.sol",
+            "../../lib/IWETH9.sol",
+            "../../lib/IUniversalRouter.sol",
+            "../interfaces/IErrors.sol"
+          ],
+          "bundle_marker_line": 2665,
+          "bundle_source_start_line": 2666,
+          "bundle_source_end_line": 2839
+        },
+        {
+          "file": "src/V3Oracle.sol",
+          "sha256": "03a650a1609f981dcadbc46b235445044bc9836bec638819af1745fec8733213",
+          "source_bytes_utf8": 20384,
+          "source_line_count": 502,
+          "imports": [
+            "v3-core/interfaces/IUniswapV3Factory.sol",
+            "v3-core/interfaces/IUniswapV3Pool.sol",
+            "v3-core/libraries/TickMath.sol",
+            "v3-periphery/libraries/PoolAddress.sol",
+            "v3-periphery/libraries/LiquidityAmounts.sol",
+            "v3-periphery/interfaces/INonfungiblePositionManager.sol",
+            "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../lib/AggregatorV3Interface.sol",
+            "./interfaces/IV3Oracle.sol",
+            "./interfaces/IErrors.sol"
+          ],
+          "bundle_marker_line": 2841,
+          "bundle_source_start_line": 2842,
+          "bundle_source_end_line": 3343
+        },
+        {
+          "file": "src/V3Vault.sol",
+          "sha256": "5a0d75761b993a8c4f55c23adfe9a0aa06e7e614384de4da0a9579166fd8d26d",
+          "source_bytes_utf8": 56261,
+          "source_line_count": 1315,
+          "imports": [
+            "v3-core/interfaces/IUniswapV3Factory.sol",
+            "v3-core/interfaces/IUniswapV3Pool.sol",
+            "v3-core/libraries/TickMath.sol",
+            "v3-core/libraries/FixedPoint128.sol",
+            "v3-periphery/libraries/LiquidityAmounts.sol",
+            "v3-periphery/interfaces/INonfungiblePositionManager.sol",
+            "@openzeppelin/contracts/utils/math/Math.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol",
+            "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol",
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/utils/math/SafeCast.sol",
+            "@openzeppelin/contracts/utils/Multicall.sol",
+            "permit2/interfaces/IPermit2.sol",
+            "./interfaces/IVault.sol",
+            "./interfaces/IV3Oracle.sol",
+            "./interfaces/IInterestRateModel.sol",
+            "./interfaces/IErrors.sol"
+          ],
+          "bundle_marker_line": 3345,
+          "bundle_source_start_line": 3346,
+          "bundle_source_end_line": 4660
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "test/integration/automators/AutoCompound.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/automators/AutoExit.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/automators/AutomatorIntegrationTestBase.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/automators/AutoRange.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/InterestRateModel.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/V3Oracle.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/V3Utils.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/integration/V3Vault.t.sol",
+      "reason": "out_of_scope_directory:test"
+    }
+  ]
+}

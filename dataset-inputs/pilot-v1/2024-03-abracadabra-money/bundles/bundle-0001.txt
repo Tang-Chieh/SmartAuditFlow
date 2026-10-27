@@ -1,0 +1,4623 @@
+// ===== BEGIN SOURCE FILE: script/Blast.s.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import "utils/BaseScript.sol";
+import {BoringOwnable} from "BoringSolidity/BoringOwnable.sol";
+import {IBlastBox} from "/blast/interfaces/IBlastBox.sol";
+import {FeeCollectable} from "mixins/FeeCollectable.sol";
+import {Owned} from "solmate/auth/Owned.sol";
+import {BlastTokenRegistry} from "/blast/BlastTokenRegistry.sol";
+import {ICauldronV4} from "interfaces/ICauldronV4.sol";
+import {BlastPoints} from "/blast/libraries/BlastPoints.sol";
+
+contract BlastScript is BaseScript {
+    function deploy() public returns (address blastBox) {
+        address owner = toolkit.getAddress(ChainId.Blast, "safe.ops");
+        address feeTo = toolkit.getAddress(ChainId.Blast, "safe.ops");
+
+        (address blastGovernor, address blastTokenRegistry) = deployPrerequisites(owner, feeTo);
+
+        vm.startBroadcast();
+
+        deploy("Dapp", "BlastDapp.sol:BlastDapp", "");
+        blastBox = deploy(
+            "BlastBox",
+            "BlastBox.sol:BlastBox",
+            abi.encode(toolkit.getAddress(ChainId.Blast, "weth"), blastTokenRegistry, feeTo)
+        );
+
+        ICauldronV4 cauldron = ICauldronV4(
+            deploy(
+                "CauldronV4_MC",
+                "BlastWrappers.sol:BlastCauldronV4",
+                abi.encode(blastBox, toolkit.getAddress(block.chainid, "mim"), blastGovernor)
+            )
+        );
+
+        if (!testing()) {
+            address weth = toolkit.getAddress(ChainId.Blast, "weth");
+            address usdb = toolkit.getAddress(ChainId.Blast, "usdb");
+            address mim = toolkit.getAddress(ChainId.Blast, "mim");
+
+            if (cauldron.feeTo() != feeTo) {
+                cauldron.setFeeTo(feeTo);
+            }
+            if (Owned(address(cauldron)).owner() != owner) {
+                Owned(address(cauldron)).transferOwnership(owner);
+            }
+            if (!IBlastBox(blastBox).enabledTokens(weth)) {
+                IBlastBox(blastBox).setTokenEnabled(weth, true);
+            }
+            if (!IBlastBox(blastBox).enabledTokens(usdb)) {
+                IBlastBox(blastBox).setTokenEnabled(usdb, true);
+            }
+            if (!IBlastBox(blastBox).enabledTokens(mim)) {
+                IBlastBox(blastBox).setTokenEnabled(mim, true);
+            }
+            if (IBlastBox(blastBox).feeTo() != feeTo) {
+                IBlastBox(blastBox).setFeeTo(feeTo);
+            }
+            if (BoringOwnable(address(blastBox)).owner() != owner) {
+                BoringOwnable(address(blastBox)).transferOwnership(owner, true, false);
+            }
+        }
+        vm.stopBroadcast();
+    }
+
+    function deployPrerequisites(address owner, address feeTo) public returns (address blastGovernor, address blastTokenRegistry) {
+        vm.startBroadcast();
+
+        blastGovernor = deploy("BlastGovernor", "BlastGovernor.sol:BlastGovernor", abi.encode(feeTo, owner));
+        blastTokenRegistry = deploy("BlastTokenRegistry", "BlastTokenRegistry.sol:BlastTokenRegistry", abi.encode(tx.origin));
+
+        if (!testing()) {
+            address weth = toolkit.getAddress(ChainId.Blast, "weth");
+            address usdb = toolkit.getAddress(ChainId.Blast, "usdb");
+
+            if (!BlastTokenRegistry(blastTokenRegistry).nativeYieldTokens(weth)) {
+                BlastTokenRegistry(blastTokenRegistry).setNativeYieldTokenEnabled(weth, true);
+            }
+            if (!BlastTokenRegistry(blastTokenRegistry).nativeYieldTokens(usdb)) {
+                BlastTokenRegistry(blastTokenRegistry).setNativeYieldTokenEnabled(usdb, true);
+            }
+            if (BlastTokenRegistry(blastTokenRegistry).owner() != owner) {
+                BlastTokenRegistry(blastTokenRegistry).transferOwnership(owner);
+            }
+        }
+        vm.stopBroadcast();
+    }
+}
+// ===== END SOURCE FILE: script/Blast.s.sol =====
+// ===== BEGIN SOURCE FILE: script/BlastOnboarding.s.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import "utils/BaseScript.sol";
+import {BlastOnboarding} from "/blast/BlastOnboarding.sol";
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+import {ICauldronV4} from "interfaces/ICauldronV4.sol";
+import {IBentoBoxV1} from "interfaces/IBentoBoxV1.sol";
+import {IBlast} from "interfaces/IBlast.sol";
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+
+contract BlastOnboardingScript is BaseScript {
+    function deploy() public returns (BlastOnboarding onboarding) {
+        address owner = toolkit.getAddress(block.chainid, "safe.ops");
+        address feeTo = toolkit.getAddress(block.chainid, "safe.ops");
+        address blastGovernor = toolkit.getAddress(block.chainid, "blastGovernor");
+        address blastTokenRegistry = toolkit.getAddress(block.chainid, "blastTokenRegistry");
+
+        vm.startBroadcast();
+
+        onboarding = BlastOnboarding(
+            payable(deploy("Onboarding", "BlastOnboarding.sol:BlastOnboarding", abi.encode(blastTokenRegistry, feeTo, tx.origin)))
+        );
+
+        if (!testing()) {
+            address usdb = toolkit.getAddress(block.chainid, "usdb");
+            address mim = toolkit.getAddress(block.chainid, "mim");
+            if (!onboarding.supportedTokens(usdb)) {
+                onboarding.setTokenSupported(usdb, true);
+            }
+            if (!onboarding.supportedTokens(mim)) {
+                onboarding.setTokenSupported(mim, true);
+            }
+            if (onboarding.owner() != owner) {
+                onboarding.transferOwnership(owner);
+            }
+        }
+
+        vm.stopBroadcast();
+    }
+}
+// ===== END SOURCE FILE: script/BlastOnboarding.s.sol =====
+// ===== BEGIN SOURCE FILE: script/LockingMultiRewards.s.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import "utils/BaseScript.sol";
+import {LockingMultiRewards} from "staking/LockingMultiRewards.sol";
+
+contract LockingMultiRewardsScript is BaseScript {
+    function deploy() public returns (LockingMultiRewards staking) {
+        address safe = toolkit.getAddress(block.chainid, "safe.ops");
+
+        vm.startBroadcast();
+        staking = deployWithParameters(toolkit.getAddress(block.chainid, "mim"), 30_000, 7 days, 13 weeks, tx.origin);
+
+        staking.addReward(toolkit.getAddress(block.chainid, "arb"));
+        staking.setMinLockAmount(100 ether);
+
+        if (!testing()) {
+            staking.transferOwnership(safe);
+        }
+        vm.stopBroadcast();
+    }
+
+    function deployWithParameters(
+        address stakingToken,
+        uint256 boost,
+        uint256 rewardDuration,
+        uint256 lockDuration,
+        address origin
+    ) public returns (LockingMultiRewards staking) {
+        bytes memory params = abi.encode(stakingToken, boost, rewardDuration, lockDuration, origin);
+        staking = LockingMultiRewards(deploy("LockingMultiRewards", "LockingMultiRewards.sol:LockingMultiRewards", params));
+    }
+}
+// ===== END SOURCE FILE: script/LockingMultiRewards.s.sol =====
+// ===== BEGIN SOURCE FILE: script/MIMSwap.s.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import "utils/BaseScript.sol";
+import {Owned} from "solmate/auth/Owned.sol";
+import {MagicLP} from "/mimswap/MagicLP.sol";
+import {Factory} from "/mimswap/periphery/Factory.sol";
+import {Router} from "/mimswap/periphery/Router.sol";
+import {FeeRateModel} from "/mimswap/auxiliary/FeeRateModel.sol";
+import {BlastTokenRegistry} from "/blast/BlastTokenRegistry.sol";
+import {BlastScript} from "script/Blast.s.sol";
+
+contract MIMSwapScript is BaseScript {
+    address safe;
+    address weth;
+    address maintainer = safe;
+    address owner = safe;
+    address feeTo = safe;
+
+    function deploy() public returns (MagicLP implementation, FeeRateModel feeRateModel, Factory factory, Router router) {
+        safe = toolkit.getAddress(block.chainid, "safe.ops");
+        weth = toolkit.getAddress(block.chainid, "weth");
+        maintainer = safe;
+        owner = safe;
+        feeTo = safe;
+
+        if (block.chainid == ChainId.Blast) {
+            (implementation, feeRateModel, factory, router) = _deployBlast();
+        } else {
+            revert("unsupported chain");
+        }
+    }
+
+    function _deployBlast() private returns (MagicLP implementation, FeeRateModel feeRateModel, Factory factory, Router router) {
+        BlastScript blastScript = new BlastScript();
+        (address blastGovernor, address blastTokenRegistry) = blastScript.deployPrerequisites(tx.origin, feeTo);
+
+        vm.startBroadcast();
+
+        implementation = MagicLP(
+            deploy("MIMSwap_MagicLPImplementation", "BlastMagicLP.sol:BlastMagicLP", abi.encode(blastTokenRegistry, feeTo, tx.origin))
+        );
+        feeRateModel = FeeRateModel(
+            deploy("MIMSwap_MaintainerFeeRateModel", "FeeRateModel.sol:FeeRateModel", abi.encode(maintainer, tx.origin))
+        );
+
+        address feeRateModelImpl = deploy("MIMSwap_MaintainerFeeRateModel_Impl", "FeeRateModelImpl.sol:FeeRateModelImpl", "");
+        if (feeRateModel.implementation() != feeRateModelImpl) {
+            feeRateModel.setImplementation(feeRateModelImpl);
+        }
+
+        factory = Factory(
+            deploy(
+                "MIMSwap_Factory",
+                "BlastWrappers.sol:BlastMIMSwapFactory",
+                abi.encode(implementation, feeRateModel, owner, blastGovernor)
+            )
+        );
+
+        // Router
+        router = Router(
+            payable(
+                deploy(
+                    "MIMSwap_Router",
+                    "BlastWrappers.sol:BlastMIMSwapRouter",
+                    abi.encode(toolkit.getAddress(block.chainid, "weth"), factory, blastGovernor)
+                )
+            )
+        );
+
+        if (!testing()) {
+            if (Owned(address(implementation)).owner() != owner) {
+                Owned(address(implementation)).transferOwnership(owner);
+            }
+            if (Owned(address(feeRateModel)).owner() != owner) {
+                Owned(address(feeRateModel)).transferOwnership(owner);
+            }
+        }
+
+        vm.stopBroadcast();
+    }
+}
+// ===== END SOURCE FILE: script/MIMSwap.s.sol =====
+// ===== BEGIN SOURCE FILE: script/MIMSwapLaunch.s.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import "utils/BaseScript.sol";
+import "script/MIMSwap.s.sol";
+import {BlastOnboardingBoot} from "/blast/BlastOnboardingBoot.sol";
+
+contract MIMSwapLaunchScript is BaseScript {
+    function deploy()
+        public
+        returns (address bootstrapper, MagicLP implementation, FeeRateModel feeRateModel, Factory factory, Router router)
+    {
+        MIMSwapScript script = new MIMSwapScript();
+
+        // Reuse existing deployment unless we're testing
+        {
+            setNewDeploymentEnabled(false);
+            (implementation, feeRateModel, factory, router) = script.deploy();
+            setNewDeploymentEnabled(true);
+        }
+
+        vm.startBroadcast();
+        bootstrapper = deploy("Onboarding_Bootstrapper", "BlastOnboardingBoot.sol:BlastOnboardingBoot", "");
+        vm.stopBroadcast();
+    }
+}
+// ===== END SOURCE FILE: script/MIMSwapLaunch.s.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastBox.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// Copyright (c) 2021 BoringCrypto - All rights reserved
+pragma solidity >=0.8.0;
+
+import {DegenBox} from "/DegenBox.sol";
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+import {BlastPoints} from "/blast/libraries/BlastPoints.sol";
+import {BlastTokenRegistry} from "/blast/BlastTokenRegistry.sol";
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {OperatableV3} from "mixins/OperatableV3.sol";
+import {IWETH} from "interfaces/IWETH.sol";
+
+contract BlastBox is DegenBox, OperatableV3 {
+    event LogTokenDepositEnabled(address indexed token, bool enabled);
+    event LogFeeToChanged(address indexed feeTo);
+
+    error ErrZeroAddress();
+    error ErrUnsupportedToken();
+
+    BlastTokenRegistry public immutable registry;
+    mapping(address => bool) public enabledTokens;
+    address public feeTo;
+
+    constructor(IERC20 weth_, BlastTokenRegistry registry_, address feeTo_) DegenBox(weth_) {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        if (address(registry_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        registry = registry_;
+        feeTo = feeTo_;
+    }
+
+    function _onBeforeDeposit(
+        IERC20 token,
+        address /*from*/,
+        address /*to*/,
+        uint256 /*amount*/,
+        uint256 /*share*/
+    ) internal view override {
+        if (!enabledTokens[address(token)]) {
+            revert ErrUnsupportedToken();
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// OPERATORS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claimGasYields() external onlyOperators returns (uint256) {
+        return BlastYields.claimMaxGasYields(feeTo);
+    }
+
+    function claimTokenYields(address token_) external onlyOperators returns (uint256 amount) {
+        if (!registry.nativeYieldTokens(token_)) {
+            revert ErrUnsupportedToken();
+        }
+
+        amount = BlastYields.claimAllTokenYields(token_, feeTo);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function callBlastPrecompile(bytes calldata data) external onlyOwner {
+        BlastYields.callPrecompile(data);
+    }
+
+    function setFeeTo(address feeTo_) external onlyOwner {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        feeTo = feeTo_;
+        emit LogFeeToChanged(feeTo_);
+    }
+
+    function setTokenEnabled(address token, bool enabled) external onlyOwner {
+        enabledTokens[token] = enabled;
+
+        // enable native yields if token is recognized
+        // no matter if it's enabled or not
+        if (registry.nativeYieldTokens(token)) {
+            BlastYields.enableTokenClaimable(token);
+        }
+
+        emit LogTokenDepositEnabled(token, enabled);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    /// @dev Called on DegenBox's constructor
+    function _configure() internal override {
+        BlastYields.configureDefaultClaimables(address(this));
+        BlastPoints.configure();
+    }
+
+    function isOwner(address _account) internal view override returns (bool) {
+        return owner == _account;
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastBox.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastDapp.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {BlastPoints} from "/blast/libraries/BlastPoints.sol";
+
+contract BlastDapp {
+    constructor() {
+        BlastPoints.configure();
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastDapp.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastGovernor.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+import {OperatableV2} from "mixins/OperatableV2.sol";
+
+contract BlastGovernor is OperatableV2 {
+    event LogFeeToChanged(address indexed feeTo);
+    error ErrZeroAddress();
+
+    address public feeTo;
+
+    receive() external payable {}
+
+    constructor(address feeTo_, address _owner) OperatableV2(_owner) {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        feeTo = feeTo_;
+        BlastYields.configureDefaultClaimables(address(this));
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// OPERATORS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claimNativeYields(address contractAddress) external onlyOperators returns (uint256) {
+        return BlastYields.claimAllNativeYields(contractAddress, feeTo);
+    }
+
+    function claimMaxGasYields(address contractAddress) external onlyOperators returns (uint256) {
+        return BlastYields.claimMaxGasYields(contractAddress, feeTo);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function setFeeTo(address _feeTo) external onlyOwner {
+        if(_feeTo == address(0)) {
+            revert ErrZeroAddress();
+        }
+        
+        feeTo = _feeTo;
+        emit LogFeeToChanged(_feeTo);
+    }
+
+    function callBlastPrecompile(bytes calldata data) external onlyOwner {
+        BlastYields.callPrecompile(data);
+    }
+
+    function execute(address to, uint256 value, bytes calldata data) external onlyOwner returns (bool success, bytes memory result) {
+        (success, result) = to.call{value: value}(data);
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastGovernor.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastMagicLP.sol =====
+// SPDX-License-Identifier: UNLICENSED
+
+pragma solidity >=0.8.0;
+
+import {MagicLP} from "/mimswap/MagicLP.sol";
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+import {BlastPoints} from "/blast/libraries/BlastPoints.sol";
+import {BlastTokenRegistry} from "/blast/BlastTokenRegistry.sol";
+
+contract BlastMagicLP is MagicLP {
+    event LogFeeToChanged(address indexed feeTo);
+    event LogOperatorChanged(address indexed, bool);
+    event LogYieldClaimed(uint256 gasAmount, uint256 nativeAmount, uint256 token0Amount, uint256 token1Amount);
+
+    error ErrNotAllowedImplementationOperator();
+
+    BlastTokenRegistry public immutable registry;
+
+    /// @dev Implementation storage
+    address public feeTo;
+    mapping(address => bool) public operators;
+
+    constructor(BlastTokenRegistry registry_, address feeTo_, address owner_) MagicLP(owner_) {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        if (address(registry_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        registry = registry_;
+        feeTo = feeTo_;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function version() external pure override returns (string memory) {
+        return "BlastMagicLP 1.0.0";
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// OPERATORS / CLONES ONLY
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claimGasYields() external onlyClones onlyImplementationOperators returns (uint256) {
+        address feeTo_ = BlastMagicLP(address(implementation)).feeTo();
+
+        return BlastYields.claimMaxGasYields(feeTo_);
+    }
+
+    function claimTokenYields() external onlyClones onlyImplementationOperators returns (uint256 token0Amount, uint256 token1Amount) {
+        address feeTo_ = BlastMagicLP(address(implementation)).feeTo();
+
+        if (registry.nativeYieldTokens(_BASE_TOKEN_)) {
+            token0Amount = BlastYields.claimAllTokenYields(_BASE_TOKEN_, feeTo_);
+        }
+        if (registry.nativeYieldTokens(_QUOTE_TOKEN_)) {
+            token1Amount = BlastYields.claimAllTokenYields(_QUOTE_TOKEN_, feeTo_);
+        }
+    }
+
+    function updateTokenClaimables() external onlyClones onlyImplementationOperators {
+        _updateTokenClaimables();
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN / CLONES ONLY
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function callBlastPrecompile(bytes calldata data) external onlyClones onlyImplementationOwner {
+        BlastYields.callPrecompile(data);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN / IMPLEMENTATION ONLY
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function setFeeTo(address feeTo_) external onlyImplementation onlyImplementationOwner {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        feeTo = feeTo_;
+        emit LogFeeToChanged(feeTo_);
+    }
+
+    function setOperator(address operator, bool status) external onlyImplementation onlyImplementationOwner {
+        operators[operator] = status;
+        emit LogOperatorChanged(operator, status);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _afterInitialized() internal override {
+        BlastYields.configureDefaultClaimables(address(this));
+        BlastPoints.configure();
+        _updateTokenClaimables();
+    }
+
+    function _updateTokenClaimables() internal {
+        if (registry.nativeYieldTokens(_BASE_TOKEN_)) {
+            BlastYields.enableTokenClaimable(_BASE_TOKEN_);
+        }
+
+        if (registry.nativeYieldTokens(_QUOTE_TOKEN_)) {
+            BlastYields.enableTokenClaimable(_QUOTE_TOKEN_);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// MODIFIERS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    modifier onlyImplementationOperators() {
+        if (!BlastMagicLP(address(implementation)).operators(msg.sender) && msg.sender != implementation.owner()) {
+            revert ErrNotAllowedImplementationOperator();
+        }
+        _;
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastMagicLP.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastOnboarding.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+import {BlastTokenRegistry} from "/blast/BlastTokenRegistry.sol";
+import {Proxy} from "openzeppelin-contracts/proxy/Proxy.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {BlastPoints} from "/blast/libraries/BlastPoints.sol";
+import {Pausable} from "openzeppelin-contracts/security/Pausable.sol";
+
+contract BlastOnboardingData is Owned, Pausable {
+    error ErrZeroAddress();
+    error ErrWrongState();
+    error ErrUnsupportedToken();
+    error ErrNotAllowed();
+
+    enum State {
+        Idle,
+        Opened,
+        Closed
+    }
+
+    struct Balances {
+        uint256 unlocked;
+        uint256 locked;
+        uint256 total;
+    }
+
+    State public state;
+    address public bootstrapper;
+    address public feeTo;
+    BlastTokenRegistry public registry;
+
+    // Global
+    mapping(address token => bool) public supportedTokens;
+    mapping(address token => Balances) public totals;
+    mapping(address token => uint256 cap) public caps;
+
+    // Per-user
+    mapping(address user => mapping(address token => Balances)) public balances;
+
+    modifier onlyState(State _state) {
+        if (state != _state) {
+            revert ErrWrongState();
+        }
+        _;
+    }
+
+    modifier onlySupportedTokens(address token) {
+        if (!supportedTokens[token]) {
+            revert ErrUnsupportedToken();
+        }
+
+        _;
+    }
+
+    constructor() Owned(msg.sender) {
+        BlastYields.configureDefaultClaimables(address(this));
+        BlastPoints.configure();
+    }
+}
+
+contract BlastOnboarding is BlastOnboardingData, Proxy {
+    using SafeTransferLib for address;
+
+    event LogBootstrapperChanged(address indexed bootstrapper);
+    event LogTokenSupported(address indexed token, bool supported);
+    event LogDeposit(address indexed user, address indexed token, uint256 amount, bool lock);
+    event LogLock(address indexed user, address indexed token, uint256 amount);
+    event LogFeeToChanged(address indexed feeTo);
+    event LogWithdraw(address indexed user, address indexed token, uint256 amount);
+    event LogTokenCapChanged(address indexed token, uint256 cap);
+    event LogStateChange(State state);
+    event LogTokenRescue(address indexed token, address indexed to, uint256 amount);
+
+    error ErrUnsupported();
+    error ErrCapReached();
+
+    receive() external payable override {
+        revert ErrUnsupported();
+    }
+
+    constructor(BlastTokenRegistry registry_, address feeTo_) {
+        if (address(registry_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        registry = registry_;
+        feeTo = feeTo_;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// PUBLIC
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function deposit(address token, uint256 amount, bool lock_) external whenNotPaused onlyState(State.Opened) onlySupportedTokens(token) {
+        token.safeTransferFrom(msg.sender, address(this), amount);
+
+        if (lock_) {
+            totals[token].locked += amount;
+            balances[msg.sender][token].locked += amount;
+        } else {
+            totals[token].unlocked += amount;
+            balances[msg.sender][token].unlocked += amount;
+        }
+
+        totals[token].total += amount;
+
+        if (caps[token] > 0 && totals[token].total > caps[token]) {
+            revert ErrCapReached();
+        }
+
+        balances[msg.sender][token].total += amount;
+
+        emit LogDeposit(msg.sender, token, amount, lock_);
+    }
+
+    function lock(address token, uint256 amount) external whenNotPaused onlyState(State.Opened) onlySupportedTokens(token) {
+        balances[msg.sender][token].unlocked -= amount;
+        balances[msg.sender][token].locked += amount;
+        totals[token].unlocked -= amount;
+        totals[token].locked += amount;
+
+        emit LogLock(msg.sender, token, amount);
+    }
+
+    function withdraw(address token, uint256 amount) external whenNotPaused onlySupportedTokens(token) {
+        balances[msg.sender][token].unlocked -= amount;
+        balances[msg.sender][token].total -= amount;
+        totals[token].unlocked -= amount;
+        totals[token].total -= amount;
+
+        token.safeTransfer(msg.sender, amount);
+
+        emit LogWithdraw(msg.sender, token, amount);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function setFeeTo(address feeTo_) external onlyOwner {
+        if (feeTo_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        feeTo = feeTo_;
+        emit LogFeeToChanged(feeTo_);
+    }
+
+    function callBlastPrecompile(bytes calldata data) external onlyOwner {
+        BlastYields.callPrecompile(data);
+    }
+
+    function claimGasYields() external onlyOwner returns (uint256) {
+        return BlastYields.claimMaxGasYields(feeTo);
+    }
+
+    function claimTokenYields(address[] memory tokens) external onlyOwner {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            if (!supportedTokens[tokens[i]]) {
+                revert ErrUnsupportedToken();
+            }
+            if (registry.nativeYieldTokens(tokens[i])) {
+                BlastYields.claimAllTokenYields(tokens[i], feeTo);
+            }
+        }
+    }
+
+    function setTokenSupported(address token, bool supported) external onlyOwner {
+        supportedTokens[token] = supported;
+
+        if (registry.nativeYieldTokens(token)) {
+            BlastYields.enableTokenClaimable(token);
+        }
+
+        emit LogTokenSupported(token, supported);
+    }
+
+    function setCap(address token, uint256 cap) external onlyOwner onlySupportedTokens(token) {
+        caps[token] = cap;
+        emit LogTokenCapChanged(token, cap);
+    }
+
+    function setBootstrapper(address bootstrapper_) external onlyOwner {
+        bootstrapper = bootstrapper_;
+        emit LogBootstrapperChanged(bootstrapper_);
+    }
+
+    function open() external onlyOwner onlyState(State.Idle) {
+        state = State.Opened;
+        emit LogStateChange(State.Opened);
+    }
+
+    function close() external onlyOwner onlyState(State.Opened) {
+        state = State.Closed;
+        emit LogStateChange(State.Closed);
+    }
+
+    function rescue(address token, address to, uint256 amount) external onlyOwner {
+        if (supportedTokens[token]) {
+            revert ErrNotAllowed();
+        }
+
+        token.safeTransfer(to, amount);
+        emit LogTokenRescue(token, to, amount);
+    }
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// PROXY IMPLEMENTATION
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _implementation() internal view override returns (address) {
+        return address(bootstrapper);
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastOnboarding.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastOnboardingBoot.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {BlastOnboarding} from "/blast/BlastOnboarding.sol";
+import {BlastOnboardingData} from "/blast/BlastOnboarding.sol";
+import {Router} from "/mimswap/periphery/Router.sol";
+import {IFeeRateModel} from "/mimswap/interfaces/IFeeRateModel.sol";
+import {IFactory} from "/mimswap/interfaces/IFactory.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {DecimalMath} from "/mimswap/libraries/DecimalMath.sol";
+import {LockingMultiRewards} from "staking/LockingMultiRewards.sol";
+
+address constant USDB = 0x4300000000000000000000000000000000000003;
+address constant MIM = 0x76DA31D7C9CbEAE102aff34D3398bC450c8374c1;
+uint256 constant FEE_RATE = 0.0005 ether; // 0.05%
+uint256 constant K = 0.00025 ether; // 0.00025, 1.25% price fluctuation, similar to A2000 in curve
+uint256 constant I = 0.998 ether; // 1 MIM = 0.998 USDB
+uint256 constant USDB_TO_MIN = 1.002 ether; // 1 USDB = 1.002 MIM
+uint256 constant MIM_TO_MIN = I;
+
+// Add a new data contract each bootstrap upgrade that involves
+// adding new storage variables.
+contract BlastOnboardingBootDataV1 is BlastOnboardingData {
+    address public pool;
+    Router public router;
+    IFactory public factory;
+    uint256 public totalPoolShares;
+    bool public ready;
+    LockingMultiRewards public staking;
+    mapping(address user => bool claimed) public claimed;
+}
+
+/// @dev Functions are postfixed with the version number to avoid collisions
+contract BlastOnboardingBoot is BlastOnboardingBootDataV1 {
+    using SafeTransferLib for address;
+
+    event LogReadyChanged(bool ready);
+    event LogClaimed(address indexed user, uint256 shares, bool lock);
+    event LogInitialized(Router indexed router);
+    event LogLiquidityBootstrapped(address indexed pool, address indexed staking, uint256 amountOut);
+    event LogStakingChanged(address indexed staking);
+
+    error ErrInsufficientAmountOut();
+    error ErrNotReady();
+    error ErrAlreadyClaimed();
+    error ErrWrongFeeRateModel();
+    error ErrAlreadyBootstrapped();
+    error ErrNothingToClaim();
+    error ErrCannotChangeOnceReady();
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// PUBLIC
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claim(bool lock) external returns (uint256 shares) {
+        if (!ready) {
+            revert ErrNotReady();
+        }
+        if (claimed[msg.sender]) {
+            revert ErrAlreadyClaimed();
+        }
+
+        shares = _claimable(msg.sender);
+        if (shares == 0) {
+            revert ErrNothingToClaim();
+        }
+
+        claimed[msg.sender] = true;
+        staking.stakeFor(msg.sender, shares, lock);
+
+        emit LogClaimed(msg.sender, shares, lock);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claimable(address user) external view returns (uint256 shares) {
+        if (!ready || claimed[user]) {
+            return 0;
+        }
+
+        return _claimable(user);
+    }
+
+    function previewTotalPoolShares() external view returns (uint256 baseAdjustedInAmount, uint256 quoteAdjustedInAmount, uint256 shares) {
+        uint256 baseAmount = totals[MIM].locked;
+        uint256 quoteAmount = totals[USDB].locked;
+        return router.previewCreatePool(I, baseAmount, quoteAmount);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function bootstrap(uint256 minAmountOut) external onlyOwner onlyState(State.Closed) returns (address, address, uint256) {
+        if (pool != address(0)) {
+            revert ErrAlreadyBootstrapped();
+        }
+
+        uint256 baseAmount = totals[MIM].locked;
+        uint256 quoteAmount = totals[USDB].locked;
+        MIM.safeApprove(address(router), type(uint256).max);
+        USDB.safeApprove(address(router), type(uint256).max);
+
+        (pool, totalPoolShares) = router.createPool(MIM, USDB, FEE_RATE, I, K, address(this), baseAmount, quoteAmount);
+
+        if (totalPoolShares < minAmountOut) {
+            revert ErrInsufficientAmountOut();
+        }
+
+        // Create staking contract
+        // 3x boosting for locker, 7 days reward duration, 13 weeks lp locking
+        // make this contract temporary the owner the set it as an operator
+        // for permissionned `stakeFor` during the claiming process and then
+        // transfer the ownership to the onboarding owner.
+        staking = new LockingMultiRewards(pool, 30_000, 7 days, 13 weeks, address(this));
+        staking.setOperator(address(this), true);
+        staking.transferOwnership(owner);
+
+        // Approve staking contract
+        pool.safeApprove(address(staking), totalPoolShares);
+
+        emit LogLiquidityBootstrapped(pool, address(staking), totalPoolShares);
+
+        return (pool, address(staking), totalPoolShares);
+    }
+
+    function initialize(Router _router) external onlyOwner {
+        router = Router(payable(_router));
+        factory = IFactory(router.factory());
+        emit LogInitialized(_router);
+    }
+
+    // Just in case we need to change the staking contract after
+    // the automatic bootstrapping process
+    function setStaking(LockingMultiRewards _staking) external onlyOwner {
+        if (ready) {
+            revert ErrCannotChangeOnceReady();
+        }
+
+        staking = _staking;
+        emit LogStakingChanged(address(_staking));
+    }
+
+    function setReady(bool _ready) external onlyOwner onlyState(State.Closed) {
+        ready = _ready;
+        emit LogReadyChanged(ready);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _claimable(address user) internal view returns (uint256 shares) {
+        uint256 totalLocked = totals[MIM].locked + totals[USDB].locked;
+
+        if (totalLocked == 0) {
+            return 0;
+        }
+
+        uint256 userLocked = balances[user][MIM].locked + balances[user][USDB].locked;
+        return (userLocked * totalPoolShares) / totalLocked;
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastOnboardingBoot.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastTokenRegistry.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+
+contract BlastTokenRegistry is Owned {
+    event LogNativeYieldTokenEnabled(address indexed token, bool enabled);
+    error ErrZeroAddress();
+
+    mapping(address => bool) public nativeYieldTokens;
+
+    constructor(address _owner) Owned(_owner) {}
+
+    function setNativeYieldTokenEnabled(address token, bool enabled) external onlyOwner {
+        if (token == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        nativeYieldTokens[token] = enabled;
+        emit LogNativeYieldTokenEnabled(token, enabled);
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastTokenRegistry.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/BlastWrappers.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {BlastYields} from "/blast/libraries/BlastYields.sol";
+import {Router} from "/mimswap/periphery/Router.sol";
+import {Factory} from "/mimswap/periphery/Factory.sol";
+import {IFeeRateModel} from "/mimswap/interfaces/IFeeRateModel.sol";
+import {CauldronV4} from "cauldrons/CauldronV4.sol";
+import {IWETH} from "interfaces/IWETH.sol";
+import {IBentoBoxV1} from "interfaces/IBentoBoxV1.sol";
+import {IFactory} from "/mimswap/interfaces/IFactory.sol";
+
+/// @dev Collection of Blast wrapped contract that are succecptible to be used
+/// enough to justify claiming gas yields.
+
+error ErrZeroAddress();
+
+contract BlastMIMSwapRouter is Router {
+    constructor(IWETH weth_, IFactory factory, address governor_) Router(weth_, factory) {
+        if (governor_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        BlastYields.configureDefaultClaimables(governor_);
+    }
+}
+
+contract BlastMIMSwapFactory is Factory {
+    constructor(
+        address implementation_,
+        IFeeRateModel maintainerFeeRateModel_,
+        address owner_,
+        address governor_
+    ) Factory(implementation_, maintainerFeeRateModel_, owner_) {
+        if (governor_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        BlastYields.configureDefaultClaimables(governor_);
+    }
+}
+
+contract BlastCauldronV4 is CauldronV4 {
+    error ErrInvalidGovernorAddress();
+
+    address private immutable _governor;
+
+    constructor(address box_, address mim_, address governor_) CauldronV4(IBentoBoxV1(box_), IERC20(mim_)) {
+        if (governor_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        if (governor_ == address(this)) {
+            revert ErrInvalidGovernorAddress();
+        }
+
+        _governor = governor_;
+        _setupBlacklist();
+    }
+
+    function init(bytes calldata data) public payable override {
+        if (_governor == address(this)) {
+            revert ErrInvalidGovernorAddress();
+        }
+
+        _setupBlacklist();
+
+        super.init(data);
+        BlastYields.configureDefaultClaimables(_governor);
+    }
+
+    function _setupBlacklist() private {
+        blacklistedCallees[address(BlastYields.BLAST_YIELD_PRECOMPILE)] = true;
+    }
+}
+// ===== END SOURCE FILE: src/blast/BlastWrappers.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/interfaces/IBlastBox.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+interface IBlastBox {
+    function feeTo() external view returns (address);
+
+    function registry() external view returns (address);
+
+    function setTokenEnabled(address token, bool enabled) external;
+
+    function claimGasYields() external returns (uint256);
+
+    function claimTokenYields(address token_) external returns (uint256 amount);
+
+    function setFeeTo(address feeTo_) external;
+
+    function enabledTokens(address) external view returns (bool);
+}
+// ===== END SOURCE FILE: src/blast/interfaces/IBlastBox.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/libraries/BlastPoints.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {IBlastPoints} from "interfaces/IBlast.sol";
+
+library BlastPoints {
+    address public constant BLAST_POINTS_OPERATOR = 0xD1025F1359422Ca16D9084908d629E0dBa60ff28;
+    IBlastPoints public constant BLAST_POINTS = IBlastPoints(0x2536FE9ab3F511540F2f9e2eC2A805005C3Dd800);
+
+    function configure() internal {
+        BLAST_POINTS.configurePointsOperator(BLAST_POINTS_OPERATOR);
+    }
+}
+// ===== END SOURCE FILE: src/blast/libraries/BlastPoints.sol =====
+// ===== BEGIN SOURCE FILE: src/blast/libraries/BlastYields.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {IBlast, IERC20Rebasing, YieldMode, GasMode} from "interfaces/IBlast.sol";
+import {Address} from "openzeppelin-contracts/utils/Address.sol";
+
+library BlastYields {
+    event LogBlastGasClaimed(address indexed recipient, uint256 amount);
+    event LogBlastETHClaimed(address indexed recipient, uint256 amount);
+    event LogBlastTokenClaimed(address indexed recipient, address indexed token, uint256 amount);
+    event LogBlastTokenClaimableEnabled(address indexed contractAddress, address indexed token);
+    event LogBlastNativeClaimableEnabled(address indexed contractAddress);
+
+    IBlast constant BLAST_YIELD_PRECOMPILE = IBlast(0x4300000000000000000000000000000000000002);
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // CONFIGURATION
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function enableTokenClaimable(address token) internal {
+        if (IERC20Rebasing(token).getConfiguration(address(this)) == YieldMode.CLAIMABLE) {
+            return;
+        }
+
+        IERC20Rebasing(token).configure(YieldMode.CLAIMABLE);
+        emit LogBlastTokenClaimableEnabled(address(this), token);
+    }
+
+    function configureDefaultClaimables(address governor_) internal {
+        BLAST_YIELD_PRECOMPILE.configure(YieldMode.CLAIMABLE, GasMode.CLAIMABLE, governor_);
+        emit LogBlastNativeClaimableEnabled(address(this));
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // GAS CLAIMING
+    //////////////////////////////////////////////////////////////////////////////////////
+    
+    function claimMaxGasYields(address recipient) internal returns (uint256) {
+        return claimMaxGasYields(address(this), recipient);
+    }
+
+    function claimMaxGasYields(address contractAddress, address recipient) internal returns (uint256 amount) {
+        amount = BLAST_YIELD_PRECOMPILE.claimMaxGas(contractAddress, recipient);
+        emit LogBlastGasClaimed(recipient, amount);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // NATIVE CLAIMING
+    //////////////////////////////////////////////////////////////////////////////////////<
+
+    function claimAllNativeYields(address recipient) internal returns (uint256 amount) {
+        return claimAllNativeYields(address(this), recipient);
+    }
+
+    function claimAllNativeYields(address contractAddress, address recipient) internal returns (uint256 amount) {
+        amount = BLAST_YIELD_PRECOMPILE.claimAllYield(contractAddress, recipient);
+        emit LogBlastETHClaimed(recipient, amount);
+    }
+
+    function claimNativeYields(address contractAddress, uint256 amount, address recipient) internal returns (uint256) {
+        amount = BLAST_YIELD_PRECOMPILE.claimYield(contractAddress, recipient, amount);
+        emit LogBlastETHClaimed(recipient, amount);
+        return amount;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // TOKENS CLAIMING
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function claimAllTokenYields(address token, address recipient) internal returns (uint256 amount) {
+        amount = IERC20Rebasing(token).claim(recipient, IERC20Rebasing(token).getClaimableAmount(address(this)));
+        emit LogBlastTokenClaimed(recipient, address(token), amount);
+    }
+
+    function claimTokenYields(address token, uint256 amount, address recipient) internal returns (uint256) {
+        amount = IERC20Rebasing(token).claim(recipient, amount);
+        emit LogBlastTokenClaimed(recipient, address(token), amount);
+        return amount;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    // ARBITRARY PRECOMPILE CALLS
+    // Meant to be used for any other calls to the precompile not covered by the above
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function callPrecompile(bytes calldata data) internal {
+        Address.functionCall(address(BLAST_YIELD_PRECOMPILE), data);
+    }
+}
+// ===== END SOURCE FILE: src/blast/libraries/BlastYields.sol =====
+// ===== BEGIN SOURCE FILE: src/cauldrons/CauldronV4.sol =====
+// SPDX-License-Identifier: UNLICENSED
+
+// Cauldron
+
+//    (                (   (
+//    )\      )    (   )\  )\ )  (
+//  (((_)  ( /(   ))\ ((_)(()/(  )(    (    (
+//  )\___  )(_)) /((_) _   ((_))(()\   )\   )\ )
+// ((/ __|((_)_ (_))( | |  _| |  ((_) ((_) _(_/(
+//  | (__ / _` || || || |/ _` | | '_|/ _ \| ' \))
+//   \___|\__,_| \_,_||_|\__,_| |_|  \___/|_||_|
+
+pragma solidity >=0.8.0;
+import {Owned} from "solmate/auth/Owned.sol";
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+import {ISwapperV2} from "interfaces/ISwapperV2.sol";
+import {IBentoBoxV1} from "interfaces/IBentoBoxV1.sol";
+import {IMasterContract} from "BoringSolidity/interfaces/IMasterContract.sol";
+import {RebaseLibrary, Rebase} from "BoringSolidity/libraries/BoringRebase.sol";
+import {BoringMath, BoringMath128} from "BoringSolidity/libraries/BoringMath.sol";
+
+// solhint-disable avoid-low-level-calls
+// solhint-disable no-inline-assembly
+
+/// @title Cauldron
+/// @dev This contract allows contract calls to any contract (except BentoBox)
+/// from arbitrary callers thus, don't trust calls from this contract in any circumstances.
+contract CauldronV4 is Owned, IMasterContract {
+    using BoringMath for uint256;
+    using BoringMath128 for uint128;
+    using RebaseLibrary for Rebase;
+
+    event LogExchangeRate(uint256 rate);
+    event LogAccrue(uint128 accruedAmount);
+    event LogAddCollateral(address indexed from, address indexed to, uint256 share);
+    event LogRemoveCollateral(address indexed from, address indexed to, uint256 share);
+    event LogBorrow(address indexed from, address indexed to, uint256 amount, uint256 part);
+    event LogRepay(address indexed from, address indexed to, uint256 amount, uint256 part);
+    event LogFeeTo(address indexed newFeeTo);
+    event LogWithdrawFees(address indexed feeTo, uint256 feesEarnedFraction);
+    event LogInterestChange(uint64 oldInterestRate, uint64 newInterestRate);
+    event LogChangeBorrowLimit(uint128 newLimit, uint128 perAddressPart);
+    event LogChangeBlacklistedCallee(address indexed account, bool blacklisted);
+    event LogLiquidationMultiplierChanged(uint256 previous, uint256 current);
+    event LogBorrowOpeningFeeChanged(uint256 previous, uint256 current);
+    event LogCollateralizationRateChanged(uint256 previous, uint256 current);
+    
+    event LogLiquidation(
+        address indexed from,
+        address indexed user,
+        address indexed to,
+        uint256 collateralShare,
+        uint256 borrowAmount,
+        uint256 borrowPart
+    );
+
+    // Immutables (for MasterContract and all clones)
+    IBentoBoxV1 public immutable bentoBox;
+    CauldronV4 public immutable masterContract;
+    IERC20 public immutable magicInternetMoney;
+
+    // MasterContract variables
+    address public feeTo;
+
+    // Per clone variables
+    // Clone init settings
+    IERC20 public collateral;
+    IOracle public oracle;
+    bytes public oracleData;
+
+    struct BorrowCap {
+        uint128 total;
+        uint128 borrowPartPerAddress;
+    }
+
+    BorrowCap public borrowLimit;
+
+    // Total amounts
+    uint256 public totalCollateralShare; // Total collateral supplied
+    Rebase public totalBorrow; // elastic = Total token amount to be repayed by borrowers, base = Total parts of the debt held by borrowers
+
+    // User balances
+    mapping(address => uint256) public userCollateralShare;
+    mapping(address => uint256) public userBorrowPart;
+
+    // Callee restrictions
+    mapping(address => bool) public blacklistedCallees;
+
+    /// @notice Exchange and interest rate tracking.
+    /// This is 'cached' here because calls to Oracles can be very expensive.
+    uint256 public exchangeRate;
+
+    struct AccrueInfo {
+        uint64 lastAccrued;
+        uint128 feesEarned;
+        uint64 INTEREST_PER_SECOND;
+    }
+
+    AccrueInfo public accrueInfo;
+
+    uint64 internal constant ONE_PERCENT_RATE = 317097920;
+
+    // Settings
+    uint256 public COLLATERIZATION_RATE;
+    uint256 internal constant COLLATERIZATION_RATE_PRECISION = 1e5; // Must be less than EXCHANGE_RATE_PRECISION (due to optimization in math)
+
+    uint256 internal constant EXCHANGE_RATE_PRECISION = 1e18;
+
+    uint256 public LIQUIDATION_MULTIPLIER; 
+    uint256 internal constant LIQUIDATION_MULTIPLIER_PRECISION = 1e5;
+
+    uint256 public BORROW_OPENING_FEE;
+    uint256 internal constant BORROW_OPENING_FEE_PRECISION = 1e5;
+
+    uint256 internal constant DISTRIBUTION_PART = 10;
+    uint256 internal constant DISTRIBUTION_PRECISION = 100;
+
+    modifier onlyMasterContractOwner() {
+        require(msg.sender == masterContract.owner(), "Caller is not the owner");
+        _;
+    }
+
+    /// @notice The constructor is only used for the initial master contract. Subsequent clones are initialised via `init`.
+    constructor(IBentoBoxV1 bentoBox_, IERC20 magicInternetMoney_) Owned(msg.sender) {
+        bentoBox = bentoBox_;
+        magicInternetMoney = magicInternetMoney_;
+        masterContract = this;
+        
+        blacklistedCallees[address(bentoBox)] = true;
+        blacklistedCallees[address(this)] = true;
+        blacklistedCallees[Owned(address(bentoBox)).owner()] = true;
+    }
+
+    /// @notice Serves as the constructor for clones, as clones can't have a regular constructor
+    /// @dev `data` is abi encoded in the format: (IERC20 collateral, IERC20 asset, IOracle oracle, bytes oracleData)
+    function init(bytes calldata data) public virtual payable override {
+        require(address(collateral) == address(0), "Cauldron: already initialized");
+        (collateral, oracle, oracleData, accrueInfo.INTEREST_PER_SECOND, LIQUIDATION_MULTIPLIER, COLLATERIZATION_RATE, BORROW_OPENING_FEE) = abi.decode(data, (IERC20, IOracle, bytes, uint64, uint256, uint256, uint256));
+        borrowLimit = BorrowCap(type(uint128).max, type(uint128).max);
+        require(address(collateral) != address(0), "Cauldron: bad pair");
+
+        magicInternetMoney.approve(address(bentoBox), type(uint256).max);
+
+        blacklistedCallees[address(bentoBox)] = true;
+        blacklistedCallees[address(this)] = true;
+        blacklistedCallees[Owned(address(bentoBox)).owner()] = true;
+
+        (, exchangeRate) = oracle.get(oracleData);
+
+        accrue();
+    }
+
+    /// @notice Accrues the interest on the borrowed tokens and handles the accumulation of fees.
+    function accrue() public {
+        AccrueInfo memory _accrueInfo = accrueInfo;
+        // Number of seconds since accrue was called
+        uint256 elapsedTime = block.timestamp - _accrueInfo.lastAccrued;
+        if (elapsedTime == 0) {
+            return;
+        }
+        _accrueInfo.lastAccrued = uint64(block.timestamp);
+
+        Rebase memory _totalBorrow = totalBorrow;
+        if (_totalBorrow.base == 0) {
+            accrueInfo = _accrueInfo;
+            return;
+        }
+
+        // Accrue interest
+        uint128 extraAmount = (uint256(_totalBorrow.elastic).mul(_accrueInfo.INTEREST_PER_SECOND).mul(elapsedTime) / 1e18).to128();
+        _totalBorrow.elastic = _totalBorrow.elastic.add(extraAmount);
+
+        _accrueInfo.feesEarned = _accrueInfo.feesEarned.add(extraAmount);
+        totalBorrow = _totalBorrow;
+        accrueInfo = _accrueInfo;
+
+        emit LogAccrue(extraAmount);
+    }
+
+    /// @notice Concrete implementation of `isSolvent`. Includes a third parameter to allow caching `exchangeRate`.
+    /// @param _exchangeRate The exchange rate. Used to cache the `exchangeRate` between calls.
+    function _isSolvent(address user, uint256 _exchangeRate) virtual internal view returns (bool) {
+        // accrue must have already been called!
+        uint256 borrowPart = userBorrowPart[user];
+        if (borrowPart == 0) return true;
+        uint256 collateralShare = userCollateralShare[user];
+        if (collateralShare == 0) return false;
+
+        Rebase memory _totalBorrow = totalBorrow;
+
+        return
+            bentoBox.toAmount(
+                collateral,
+                collateralShare.mul(EXCHANGE_RATE_PRECISION / COLLATERIZATION_RATE_PRECISION).mul(COLLATERIZATION_RATE),
+                false
+            ) >=
+            // Moved exchangeRate here instead of dividing the other side to preserve more precision
+            borrowPart.mul(_totalBorrow.elastic).mul(_exchangeRate) / _totalBorrow.base;
+    }
+
+    function isSolvent(address user) public view returns (bool) {
+        return _isSolvent(user, exchangeRate);
+    }
+    
+    /// @dev Checks if the user is solvent in the closed liquidation case at the end of the function body.
+    modifier solvent() {
+        _;
+        (, uint256 _exchangeRate) = updateExchangeRate();
+        require(_isSolvent(msg.sender, _exchangeRate), "Cauldron: user insolvent");
+    }
+
+    /// @notice Gets the exchange rate. I.e how much collateral to buy 1e18 asset.
+    /// This function is supposed to be invoked if needed because Oracle queries can be expensive.
+    /// @return updated True if `exchangeRate` was updated.
+    /// @return rate The new exchange rate.
+    function updateExchangeRate() public returns (bool updated, uint256 rate) {
+        (updated, rate) = oracle.get(oracleData);
+
+        if (updated) {
+            exchangeRate = rate;
+            emit LogExchangeRate(rate);
+        } else {
+            // Return the old rate if fetching wasn't successful
+            rate = exchangeRate;
+        }
+    }
+
+    /// @dev Helper function to move tokens.
+    /// @param token The ERC-20 token.
+    /// @param share The amount in shares to add.
+    /// @param total Grand total amount to deduct from this contract's balance. Only applicable if `skim` is True.
+    /// Only used for accounting checks.
+    /// @param skim If True, only does a balance check on this contract.
+    /// False if tokens from msg.sender in `bentoBox` should be transferred.
+    function _addTokens(
+        IERC20 token,
+        uint256 share,
+        uint256 total,
+        bool skim
+    ) internal {
+        if (skim) {
+            require(share <= bentoBox.balanceOf(token, address(this)).sub(total), "Cauldron: Skim too much");
+        } else {
+            bentoBox.transfer(token, msg.sender, address(this), share);
+        }
+    }
+
+    function _afterAddCollateral(address user, uint256 collateralShare) internal virtual {}
+
+    /// @notice Adds `collateral` from msg.sender to the account `to`.
+    /// @param to The receiver of the tokens.
+    /// @param skim True if the amount should be skimmed from the deposit balance of msg.sender.x
+    /// False if tokens from msg.sender in `bentoBox` should be transferred.
+    /// @param share The amount of shares to add for `to`.
+    function addCollateral(
+        address to,
+        bool skim,
+        uint256 share
+    ) public virtual {
+        userCollateralShare[to] = userCollateralShare[to].add(share);
+        uint256 oldTotalCollateralShare = totalCollateralShare;
+        totalCollateralShare = oldTotalCollateralShare.add(share);
+        _addTokens(collateral, share, oldTotalCollateralShare, skim);
+        _afterAddCollateral(to, share);
+        emit LogAddCollateral(skim ? address(bentoBox) : msg.sender, to, share);
+    }
+
+    function _afterRemoveCollateral(address from, address to, uint256 collateralShare) internal virtual {}
+
+    /// @dev Concrete implementation of `removeCollateral`.
+    function _removeCollateral(address to, uint256 share) internal virtual {
+        userCollateralShare[msg.sender] = userCollateralShare[msg.sender].sub(share);
+        totalCollateralShare = totalCollateralShare.sub(share);
+        _afterRemoveCollateral(msg.sender, to, share);
+        emit LogRemoveCollateral(msg.sender, to, share);
+        bentoBox.transfer(collateral, address(this), to, share);
+    }
+
+    /// @notice Removes `share` amount of collateral and transfers it to `to`.
+    /// @param to The receiver of the shares.
+    /// @param share Amount of shares to remove.
+    function removeCollateral(address to, uint256 share) public solvent {
+        // accrue must be called because we check solvency
+        accrue();
+        _removeCollateral(to, share);
+    }
+
+    function _preBorrowAction(address to, uint256 amount, uint256 newBorrowPart, uint256 part) internal virtual {
+
+    }
+
+    /// @dev Concrete implementation of `borrow`.
+    function _borrow(address to, uint256 amount) internal returns (uint256 part, uint256 share) {
+        uint256 feeAmount = amount.mul(BORROW_OPENING_FEE) / BORROW_OPENING_FEE_PRECISION; // A flat % fee is charged for any borrow
+        (totalBorrow, part) = totalBorrow.add(amount.add(feeAmount), true);
+
+        BorrowCap memory cap =  borrowLimit;
+
+        require(totalBorrow.elastic <= cap.total, "Borrow Limit reached");
+
+        accrueInfo.feesEarned = accrueInfo.feesEarned.add(uint128(feeAmount));
+        
+        uint256 newBorrowPart = userBorrowPart[msg.sender].add(part);
+        require(newBorrowPart <= cap.borrowPartPerAddress, "Borrow Limit reached");
+        _preBorrowAction(to, amount, newBorrowPart, part);
+
+        userBorrowPart[msg.sender] = newBorrowPart;
+
+        // As long as there are tokens on this contract you can 'mint'... this enables limiting borrows
+        share = bentoBox.toShare(magicInternetMoney, amount, false);
+        bentoBox.transfer(magicInternetMoney, address(this), to, share);
+
+        emit LogBorrow(msg.sender, to, amount.add(feeAmount), part);
+    }
+
+    /// @notice Sender borrows `amount` and transfers it to `to`.
+    /// @return part Total part of the debt held by borrowers.
+    /// @return share Total amount in shares borrowed.
+    function borrow(address to, uint256 amount) public solvent returns (uint256 part, uint256 share) {
+        accrue();
+        (part, share) = _borrow(to, amount);
+    }
+
+    /// @dev Concrete implementation of `repay`.
+    function _repay(
+        address to,
+        bool skim,
+        uint256 part
+    ) internal returns (uint256 amount) {
+        (totalBorrow, amount) = totalBorrow.sub(part, true);
+        userBorrowPart[to] = userBorrowPart[to].sub(part);
+
+        uint256 share = bentoBox.toShare(magicInternetMoney, amount, true);
+        bentoBox.transfer(magicInternetMoney, skim ? address(bentoBox) : msg.sender, address(this), share);
+        emit LogRepay(skim ? address(bentoBox) : msg.sender, to, amount, part);
+    }
+
+    /// @notice Repays a loan.
+    /// @param to Address of the user this payment should go.
+    /// @param skim True if the amount should be skimmed from the deposit balance of msg.sender.
+    /// False if tokens from msg.sender in `bentoBox` should be transferred.
+    /// @param part The amount to repay. See `userBorrowPart`.
+    /// @return amount The total amount repayed.
+    function repay(
+        address to,
+        bool skim,
+        uint256 part
+    ) public returns (uint256 amount) {
+        accrue();
+        amount = _repay(to, skim, part);
+    }
+
+    // Functions that need accrue to be called
+    uint8 internal constant ACTION_REPAY = 2;
+    uint8 internal constant ACTION_REMOVE_COLLATERAL = 4;
+    uint8 internal constant ACTION_BORROW = 5;
+    uint8 internal constant ACTION_GET_REPAY_SHARE = 6;
+    uint8 internal constant ACTION_GET_REPAY_PART = 7;
+    uint8 internal constant ACTION_ACCRUE = 8;
+
+    // Functions that don't need accrue to be called
+    uint8 internal constant ACTION_ADD_COLLATERAL = 10;
+    uint8 internal constant ACTION_UPDATE_EXCHANGE_RATE = 11;
+
+    // Function on BentoBox
+    uint8 internal constant ACTION_BENTO_DEPOSIT = 20;
+    uint8 internal constant ACTION_BENTO_WITHDRAW = 21;
+    uint8 internal constant ACTION_BENTO_TRANSFER = 22;
+    uint8 internal constant ACTION_BENTO_TRANSFER_MULTIPLE = 23;
+    uint8 internal constant ACTION_BENTO_SETAPPROVAL = 24;
+
+    // Any external call (except to BentoBox)
+    uint8 internal constant ACTION_CALL = 30;
+    uint8 internal constant ACTION_LIQUIDATE = 31;
+
+    // Custom cook actions
+    uint8 internal constant ACTION_CUSTOM_START_INDEX = 100;
+
+    int256 internal constant USE_VALUE1 = -1;
+    int256 internal constant USE_VALUE2 = -2;
+
+    /// @dev Helper function for choosing the correct value (`value1` or `value2`) depending on `inNum`.
+    function _num(
+        int256 inNum,
+        uint256 value1,
+        uint256 value2
+    ) internal pure returns (uint256 outNum) {
+        outNum = inNum >= 0 ? uint256(inNum) : (inNum == USE_VALUE1 ? value1 : value2);
+    }
+
+    /// @dev Helper function for depositing into `bentoBox`.
+    function _bentoDeposit(
+        bytes memory data,
+        uint256 value,
+        uint256 value1,
+        uint256 value2
+    ) internal returns (uint256, uint256) {
+        (IERC20 token, address to, int256 amount, int256 share) = abi.decode(data, (IERC20, address, int256, int256));
+        amount = int256(_num(amount, value1, value2)); // Done this way to avoid stack too deep errors
+        share = int256(_num(share, value1, value2));
+        return bentoBox.deposit{value: value}(token, msg.sender, to, uint256(amount), uint256(share));
+    }
+
+    /// @dev Helper function to withdraw from the `bentoBox`.
+    function _bentoWithdraw(
+        bytes memory data,
+        uint256 value1,
+        uint256 value2
+    ) internal returns (uint256, uint256) {
+        (IERC20 token, address to, int256 amount, int256 share) = abi.decode(data, (IERC20, address, int256, int256));
+        return bentoBox.withdraw(token, msg.sender, to, _num(amount, value1, value2), _num(share, value1, value2));
+    }
+
+    /// @dev Helper function to perform a contract call and eventually extracting revert messages on failure.
+    /// Calls to `bentoBox` are not allowed for obvious security reasons.
+    /// This also means that calls made from this contract shall *not* be trusted.
+    function _call(
+        uint256 value,
+        bytes memory data,
+        uint256 value1,
+        uint256 value2
+    ) internal returns (bytes memory, uint8) {
+        (address callee, bytes memory callData, bool useValue1, bool useValue2, uint8 returnValues) =
+            abi.decode(data, (address, bytes, bool, bool, uint8));
+
+        if (useValue1 && !useValue2) {
+            callData = abi.encodePacked(callData, value1);
+        } else if (!useValue1 && useValue2) {
+            callData = abi.encodePacked(callData, value2);
+        } else if (useValue1 && useValue2) {
+            callData = abi.encodePacked(callData, value1, value2);
+        }
+
+        require(!blacklistedCallees[callee], "Cauldron: can't call");
+
+        (bool success, bytes memory returnData) = callee.call{value: value}(callData);
+        require(success, "Cauldron: call failed");
+        return (returnData, returnValues);
+    }
+
+    struct CookStatus {
+        bool needsSolvencyCheck;
+        bool hasAccrued;
+    }
+
+    function _additionalCookAction(uint8 action, CookStatus memory, uint256 value, bytes memory data, uint256 value1, uint256 value2) internal virtual returns (bytes memory, uint8, CookStatus memory) {}
+
+    /// @notice Executes a set of actions and allows composability (contract calls) to other contracts.
+    /// @param actions An array with a sequence of actions to execute (see ACTION_ declarations).
+    /// @param values A one-to-one mapped array to `actions`. ETH amounts to send along with the actions.
+    /// Only applicable to `ACTION_CALL`, `ACTION_BENTO_DEPOSIT`.
+    /// @param datas A one-to-one mapped array to `actions`. Contains abi encoded data of function arguments.
+    /// @return value1 May contain the first positioned return value of the last executed action (if applicable).
+    /// @return value2 May contain the second positioned return value of the last executed action which returns 2 values (if applicable).
+    function cook(
+        uint8[] calldata actions,
+        uint256[] calldata values,
+        bytes[] calldata datas
+    ) external payable returns (uint256 value1, uint256 value2) {
+        CookStatus memory status;
+
+        for (uint256 i = 0; i < actions.length; i++) {
+            uint8 action = actions[i];
+            if (!status.hasAccrued && action < 10) {
+                accrue();
+                status.hasAccrued = true;
+            }
+            if (action == ACTION_ADD_COLLATERAL) {
+                (int256 share, address to, bool skim) = abi.decode(datas[i], (int256, address, bool));
+                addCollateral(to, skim, _num(share, value1, value2));
+            } else if (action == ACTION_REPAY) {
+                (int256 part, address to, bool skim) = abi.decode(datas[i], (int256, address, bool));
+                _repay(to, skim, _num(part, value1, value2));
+            } else if (action == ACTION_REMOVE_COLLATERAL) {
+                (int256 share, address to) = abi.decode(datas[i], (int256, address));
+                _removeCollateral(to, _num(share, value1, value2));
+                status.needsSolvencyCheck = true;
+            } else if (action == ACTION_BORROW) {
+                (int256 amount, address to) = abi.decode(datas[i], (int256, address));
+                (value1, value2) = _borrow(to, _num(amount, value1, value2));
+                status.needsSolvencyCheck = true;
+            } else if (action == ACTION_UPDATE_EXCHANGE_RATE) {
+                (bool must_update, uint256 minRate, uint256 maxRate) = abi.decode(datas[i], (bool, uint256, uint256));
+                (bool updated, uint256 rate) = updateExchangeRate();
+                require((!must_update || updated) && rate > minRate && (maxRate == 0 || rate < maxRate), "Cauldron: rate not ok");
+            } else if (action == ACTION_BENTO_SETAPPROVAL) {
+                (address user, address _masterContract, bool approved, uint8 v, bytes32 r, bytes32 s) =
+                    abi.decode(datas[i], (address, address, bool, uint8, bytes32, bytes32));
+                bentoBox.setMasterContractApproval(user, _masterContract, approved, v, r, s);
+            } else if (action == ACTION_BENTO_DEPOSIT) {
+                (value1, value2) = _bentoDeposit(datas[i], values[i], value1, value2);
+            } else if (action == ACTION_BENTO_WITHDRAW) {
+                (value1, value2) = _bentoWithdraw(datas[i], value1, value2);
+            } else if (action == ACTION_BENTO_TRANSFER) {
+                (IERC20 token, address to, int256 share) = abi.decode(datas[i], (IERC20, address, int256));
+                bentoBox.transfer(token, msg.sender, to, _num(share, value1, value2));
+            } else if (action == ACTION_BENTO_TRANSFER_MULTIPLE) {
+                (IERC20 token, address[] memory tos, uint256[] memory shares) = abi.decode(datas[i], (IERC20, address[], uint256[]));
+                bentoBox.transferMultiple(token, msg.sender, tos, shares);
+            } else if (action == ACTION_CALL) {
+                (bytes memory returnData, uint8 returnValues) = _call(values[i], datas[i], value1, value2);
+
+                if (returnValues == 1) {
+                    (value1) = abi.decode(returnData, (uint256));
+                } else if (returnValues == 2) {
+                    (value1, value2) = abi.decode(returnData, (uint256, uint256));
+                }
+            } else if (action == ACTION_GET_REPAY_SHARE) {
+                int256 part = abi.decode(datas[i], (int256));
+                value1 = bentoBox.toShare(magicInternetMoney, totalBorrow.toElastic(_num(part, value1, value2), true), true);
+            } else if (action == ACTION_GET_REPAY_PART) {
+                int256 amount = abi.decode(datas[i], (int256));
+                value1 = totalBorrow.toBase(_num(amount, value1, value2), false);
+            } else if (action == ACTION_LIQUIDATE) {
+                _cookActionLiquidate(datas[i]);
+            } else {
+                (bytes memory returnData, uint8 returnValues, CookStatus memory returnStatus) = _additionalCookAction(action, status, values[i], datas[i], value1, value2);
+                status = returnStatus;
+                
+                if (returnValues == 1) {
+                    (value1) = abi.decode(returnData, (uint256));
+                } else if (returnValues == 2) {
+                    (value1, value2) = abi.decode(returnData, (uint256, uint256));
+                }
+            }
+        }
+
+        if (status.needsSolvencyCheck) {
+            (, uint256 _exchangeRate) = updateExchangeRate();
+            require(_isSolvent(msg.sender, _exchangeRate), "Cauldron: user insolvent");
+        }
+    }
+
+    function _cookActionLiquidate(bytes calldata data) internal {
+         (address[] memory users, uint256[] memory maxBorrowParts, address to, ISwapperV2 swapper, bytes memory swapperData) = abi.decode(data, (address[], uint256[], address, ISwapperV2, bytes));
+        liquidate(users, maxBorrowParts, to, swapper, swapperData);
+    }
+
+    function _beforeUsersLiquidated(address[] memory users, uint256[] memory maxBorrowPart) internal virtual {}
+
+    function _beforeUserLiquidated(address user, uint256 borrowPart, uint256 borrowAmount, uint256 collateralShare) internal virtual {}
+
+    function _afterUserLiquidated(address user, uint256 collateralShare) internal virtual {}
+
+    /// @notice Handles the liquidation of users' balances, once the users' amount of collateral is too low.
+    /// @param users An array of user addresses.
+    /// @param maxBorrowParts A one-to-one mapping to `users`, contains maximum (partial) borrow amounts (to liquidate) of the respective user.
+    /// @param to Address of the receiver in open liquidations if `swapper` is zero.
+    function liquidate(
+        address[] memory users,
+        uint256[] memory maxBorrowParts,
+        address to,
+        ISwapperV2 swapper,
+        bytes memory swapperData
+    ) public virtual {
+        // Oracle can fail but we still need to allow liquidations
+        (, uint256 _exchangeRate) = updateExchangeRate();
+        accrue();
+
+        uint256 allCollateralShare;
+        uint256 allBorrowAmount;
+        uint256 allBorrowPart;
+        Rebase memory bentoBoxTotals = bentoBox.totals(collateral);
+        _beforeUsersLiquidated(users, maxBorrowParts);
+
+        for (uint256 i = 0; i < users.length; i++) {
+            address user = users[i];
+            if (!_isSolvent(user, _exchangeRate)) {
+                uint256 borrowPart;
+                uint256 availableBorrowPart = userBorrowPart[user];
+                borrowPart = maxBorrowParts[i] > availableBorrowPart ? availableBorrowPart : maxBorrowParts[i];
+
+                uint256 borrowAmount = totalBorrow.toElastic(borrowPart, false);
+                uint256 collateralShare =
+                    bentoBoxTotals.toBase(
+                        borrowAmount.mul(LIQUIDATION_MULTIPLIER).mul(_exchangeRate) /
+                            (LIQUIDATION_MULTIPLIER_PRECISION * EXCHANGE_RATE_PRECISION),
+                        false
+                    );
+
+                _beforeUserLiquidated(user, borrowPart, borrowAmount, collateralShare);
+                userBorrowPart[user] = availableBorrowPart.sub(borrowPart);
+                userCollateralShare[user] = userCollateralShare[user].sub(collateralShare);
+                _afterUserLiquidated(user, collateralShare);
+
+                emit LogRemoveCollateral(user, to, collateralShare);
+                emit LogRepay(msg.sender, user, borrowAmount, borrowPart);
+                emit LogLiquidation(msg.sender, user, to, collateralShare, borrowAmount, borrowPart);
+
+                // Keep totals
+                allCollateralShare = allCollateralShare.add(collateralShare);
+                allBorrowAmount = allBorrowAmount.add(borrowAmount);
+                allBorrowPart = allBorrowPart.add(borrowPart);
+            }
+        }
+        require(allBorrowAmount != 0, "Cauldron: all are solvent");
+        totalBorrow.elastic = totalBorrow.elastic.sub(allBorrowAmount.to128());
+        totalBorrow.base = totalBorrow.base.sub(allBorrowPart.to128());
+        totalCollateralShare = totalCollateralShare.sub(allCollateralShare);
+
+        // Apply a percentual fee share to sSpell holders
+        
+        {
+            uint256 distributionAmount = (allBorrowAmount.mul(LIQUIDATION_MULTIPLIER) / LIQUIDATION_MULTIPLIER_PRECISION).sub(allBorrowAmount).mul(DISTRIBUTION_PART) / DISTRIBUTION_PRECISION; // Distribution Amount
+            allBorrowAmount = allBorrowAmount.add(distributionAmount);
+            accrueInfo.feesEarned = accrueInfo.feesEarned.add(distributionAmount.to128());
+        }
+
+        uint256 allBorrowShare = bentoBox.toShare(magicInternetMoney, allBorrowAmount, true);
+
+        // Swap using a swapper freely chosen by the caller
+        // Open (flash) liquidation: get proceeds first and provide the borrow after
+        bentoBox.transfer(collateral, address(this), to, allCollateralShare);
+        if (swapper != ISwapperV2(address(0))) {
+            swapper.swap(address(collateral), address(magicInternetMoney), msg.sender, allBorrowShare, allCollateralShare, swapperData);
+        }
+
+        allBorrowShare = bentoBox.toShare(magicInternetMoney, allBorrowAmount, true);
+        bentoBox.transfer(magicInternetMoney, msg.sender, address(this), allBorrowShare);
+    }
+
+    /// @notice Withdraws the fees accumulated.
+    function withdrawFees() public {
+        accrue();
+        address _feeTo = masterContract.feeTo();
+        uint256 _feesEarned = accrueInfo.feesEarned;
+        uint256 share = bentoBox.toShare(magicInternetMoney, _feesEarned, false);
+        bentoBox.transfer(magicInternetMoney, address(this), _feeTo, share);
+        accrueInfo.feesEarned = 0;
+
+        emit LogWithdrawFees(_feeTo, _feesEarned);
+    }
+
+    /// @notice Sets the beneficiary of interest accrued.
+    /// MasterContract Only Admin function.
+    /// @param newFeeTo The address of the receiver.
+    function setFeeTo(address newFeeTo) public onlyOwner {
+        feeTo = newFeeTo;
+        emit LogFeeTo(newFeeTo);
+    }
+
+    /// @notice reduces the supply of MIM
+    /// @param amount amount to reduce supply by
+    function reduceSupply(uint256 amount) public onlyMasterContractOwner {
+        uint256 maxAmount = bentoBox.toAmount(magicInternetMoney, bentoBox.balanceOf(magicInternetMoney, address(this)), false);
+        amount = maxAmount > amount ? amount : maxAmount;
+        bentoBox.withdraw(magicInternetMoney, address(this), msg.sender, amount, 0);
+    }
+
+    /// @notice allows to change the interest rate
+    /// @param newInterestRate new interest rate
+    function changeInterestRate(uint64 newInterestRate) public onlyMasterContractOwner {
+        accrue();
+        emit LogInterestChange(accrueInfo.INTEREST_PER_SECOND, newInterestRate);
+        accrueInfo.INTEREST_PER_SECOND = newInterestRate;
+    }
+
+    /// @notice allows to change the borrow limit
+    /// @param newBorrowLimit new borrow limit
+    /// @param perAddressPart new borrow limit per address
+    function changeBorrowLimit(uint128 newBorrowLimit, uint128 perAddressPart) public onlyMasterContractOwner {
+        borrowLimit = BorrowCap(newBorrowLimit, perAddressPart);
+        emit LogChangeBorrowLimit(newBorrowLimit, perAddressPart);
+    }
+
+    /// @notice allows to change blacklisted callees
+    /// @param callee callee to blacklist or not
+    /// @param blacklisted true when the callee cannot be used in call cook action
+    function setBlacklistedCallee(address callee, bool blacklisted) public onlyMasterContractOwner {
+        require(callee != address(bentoBox) && callee != address(this), "invalid callee");
+
+        blacklistedCallees[callee] = blacklisted;
+        emit LogChangeBlacklistedCallee(callee, blacklisted);
+    }
+
+    /// Allows to change the liquidation multiplier
+    /// @param _liquidationMultiplier new liquidation multiplier.
+    /// To convert from bips: liquidationFeeBips * 1e1 + 1e5
+    function setLiquidationMultiplier(uint256 _liquidationMultiplier) public onlyMasterContractOwner {
+        emit LogLiquidationMultiplierChanged(LIQUIDATION_MULTIPLIER, _liquidationMultiplier);
+        LIQUIDATION_MULTIPLIER = _liquidationMultiplier;
+    }
+
+    /// Allows to change the borrow opening fee
+    /// @param _borrowOpeningFee new borrow opening fee.
+    /// To convert from bips: borrowOpeningFeeBips * 1e1
+    function setBorrowOpeningFee(uint256 _borrowOpeningFee) public onlyMasterContractOwner {
+        emit LogBorrowOpeningFeeChanged(BORROW_OPENING_FEE, _borrowOpeningFee);
+        BORROW_OPENING_FEE = _borrowOpeningFee;
+    }
+
+    /// Allows to change the collateralization rate
+    /// @param _collateralizationRate new collateralization rate.
+    /// To convert from bips: collateralizationRateBips * 1e1
+    function setCollateralizationRate(uint256 _collateralizationRate) public onlyMasterContractOwner {
+        emit LogCollateralizationRateChanged(COLLATERIZATION_RATE, _collateralizationRate);
+        COLLATERIZATION_RATE = _collateralizationRate;
+    }
+}
+// ===== END SOURCE FILE: src/cauldrons/CauldronV4.sol =====
+// ===== BEGIN SOURCE FILE: src/DegenBox.sol =====
+// SPDX-License-Identifier: UNLICENSED
+// The BentoBox
+
+//  ▄▄▄▄· ▄▄▄ . ▐ ▄ ▄▄▄▄▄      ▄▄▄▄·       ▐▄• ▄
+//  ▐█ ▀█▪▀▄.▀·█▌▐█•██  ▪     ▐█ ▀█▪▪      █▌█▌▪
+//  ▐█▀▀█▄▐▀▀▪▄▐█▐▐▌ ▐█.▪ ▄█▀▄ ▐█▀▀█▄ ▄█▀▄  ·██·
+//  ██▄▪▐█▐█▄▄▌██▐█▌ ▐█▌·▐█▌.▐▌██▄▪▐█▐█▌.▐▌▪▐█·█▌
+//  ·▀▀▀▀  ▀▀▀ ▀▀ █▪ ▀▀▀  ▀█▄▀▪·▀▀▀▀  ▀█▄▀▪•▀▀ ▀▀
+
+// This contract stores funds, handles their transfers, supports flash loans and strategies.
+
+// Copyright (c) 2021 BoringCrypto - All rights reserved
+// Twitter: @Boring_Crypto
+
+// Special thanks to Keno for all his hard work and support
+
+// Version 22-Mar-2021
+pragma solidity >=0.8.0;
+
+// solhint-disable avoid-low-level-calls
+// solhint-disable not-rely-on-time
+// solhint-disable no-inline-assembly
+import {IERC20, ERC20} from "BoringSolidity/ERC20.sol";
+import {BoringERC20} from "BoringSolidity/libraries/BoringERC20.sol";
+import {RebaseLibrary, Rebase} from "BoringSolidity/libraries/BoringRebase.sol";
+import {BoringOwnable} from "BoringSolidity/BoringOwnable.sol";
+import {BoringBatchable} from "BoringSolidity/BoringBatchable.sol";
+import {BoringMath, BoringMath128} from "BoringSolidity/libraries/BoringMath.sol";
+import {IStrategy} from "interfaces/IStrategy.sol";
+import {IBentoBoxV1, IFlashBorrower, IBatchFlashBorrower} from "interfaces/IBentoBoxV1.sol";
+import {IWETH} from "interfaces/IWETH.sol";
+import {MasterContractManager} from "mixins/MasterContractManager.sol";
+
+/// @title DegenBox
+/// @author BoringCrypto, Keno
+/// @notice The BentoBox is a vault for tokens. The stored tokens can be flash loaned and used in strategies.
+/// Yield from this will go to the token depositors.
+/// Rebasing tokens ARE NOT supported and WILL cause loss of funds.
+/// Any funds transfered directly onto the BentoBox will be lost, use the deposit function instead.
+contract DegenBox is MasterContractManager, BoringBatchable {
+    using BoringMath for uint256;
+    using BoringMath128 for uint128;
+    using BoringERC20 for IERC20;
+    using RebaseLibrary for Rebase;
+
+    // ************** //
+    // *** EVENTS *** //
+    // ************** //
+
+    event LogDeposit(IERC20 indexed token, address indexed from, address indexed to, uint256 amount, uint256 share);
+    event LogWithdraw(IERC20 indexed token, address indexed from, address indexed to, uint256 amount, uint256 share);
+    event LogTransfer(IERC20 indexed token, address indexed from, address indexed to, uint256 share);
+
+    event LogFlashLoan(address indexed borrower, IERC20 indexed token, uint256 amount, uint256 feeAmount, address indexed receiver);
+
+    event LogStrategyTargetPercentage(IERC20 indexed token, uint256 targetPercentage);
+    event LogStrategyQueued(IERC20 indexed token, IStrategy indexed strategy);
+    event LogStrategySet(IERC20 indexed token, IStrategy indexed strategy);
+    event LogStrategyInvest(IERC20 indexed token, uint256 amount);
+    event LogStrategyDivest(IERC20 indexed token, uint256 amount);
+    event LogStrategyProfit(IERC20 indexed token, uint256 amount);
+    event LogStrategyLoss(IERC20 indexed token, uint256 amount);
+
+    // *************** //
+    // *** STRUCTS *** //
+    // *************** //
+
+    struct StrategyData {
+        uint64 strategyStartDate;
+        uint64 targetPercentage;
+        uint128 balance; // the balance of the strategy that BentoBox thinks is in there
+    }
+
+    // ******************************** //
+    // *** CONSTANTS AND IMMUTABLES *** //
+    // ******************************** //
+
+    // V2 - Can they be private?
+    // V2: Private to save gas, to verify it's correct, check the constructor arguments
+    IERC20 internal immutable wethToken;
+
+    IERC20 private constant USE_ETHEREUM = IERC20(address(0));
+    uint256 private constant FLASH_LOAN_FEE = 50; // 0.05%
+    uint256 private constant FLASH_LOAN_FEE_PRECISION = 1e5;
+    uint256 private constant STRATEGY_DELAY = 3 days;
+    uint256 private constant MAX_TARGET_PERCENTAGE = 95; // 95%
+    uint256 private constant MINIMUM_SHARE_BALANCE = 1000; // To prevent the ratio going off
+
+    // ***************** //
+    // *** VARIABLES *** //
+    // ***************** //
+
+    // Balance per token per address/contract in shares
+    mapping(IERC20 => mapping(address => uint256)) public balanceOf;
+
+    // Rebase from amount to share
+    mapping(IERC20 => Rebase) public totals;
+
+    mapping(IERC20 => IStrategy) public strategy;
+    mapping(IERC20 => IStrategy) public pendingStrategy;
+    mapping(IERC20 => StrategyData) public strategyData;
+
+    // ******************* //
+    // *** CONSTRUCTOR *** //
+    // ******************* //
+
+    constructor(IERC20 wethToken_) {
+        wethToken = wethToken_;
+        _configure();
+    }
+
+    function _configure() internal virtual {}
+
+    // ***************** //
+    // *** MODIFIERS *** //
+    // ***************** //
+
+    /// Modifier to check if the msg.sender is allowed to use funds belonging to the 'from' address.
+    /// If 'from' is msg.sender, it's allowed.
+    /// If 'from' is the BentoBox itself, it's allowed. Any ETH, token balances (above the known balances) or BentoBox balances
+    /// can be taken by anyone.
+    /// This is to enable skimming, not just for deposits, but also for withdrawals or transfers, enabling better composability.
+    /// If 'from' is a clone of a masterContract AND the 'from' address has approved that masterContract, it's allowed.
+    modifier allowed(address from) {
+        if (from != msg.sender && from != address(this)) {
+            // From is sender or you are skimming
+            address masterContract = masterContractOf[msg.sender];
+            require(masterContract != address(0), "BentoBox: no masterContract");
+            require(masterContractApproved[masterContract][from], "BentoBox: Transfer not approved");
+        }
+        _;
+    }
+
+    // ************************** //
+    // *** INTERNAL FUNCTIONS *** //
+    // ************************** //
+
+    /// @dev Returns the total balance of `token` this contracts holds,
+    /// plus the total amount this contract thinks the strategy holds.
+    function _tokenBalanceOf(IERC20 token) internal view returns (uint256 amount) {
+        amount = token.balanceOf(address(this)).add(strategyData[token].balance);
+    }
+
+    // ************************ //
+    // *** PUBLIC FUNCTIONS *** //
+    // ************************ //
+
+    /// @dev Helper function to represent an `amount` of `token` in shares.
+    /// @param token The ERC-20 token.
+    /// @param amount The `token` amount.
+    /// @param roundUp If the result `share` should be rounded up.
+    /// @return share The token amount represented in shares.
+    function toShare(IERC20 token, uint256 amount, bool roundUp) external view returns (uint256 share) {
+        share = totals[token].toBase(amount, roundUp);
+    }
+
+    /// @dev Helper function represent shares back into the `token` amount.
+    /// @param token The ERC-20 token.
+    /// @param share The amount of shares.
+    /// @param roundUp If the result should be rounded up.
+    /// @return amount The share amount back into native representation.
+    function toAmount(IERC20 token, uint256 share, bool roundUp) external view returns (uint256 amount) {
+        amount = totals[token].toElastic(share, roundUp);
+    }
+
+    /// @notice Deposit an amount of `token` represented in either `amount` or `share`.
+    /// @param token_ The ERC-20 token to deposit.
+    /// @param from which account to pull the tokens.
+    /// @param to which account to push the tokens.
+    /// @param amount Token amount in native representation to deposit.
+    /// @param share Token amount represented in shares to deposit. Takes precedence over `amount`.
+    /// @return amountOut The amount deposited.
+    /// @return shareOut The deposited amount repesented in shares.
+    function deposit(
+        IERC20 token_,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 share
+    ) public payable allowed(from) returns (uint256 amountOut, uint256 shareOut) {
+        // Checks
+        require(to != address(0), "BentoBox: to not set"); // To avoid a bad UI from burning funds
+
+        // Effects
+        IERC20 token = token_ == USE_ETHEREUM ? wethToken : token_;
+        _onBeforeDeposit(token, from, to, amount, share);
+
+        Rebase memory total = totals[token];
+
+        // If a new token gets added, the tokenSupply call checks that this is a deployed contract. Needed for security.
+        require(total.elastic != 0 || token.totalSupply() > 0, "BentoBox: No tokens");
+        if (share == 0) {
+            // value of the share may be lower than the amount due to rounding, that's ok
+            share = total.toBase(amount, false);
+            // Any deposit should lead to at least the minimum share balance, otherwise it's ignored (no amount taken)
+            if (total.base.add(share.to128()) < MINIMUM_SHARE_BALANCE) {
+                return (0, 0);
+            }
+        } else {
+            // amount may be lower than the value of share due to rounding, in that case, add 1 to amount (Always round up)
+            amount = total.toElastic(share, true);
+        }
+
+        // In case of skimming, check that only the skimmable amount is taken.
+        // For ETH, the full balance is available, so no need to check.
+        // During flashloans the _tokenBalanceOf is lower than 'reality', so skimming deposits will mostly fail during a flashloan.
+        require(
+            from != address(this) || token_ == USE_ETHEREUM || amount <= _tokenBalanceOf(token).sub(total.elastic),
+            "BentoBox: Skim too much"
+        );
+
+        balanceOf[token][to] = balanceOf[token][to].add(share);
+        total.base = total.base.add(share.to128());
+        total.elastic = total.elastic.add(amount.to128());
+        totals[token] = total;
+
+        // Interactions
+        // During the first deposit, we check that this token is 'real'
+        if (token_ == USE_ETHEREUM) {
+            // X2 - If there is an error, could it cause a DoS. Like balanceOf causing revert. (SWC-113)
+            // X2: If the WETH implementation is faulty or malicious, it will block adding ETH (but we know the WETH implementation)
+            IWETH(address(wethToken)).deposit{value: amount}();
+        } else if (from != address(this)) {
+            // X2 - If there is an error, could it cause a DoS. Like balanceOf causing revert. (SWC-113)
+            // X2: If the token implementation is faulty or malicious, it may block adding tokens. Good.
+            token.safeTransferFrom(from, address(this), amount);
+        }
+        emit LogDeposit(token, from, to, amount, share);
+        amountOut = amount;
+        shareOut = share;
+    }
+
+    /// @notice Withdraws an amount of `token` from a user account.
+    /// @param token_ The ERC-20 token to withdraw.
+    /// @param from which user to pull the tokens.
+    /// @param to which user to push the tokens.
+    /// @param amount of tokens. Either one of `amount` or `share` needs to be supplied.
+    /// @param share Like above, but `share` takes precedence over `amount`.
+    function withdraw(
+        IERC20 token_,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 share
+    ) public allowed(from) returns (uint256 amountOut, uint256 shareOut) {
+        // Checks
+        require(to != address(0), "BentoBox: to not set"); // To avoid a bad UI from burning funds
+
+        // Effects
+        IERC20 token = token_ == USE_ETHEREUM ? wethToken : token_;
+        Rebase memory total = totals[token];
+        if (share == 0) {
+            // value of the share paid could be lower than the amount paid due to rounding, in that case, add a share (Always round up)
+            share = total.toBase(amount, true);
+        } else {
+            // amount may be lower than the value of share due to rounding, that's ok
+            amount = total.toElastic(share, false);
+        }
+
+        balanceOf[token][from] = balanceOf[token][from].sub(share);
+        total.elastic = total.elastic.sub(amount.to128());
+        total.base = total.base.sub(share.to128());
+        // There have to be at least 1000 shares left to prevent reseting the share/amount ratio (unless it's fully emptied)
+        require(total.base >= MINIMUM_SHARE_BALANCE || total.base == 0, "BentoBox: cannot empty");
+        totals[token] = total;
+
+        // Interactions
+        if (token_ == USE_ETHEREUM) {
+            // X2, X3: A revert or big gas usage in the WETH contract could block withdrawals, but WETH9 is fine.
+            IWETH(address(wethToken)).withdraw(amount);
+            // X2, X3: A revert or big gas usage could block, however, the to address is under control of the caller.
+            (bool success, ) = to.call{value: amount}("");
+            require(success, "BentoBox: ETH transfer failed");
+        } else {
+            // X2, X3: A malicious token could block withdrawal of just THAT token.
+            //         masterContracts may want to take care not to rely on withdraw always succeeding.
+            token.safeTransfer(to, amount);
+        }
+        emit LogWithdraw(token, from, to, amount, share);
+        amountOut = amount;
+        shareOut = share;
+    }
+
+    /// @notice Transfer shares from a user account to another one.
+    /// @param token The ERC-20 token to transfer.
+    /// @param from which user to pull the tokens.
+    /// @param to which user to push the tokens.
+    /// @param share The amount of `token` in shares.
+    // Clones of master contracts can transfer from any account that has approved them
+    // F3 - Can it be combined with another similar function?
+    // F3: This isn't combined with transferMultiple for gas optimization
+    function transfer(IERC20 token, address from, address to, uint256 share) public allowed(from) {
+        // Checks
+        require(to != address(0), "BentoBox: to not set"); // To avoid a bad UI from burning funds
+
+        // Effects
+        balanceOf[token][from] = balanceOf[token][from].sub(share);
+        balanceOf[token][to] = balanceOf[token][to].add(share);
+
+        emit LogTransfer(token, from, to, share);
+    }
+
+    /// @notice Transfer shares from a user account to multiple other ones.
+    /// @param token The ERC-20 token to transfer.
+    /// @param from which user to pull the tokens.
+    /// @param tos The receivers of the tokens.
+    /// @param shares The amount of `token` in shares for each receiver in `tos`.
+    // F3 - Can it be combined with another similar function?
+    // F3: This isn't combined with transfer for gas optimization
+    function transferMultiple(IERC20 token, address from, address[] calldata tos, uint256[] calldata shares) public allowed(from) {
+        // Checks
+        require(tos[0] != address(0), "BentoBox: to[0] not set"); // To avoid a bad UI from burning funds
+
+        // Effects
+        uint256 totalAmount;
+        uint256 len = tos.length;
+        for (uint256 i = 0; i < len; i++) {
+            address to = tos[i];
+            balanceOf[token][to] = balanceOf[token][to].add(shares[i]);
+            totalAmount = totalAmount.add(shares[i]);
+            emit LogTransfer(token, from, to, shares[i]);
+        }
+        balanceOf[token][from] = balanceOf[token][from].sub(totalAmount);
+    }
+
+    /// @notice Flashloan ability.
+    /// @param borrower The address of the contract that implements and conforms to `IFlashBorrower` and handles the flashloan.
+    /// @param receiver Address of the token receiver.
+    /// @param token The address of the token to receive.
+    /// @param amount of the tokens to receive.
+    /// @param data The calldata to pass to the `borrower` contract.
+    // F5 - Checks-Effects-Interactions pattern followed? (SWC-107)
+    // F5: Not possible to follow this here, reentrancy has been reviewed
+    // F6 - Check for front-running possibilities, such as the approve function (SWC-114)
+    // F6: Slight grieving possible by withdrawing an amount before someone tries to flashloan close to the full amount.
+    function flashLoan(IFlashBorrower borrower, address receiver, IERC20 token, uint256 amount, bytes calldata data) public {
+        uint256 fee = amount.mul(FLASH_LOAN_FEE) / FLASH_LOAN_FEE_PRECISION;
+        token.safeTransfer(receiver, amount);
+
+        borrower.onFlashLoan(msg.sender, token, amount, fee, data);
+
+        require(_tokenBalanceOf(token) >= totals[token].addElastic(fee.to128()), "BentoBox: Wrong amount");
+        emit LogFlashLoan(address(borrower), token, amount, fee, receiver);
+    }
+
+    /// @notice Support for batched flashloans. Useful to request multiple different `tokens` in a single transaction.
+    /// @param borrower The address of the contract that implements and conforms to `IBatchFlashBorrower` and handles the flashloan.
+    /// @param receivers An array of the token receivers. A one-to-one mapping with `tokens` and `amounts`.
+    /// @param tokens The addresses of the tokens.
+    /// @param amounts of the tokens for each receiver.
+    /// @param data The calldata to pass to the `borrower` contract.
+    // F5 - Checks-Effects-Interactions pattern followed? (SWC-107)
+    // F5: Not possible to follow this here, reentrancy has been reviewed
+    // F6 - Check for front-running possibilities, such as the approve function (SWC-114)
+    // F6: Slight grieving possible by withdrawing an amount before someone tries to flashloan close to the full amount.
+    function batchFlashLoan(
+        IBatchFlashBorrower borrower,
+        address[] calldata receivers,
+        IERC20[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) public {
+        uint256[] memory fees = new uint256[](tokens.length);
+
+        uint256 len = tokens.length;
+        for (uint256 i = 0; i < len; i++) {
+            uint256 amount = amounts[i];
+            fees[i] = amount.mul(FLASH_LOAN_FEE) / FLASH_LOAN_FEE_PRECISION;
+
+            tokens[i].safeTransfer(receivers[i], amounts[i]);
+        }
+
+        borrower.onBatchFlashLoan(msg.sender, tokens, amounts, fees, data);
+
+        for (uint256 i = 0; i < len; i++) {
+            IERC20 token = tokens[i];
+            require(_tokenBalanceOf(token) >= totals[token].addElastic(fees[i].to128()), "BentoBox: Wrong amount");
+            emit LogFlashLoan(address(borrower), token, amounts[i], fees[i], receivers[i]);
+        }
+    }
+
+    /// @notice Sets the target percentage of the strategy for `token`.
+    /// @dev Only the owner of this contract is allowed to change this.
+    /// @param token The address of the token that maps to a strategy to change.
+    /// @param targetPercentage_ The new target in percent. Must be lesser or equal to `MAX_TARGET_PERCENTAGE`.
+    function setStrategyTargetPercentage(IERC20 token, uint64 targetPercentage_) public onlyOwner {
+        // Checks
+        require(targetPercentage_ <= MAX_TARGET_PERCENTAGE, "StrategyManager: Target too high");
+
+        // Effects
+        strategyData[token].targetPercentage = targetPercentage_;
+        emit LogStrategyTargetPercentage(token, targetPercentage_);
+    }
+
+    /// @notice Sets the contract address of a new strategy that conforms to `IStrategy` for `token`.
+    /// Must be called twice with the same arguments.
+    /// A new strategy becomes pending first and can be activated once `STRATEGY_DELAY` is over.
+    /// @dev Only the owner of this contract is allowed to change this.
+    /// @param token The address of the token that maps to a strategy to change.
+    /// @param newStrategy The address of the contract that conforms to `IStrategy`.
+    // F5 - Checks-Effects-Interactions pattern followed? (SWC-107)
+    // F5: Total amount is updated AFTER interaction. But strategy is under our control.
+    // C4 - Use block.timestamp only for long intervals (SWC-116)
+    // C4: block.timestamp is used for a period of 2 weeks, which is long enough
+    function setStrategy(IERC20 token, IStrategy newStrategy) public onlyOwner {
+        StrategyData memory data = strategyData[token];
+        IStrategy pending = pendingStrategy[token];
+        if (data.strategyStartDate == 0 || pending != newStrategy) {
+            pendingStrategy[token] = newStrategy;
+            // C1 - All math done through BoringMath (SWC-101)
+            // C1: Our sun will swallow the earth well before this overflows
+            data.strategyStartDate = (block.timestamp + STRATEGY_DELAY).to64();
+            emit LogStrategyQueued(token, newStrategy);
+        } else {
+            require(data.strategyStartDate != 0 && block.timestamp >= data.strategyStartDate, "StrategyManager: Too early");
+            if (address(strategy[token]) != address(0)) {
+                int256 balanceChange = strategy[token].exit(data.balance);
+                // Effects
+                if (balanceChange > 0) {
+                    uint256 add = uint256(balanceChange);
+                    totals[token].addElastic(add);
+                    emit LogStrategyProfit(token, add);
+                } else if (balanceChange < 0) {
+                    uint256 sub = uint256(-balanceChange);
+                    totals[token].subElastic(sub);
+                    emit LogStrategyLoss(token, sub);
+                }
+
+                emit LogStrategyDivest(token, data.balance);
+            }
+            strategy[token] = pending;
+            data.strategyStartDate = 0;
+            data.balance = 0;
+            pendingStrategy[token] = IStrategy(address(0));
+            emit LogStrategySet(token, newStrategy);
+        }
+        strategyData[token] = data;
+    }
+
+    /// @notice The actual process of yield farming. Executes the strategy of `token`.
+    /// Optionally does housekeeping if `balance` is true.
+    /// `maxChangeAmount` is relevant for skimming or withdrawing if `balance` is true.
+    /// @param token The address of the token for which a strategy is deployed.
+    /// @param balance True if housekeeping should be done.
+    /// @param maxChangeAmount The maximum amount for either pulling or pushing from/to the `IStrategy` contract.
+    // F5 - Checks-Effects-Interactions pattern followed? (SWC-107)
+    // F5: Total amount is updated AFTER interaction. But strategy is under our control.
+    // F5: Not followed to prevent reentrancy issues with flashloans and BentoBox skims?
+    function harvest(IERC20 token, bool balance, uint256 maxChangeAmount) public {
+        StrategyData memory data = strategyData[token];
+        IStrategy _strategy = strategy[token];
+        int256 balanceChange = _strategy.harvest(data.balance, msg.sender);
+        if (balanceChange == 0 && !balance) {
+            return;
+        }
+
+        uint256 totalElastic = totals[token].elastic;
+
+        if (balanceChange > 0) {
+            uint256 add = uint256(balanceChange);
+            totalElastic = totalElastic.add(add);
+            totals[token].elastic = totalElastic.to128();
+            emit LogStrategyProfit(token, add);
+        } else if (balanceChange < 0) {
+            // C1 - All math done through BoringMath (SWC-101)
+            // C1: balanceChange could overflow if it's max negative int128.
+            // But tokens with balances that large are not supported by the BentoBox.
+            uint256 sub = uint256(-balanceChange);
+            totalElastic = totalElastic.sub(sub);
+            totals[token].elastic = totalElastic.to128();
+            data.balance = data.balance.sub(sub.to128());
+            emit LogStrategyLoss(token, sub);
+        }
+
+        if (balance) {
+            uint256 targetBalance = totalElastic.mul(data.targetPercentage) / 100;
+            // if data.balance == targetBalance there is nothing to update
+            if (data.balance < targetBalance) {
+                uint256 amountOut = targetBalance.sub(data.balance);
+                if (maxChangeAmount != 0 && amountOut > maxChangeAmount) {
+                    amountOut = maxChangeAmount;
+                }
+                token.safeTransfer(address(_strategy), amountOut);
+                data.balance = data.balance.add(amountOut.to128());
+                _strategy.skim(amountOut);
+                emit LogStrategyInvest(token, amountOut);
+            } else if (data.balance > targetBalance) {
+                uint256 amountIn = data.balance.sub(targetBalance.to128());
+                if (maxChangeAmount != 0 && amountIn > maxChangeAmount) {
+                    amountIn = maxChangeAmount;
+                }
+
+                uint256 actualAmountIn = _strategy.withdraw(amountIn);
+
+                data.balance = data.balance.sub(actualAmountIn.to128());
+                emit LogStrategyDivest(token, actualAmountIn);
+            }
+        }
+
+        strategyData[token] = data;
+    }
+
+    // Contract should be able to receive ETH deposits to support deposit & skim
+    // solhint-disable-next-line no-empty-blocks
+    receive() external payable {}
+
+    ////////////////////////////////////////////////////////////////////////////////////////
+    /// EVENTS
+    ////////////////////////////////////////////////////////////////////////////////////////
+    function _onBeforeDeposit(IERC20 token, address from, address to, uint256 amount, uint256 share) internal virtual {
+
+    }
+}
+// ===== END SOURCE FILE: src/DegenBox.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IAggregator.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+interface IAggregator {
+    function decimals() external view returns (uint8);
+
+    function latestAnswer() external view returns (int256 answer);
+
+    function latestRoundData()
+        external
+        view
+        returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
+}
+// ===== END SOURCE FILE: src/interfaces/IAggregator.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IBentoBoxV1.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {Rebase} from "BoringSolidity/libraries/BoringRebase.sol";
+import {IStrategy} from "interfaces/IStrategy.sol";
+
+interface IFlashBorrower {
+    /// @notice The flashloan callback. `amount` + `fee` needs to repayed to msg.sender before this call returns.
+    /// @param sender The address of the invoker of this flashloan.
+    /// @param token The address of the token that is loaned.
+    /// @param amount of the `token` that is loaned.
+    /// @param fee The fee that needs to be paid on top for this loan. Needs to be the same as `token`.
+    /// @param data Additional data that was passed to the flashloan function.
+    function onFlashLoan(
+        address sender,
+        IERC20 token,
+        uint256 amount,
+        uint256 fee,
+        bytes calldata data
+    ) external;
+}
+
+interface IBatchFlashBorrower {
+    /// @notice The callback for batched flashloans. Every amount + fee needs to repayed to msg.sender before this call returns.
+    /// @param sender The address of the invoker of this flashloan.
+    /// @param tokens Array of addresses for ERC-20 tokens that is loaned.
+    /// @param amounts A one-to-one map to `tokens` that is loaned.
+    /// @param fees A one-to-one map to `tokens` that needs to be paid on top for each loan. Needs to be the same token.
+    /// @param data Additional data that was passed to the flashloan function.
+    function onBatchFlashLoan(
+        address sender,
+        IERC20[] calldata tokens,
+        uint256[] calldata amounts,
+        uint256[] calldata fees,
+        bytes calldata data
+    ) external;
+}
+
+interface IBentoBoxV1 {
+    function balanceOf(IERC20, address) external view returns (uint256);
+
+    function batch(bytes[] calldata calls, bool revertOnFail) external payable returns (bool[] memory successes, bytes[] memory results);
+
+    function batchFlashLoan(
+        IBatchFlashBorrower borrower,
+        address[] calldata receivers,
+        IERC20[] calldata tokens,
+        uint256[] calldata amounts,
+        bytes calldata data
+    ) external;
+
+    function claimOwnership() external;
+
+    function flashLoan(
+        IFlashBorrower borrower,
+        address receiver,
+        IERC20 token,
+        uint256 amount,
+        bytes calldata data
+    ) external;
+
+    function deploy(
+        address masterContract,
+        bytes calldata data,
+        bool useCreate2
+    ) external payable returns (address);
+
+    function deposit(
+        IERC20 token_,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 share
+    ) external payable returns (uint256 amountOut, uint256 shareOut);
+
+    function harvest(
+        IERC20 token,
+        bool balance,
+        uint256 maxChangeAmount
+    ) external;
+
+    function masterContractApproved(address, address) external view returns (bool);
+
+    function masterContractOf(address) external view returns (address);
+
+    function nonces(address) external view returns (uint256);
+
+    function owner() external view returns (address);
+
+    function pendingOwner() external view returns (address);
+
+    function pendingStrategy(IERC20) external view returns (IStrategy);
+
+    function permitToken(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+
+    function registerProtocol() external;
+
+    function setMasterContractApproval(
+        address user,
+        address masterContract,
+        bool approved,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+
+    function setStrategy(IERC20 token, IStrategy newStrategy) external;
+
+    function setStrategyTargetPercentage(IERC20 token, uint64 targetPercentage_) external;
+
+    function strategy(IERC20) external view returns (IStrategy);
+
+    function strategyData(IERC20)
+        external
+        view
+        returns (
+            uint64 strategyStartDate,
+            uint64 targetPercentage,
+            uint128 balance
+        );
+
+    function toAmount(
+        IERC20 token,
+        uint256 share,
+        bool roundUp
+    ) external view returns (uint256 amount);
+
+    function toShare(
+        IERC20 token,
+        uint256 amount,
+        bool roundUp
+    ) external view returns (uint256 share);
+
+    function totals(IERC20) external view returns (Rebase memory totals_);
+
+    function transfer(
+        IERC20 token,
+        address from,
+        address to,
+        uint256 share
+    ) external;
+
+    function transferMultiple(
+        IERC20 token,
+        address from,
+        address[] calldata tos,
+        uint256[] calldata shares
+    ) external;
+
+    function transferOwnership(
+        address newOwner,
+        bool direct,
+        bool renounce
+    ) external;
+
+    function whitelistMasterContract(address masterContract, bool approved) external;
+
+    function whitelistedMasterContracts(address) external view returns (bool);
+
+    function withdraw(
+        IERC20 token_,
+        address from,
+        address to,
+        uint256 amount,
+        uint256 share
+    ) external returns (uint256 amountOut, uint256 shareOut);
+}
+// ===== END SOURCE FILE: src/interfaces/IBentoBoxV1.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IBlast.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+enum YieldMode {
+    AUTOMATIC,
+    DISABLED,
+    CLAIMABLE
+}
+
+enum GasMode {
+    VOID,
+    CLAIMABLE
+}
+
+interface IBlast {
+    function governorMap(address) external view returns (address);
+
+    // configure
+    function configureContract(address contractAddress, YieldMode _yield, GasMode gasMode, address governor) external;
+
+    function configure(YieldMode _yield, GasMode gasMode, address governor) external;
+
+    // base configuration options
+    function configureClaimableYield() external;
+
+    function configureClaimableYieldOnBehalf(address contractAddress) external;
+
+    function configureAutomaticYield() external;
+
+    function configureAutomaticYieldOnBehalf(address contractAddress) external;
+
+    function configureVoidYield() external;
+
+    function configureVoidYieldOnBehalf(address contractAddress) external;
+
+    function configureClaimableGas() external;
+
+    function configureClaimableGasOnBehalf(address contractAddress) external;
+
+    function configureVoidGas() external;
+
+    function configureVoidGasOnBehalf(address contractAddress) external;
+
+    function configureGovernor(address _governor) external;
+
+    function configureGovernorOnBehalf(address _newGovernor, address contractAddress) external;
+
+    // claim yield
+    function claimYield(address contractAddress, address recipientOfYield, uint256 amount) external returns (uint256);
+
+    function claimAllYield(address contractAddress, address recipientOfYield) external returns (uint256);
+
+    // claim gas
+    function claimAllGas(address contractAddress, address recipientOfGas) external returns (uint256);
+
+    function claimGasAtMinClaimRate(address contractAddress, address recipientOfGas, uint256 minClaimRateBips) external returns (uint256);
+
+    function claimMaxGas(address contractAddress, address recipientOfGas) external returns (uint256);
+
+    function claimGas(
+        address contractAddress,
+        address recipientOfGas,
+        uint256 gasToClaim,
+        uint256 gasSecondsToConsume
+    ) external returns (uint256);
+
+    // read functions
+    function readClaimableYield(address contractAddress) external view returns (uint256);
+
+    function readYieldConfiguration(address contractAddress) external view returns (uint8);
+
+    function readGasParams(
+        address contractAddress
+    ) external view returns (uint256 etherSeconds, uint256 etherBalance, uint256 lastUpdated, GasMode);
+}
+
+interface IERC20Rebasing {
+    function getConfiguration(address account) external view returns (YieldMode);
+
+    // changes the yield mode of the caller and update the balance
+    // to reflect the configuration
+    function configure(YieldMode) external returns (YieldMode);
+
+    // "claimable" yield mode accounts can call this this claim their yield
+    // to another address
+    function claim(address recipient, uint256 amount) external returns (uint256);
+
+    // read the claimable amount for an account
+    function getClaimableAmount(address account) external view returns (uint256);
+}
+
+interface IBlastPoints {
+    function configurePointsOperator(address operator) external;
+}
+// ===== END SOURCE FILE: src/interfaces/IBlast.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/ICauldronV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+import {Rebase} from "BoringSolidity/libraries/BoringRebase.sol";
+
+interface ICauldronV2 {
+    function oracle() external view returns (IOracle);
+
+    function oracleData() external view returns (bytes memory);
+
+    function accrueInfo() external view returns (uint64, uint128, uint64);
+
+    function BORROW_OPENING_FEE() external view returns (uint256);
+
+    function COLLATERIZATION_RATE() external view returns (uint256);
+
+    function LIQUIDATION_MULTIPLIER() external view returns (uint256);
+
+    function totalCollateralShare() external view returns (uint256);
+
+    function bentoBox() external view returns (address);
+
+    function feeTo() external view returns (address);
+
+    function masterContract() external view returns (ICauldronV2);
+
+    function collateral() external view returns (IERC20);
+
+    function setFeeTo(address newFeeTo) external;
+
+    function accrue() external;
+
+    function totalBorrow() external view returns (Rebase memory);
+
+    function userBorrowPart(address account) external view returns (uint256);
+
+    function userCollateralShare(address account) external view returns (uint256);
+
+    function withdrawFees() external;
+
+    function cook(
+        uint8[] calldata actions,
+        uint256[] calldata values,
+        bytes[] calldata datas
+    ) external payable returns (uint256 value1, uint256 value2);
+
+    function addCollateral(address to, bool skim, uint256 share) external;
+
+    function removeCollateral(address to, uint256 share) external;
+
+    function borrow(address to, uint256 amount) external returns (uint256 part, uint256 share);
+
+    function repay(address to, bool skim, uint256 part) external returns (uint256 amount);
+
+    function reduceSupply(uint256 amount) external;
+
+    function magicInternetMoney() external view returns (IERC20);
+
+    function liquidate(address[] calldata users, uint256[] calldata maxBorrowParts, address to, address swapper) external;
+
+    function updateExchangeRate() external returns (bool updated, uint256 rate);
+
+    function exchangeRate() external view returns (uint256 rate);
+}
+// ===== END SOURCE FILE: src/interfaces/ICauldronV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/ICauldronV3.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {ICauldronV2} from "interfaces/ICauldronV2.sol";
+
+interface ICauldronV3 is ICauldronV2 {
+    function borrowLimit() external view returns (uint128 total, uint128 borrowPartPerAddres);
+
+    function changeInterestRate(uint64 newInterestRate) external;
+
+    function changeBorrowLimit(uint128 newBorrowLimit, uint128 perAddressPart) external;
+
+    function liquidate(
+        address[] calldata users,
+        uint256[] calldata maxBorrowParts,
+        address to,
+        address swapper,
+        bytes calldata swapperData
+    ) external;
+}
+// ===== END SOURCE FILE: src/interfaces/ICauldronV3.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/ICauldronV4.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {ICauldronV3} from "interfaces/ICauldronV3.sol";
+
+interface ICauldronV4 is ICauldronV3 {
+    function setBlacklistedCallee(address callee, bool blacklisted) external;
+
+    function blacklistedCallees(address callee) external view returns (bool);
+
+    function isSolvent(address user) external view returns (bool);
+}
+// ===== END SOURCE FILE: src/interfaces/ICauldronV4.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IOracle.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+interface IOracle {
+    function decimals() external view returns (uint8);
+
+    function get(bytes calldata data) external returns (bool success, uint256 rate);
+
+    function peek(bytes calldata data) external view returns (bool success, uint256 rate);
+
+    function peekSpot(bytes calldata data) external view returns (uint256 rate);
+
+    function symbol(bytes calldata data) external view returns (string memory);
+
+    function name(bytes calldata data) external view returns (string memory);
+}
+// ===== END SOURCE FILE: src/interfaces/IOracle.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IStrategy.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+interface IStrategy {
+    function skim(uint256 amount) external;
+
+    function harvest(uint256 balance, address sender) external returns (int256 amountAdded);
+
+    function withdraw(uint256 amount) external returns (uint256 actualAmount);
+
+    function exit(uint256 balance) external returns (int256 amountAdded);
+}
+// ===== END SOURCE FILE: src/interfaces/IStrategy.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/ISwapperV2.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+interface ISwapperV2 {
+    function swap(
+        address fromToken,
+        address toToken,
+        address recipient,
+        uint256 shareToMin,
+        uint256 shareFrom,
+        bytes calldata data
+    ) external returns (uint256 extraShare, uint256 shareReturned);
+}
+// ===== END SOURCE FILE: src/interfaces/ISwapperV2.sol =====
+// ===== BEGIN SOURCE FILE: src/interfaces/IWETH.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+
+interface IWETH is IERC20 {
+    function deposit() external payable;
+
+    function withdraw(uint256) external;
+}
+
+interface IWETHAlike is IWETH {}
+// ===== END SOURCE FILE: src/interfaces/IWETH.sol =====
+// ===== BEGIN SOURCE FILE: src/libraries/CauldronLib.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import {IERC20} from "BoringSolidity/interfaces/IERC20.sol";
+import {RebaseLibrary, Rebase} from "BoringSolidity/libraries/BoringRebase.sol";
+import {BoringERC20} from "BoringSolidity/libraries/BoringERC20.sol";
+import {IBentoBoxV1} from "interfaces/IBentoBoxV1.sol";
+import {ICauldronV2} from "interfaces/ICauldronV2.sol";
+import {ICauldronV3} from "interfaces/ICauldronV3.sol";
+import {ICauldronV4} from "interfaces/ICauldronV4.sol";
+import {IOracle} from "interfaces/IOracle.sol";
+import {MathLib} from "libraries/MathLib.sol";
+
+library CauldronLib {
+    using BoringERC20 for IERC20;
+    using RebaseLibrary for Rebase;
+
+    uint256 internal constant EXCHANGE_RATE_PRECISION = 1e18;
+    uint256 internal constant BPS_PRECISION = 1e4;
+    uint256 internal constant COLLATERIZATION_RATE_PRECISION = 1e5;
+    uint256 internal constant LIQUIDATION_MULTIPLIER_PRECISION = 1e5;
+    uint256 internal constant DISTRIBUTION_PART = 10;
+    uint256 internal constant DISTRIBUTION_PRECISION = 100;
+
+    /// @dev example: 200 is 2% interests
+    function getInterestPerSecond(uint256 interestBips) internal pure returns (uint64 interestsPerSecond) {
+        return uint64((interestBips * 316880878) / 100); // 316880878 is the precomputed integral part of 1e18 / (36525 * 3600 * 24)
+    }
+
+    function getInterestPerYearFromInterestPerSecond(uint64 interestPerSecond) internal pure returns (uint64 interestPerYearBips) {
+        return (interestPerSecond * 100) / 316880878;
+    }
+
+    function getUserBorrowAmount(ICauldronV2 cauldron, address user) internal view returns (uint256 borrowAmount) {
+        Rebase memory totalBorrow = getTotalBorrowWithAccruedInterests(cauldron);
+        return (cauldron.userBorrowPart(user) * totalBorrow.elastic) / totalBorrow.base;
+    }
+
+    // total borrow with on-fly accrued interests
+    function getTotalBorrowWithAccruedInterests(ICauldronV2 cauldron) internal view returns (Rebase memory totalBorrow) {
+        totalBorrow = cauldron.totalBorrow();
+        (uint64 lastAccrued, , uint64 INTEREST_PER_SECOND) = cauldron.accrueInfo();
+        uint256 elapsedTime = block.timestamp - lastAccrued;
+
+        if (elapsedTime != 0 && totalBorrow.base != 0) {
+            totalBorrow.elastic = totalBorrow.elastic + uint128((uint256(totalBorrow.elastic) * INTEREST_PER_SECOND * elapsedTime) / 1e18);
+        }
+    }
+
+    function getOracleExchangeRate(ICauldronV2 cauldron) internal view returns (uint256) {
+        IOracle oracle = IOracle(cauldron.oracle());
+        bytes memory oracleData = cauldron.oracleData();
+        return oracle.peekSpot(oracleData);
+    }
+
+    function getUserCollateral(ICauldronV2 cauldron, address account) internal view returns (uint256 amount, uint256 value) {
+        IBentoBoxV1 bentoBox = IBentoBoxV1(cauldron.bentoBox());
+        uint256 share = cauldron.userCollateralShare(account);
+
+        amount = bentoBox.toAmount(cauldron.collateral(), share, false);
+        value = (amount * EXCHANGE_RATE_PRECISION) / getOracleExchangeRate(cauldron);
+    }
+
+    function getUserPositionInfo(
+        ICauldronV2 cauldron,
+        address account
+    )
+        internal
+        view
+        returns (
+            uint256 ltvBps,
+            uint256 healthFactor,
+            uint256 borrowValue,
+            uint256 collateralValue,
+            uint256 liquidationPrice,
+            uint256 collateralAmount
+        )
+    {
+        (collateralAmount, collateralValue) = getUserCollateral(cauldron, account);
+
+        borrowValue = getUserBorrowAmount(cauldron, account);
+
+        if (collateralValue > 0) {
+            ltvBps = (borrowValue * BPS_PRECISION) / collateralValue;
+            uint256 COLLATERALIZATION_RATE = cauldron.COLLATERIZATION_RATE(); // 1e5 precision
+
+            // example with WBTC (8 decimals)
+            // 18 + 8 + 5 - 5 - 8 - 10 = 8 decimals
+            IERC20 collateral = cauldron.collateral();
+            uint256 collateralPrecision = 10 ** collateral.safeDecimals();
+
+            liquidationPrice =
+                (borrowValue * collateralPrecision ** 2 * 1e5) /
+                COLLATERALIZATION_RATE /
+                collateralAmount /
+                EXCHANGE_RATE_PRECISION;
+
+            healthFactor = MathLib.subWithZeroFloor(
+                EXCHANGE_RATE_PRECISION,
+                (EXCHANGE_RATE_PRECISION * liquidationPrice * getOracleExchangeRate(cauldron)) / collateralPrecision ** 2
+            );
+        }
+    }
+
+    /// @notice the liquidator will get "MIM borrowPart" worth of collateral + liquidation fee incentive but borrowPart needs to be adjusted to take in account
+    /// the sSpell distribution taken off the liquidation fee. This function takes in account the bad debt repayment in case
+    /// the borrowPart give less collateral than it should.
+    /// @param cauldron Cauldron contract
+    /// @param account Account to liquidate
+    /// @param borrowPart Amount of MIM debt to liquidate
+    /// @return collateralAmount Amount of collateral that the liquidator will receive
+    /// @return adjustedBorrowPart Adjusted borrowPart to take in account position with bad debt where the
+    ///                            borrowPart give out more collateral than what the user has.
+    /// @return requiredMim MIM amount that the liquidator will need to pay back to get the collateralShare
+    function getLiquidationCollateralAndBorrowAmount(
+        ICauldronV2 cauldron,
+        address account,
+        uint256 borrowPart
+    ) internal view returns (uint256 collateralAmount, uint256 adjustedBorrowPart, uint256 requiredMim) {
+        uint256 exchangeRate = getOracleExchangeRate(cauldron);
+        Rebase memory totalBorrow = getTotalBorrowWithAccruedInterests(cauldron);
+        IBentoBoxV1 box = IBentoBoxV1(cauldron.bentoBox());
+        uint256 collateralShare = cauldron.userCollateralShare(account);
+        IERC20 collateral = cauldron.collateral();
+
+        // cap to the maximum amount of debt that can be liquidated in case the cauldron has bad debt
+        {
+            Rebase memory bentoBoxTotals = box.totals(collateral);
+
+            // how much debt can be liquidated
+            uint256 maxBorrowPart = (bentoBoxTotals.toElastic(collateralShare, false) * 1e23) /
+                (cauldron.LIQUIDATION_MULTIPLIER() * exchangeRate);
+            maxBorrowPart = totalBorrow.toBase(maxBorrowPart, false);
+
+            if (borrowPart > maxBorrowPart) {
+                borrowPart = maxBorrowPart;
+            }
+        }
+
+        // convert borrowPart to debt
+        requiredMim = totalBorrow.toElastic(borrowPart, false);
+
+        // convert borrowPart to collateralShare
+        {
+            Rebase memory bentoBoxTotals = box.totals(collateral);
+
+            // how much collateral share the liquidator will get from the given borrow amount
+            collateralShare = bentoBoxTotals.toBase(
+                (requiredMim * cauldron.LIQUIDATION_MULTIPLIER() * exchangeRate) /
+                    (LIQUIDATION_MULTIPLIER_PRECISION * EXCHANGE_RATE_PRECISION),
+                false
+            );
+            collateralAmount = box.toAmount(collateral, collateralShare, false);
+        }
+
+        // add the sSpell distribution part
+        {
+            requiredMim +=
+                ((((requiredMim * cauldron.LIQUIDATION_MULTIPLIER()) / LIQUIDATION_MULTIPLIER_PRECISION) - requiredMim) *
+                    DISTRIBUTION_PART) /
+                DISTRIBUTION_PRECISION;
+
+            IERC20 mim = cauldron.magicInternetMoney();
+
+            // convert back and forth to amount to compensate for rounded up toShare conversion inside `liquidate`
+            requiredMim = box.toAmount(mim, box.toShare(mim, requiredMim, true), true);
+        }
+
+        adjustedBorrowPart = borrowPart;
+    }
+
+    function isSolvent(ICauldronV2 cauldron, address account) internal view returns (bool) {
+        IBentoBoxV1 bentoBox = IBentoBoxV1(cauldron.bentoBox());
+        Rebase memory totalBorrow = getTotalBorrowWithAccruedInterests(cauldron);
+        uint256 exchangeRate = getOracleExchangeRate(cauldron);
+        IERC20 collateral = cauldron.collateral();
+        uint256 COLLATERIZATION_RATE = cauldron.COLLATERIZATION_RATE();
+        uint256 collateralShare = cauldron.userCollateralShare(account);
+        uint256 borrowPart = cauldron.userBorrowPart(account);
+
+        if (borrowPart == 0) {
+            return true;
+        } else if (collateralShare == 0) {
+            return false;
+        } else {
+            return
+                bentoBox.toAmount(
+                    collateral,
+                    (collateralShare * (EXCHANGE_RATE_PRECISION / COLLATERIZATION_RATE_PRECISION)) * COLLATERIZATION_RATE,
+                    false
+                ) >= (borrowPart * totalBorrow.elastic * exchangeRate) / totalBorrow.base;
+        }
+    }
+
+    function getCollateralPrice(ICauldronV2 cauldron) internal view returns (uint256) {
+        IERC20 collateral = cauldron.collateral();
+        uint256 collateralPrecision = 10 ** collateral.safeDecimals();
+        return (collateralPrecision * collateralPrecision) / getOracleExchangeRate(cauldron);
+    }
+
+    function decodeInitData(
+        bytes calldata data
+    )
+        internal
+        pure
+        returns (
+            address collateral,
+            address oracle,
+            bytes memory oracleData,
+            uint64 INTEREST_PER_SECOND,
+            uint256 LIQUIDATION_MULTIPLIER,
+            uint256 COLLATERIZATION_RATE,
+            uint256 BORROW_OPENING_FEE
+        )
+    {
+        (collateral, oracle, oracleData, INTEREST_PER_SECOND, LIQUIDATION_MULTIPLIER, COLLATERIZATION_RATE, BORROW_OPENING_FEE) = abi
+            .decode(data, (address, address, bytes, uint64, uint256, uint256, uint256));
+    }
+}
+// ===== END SOURCE FILE: src/libraries/CauldronLib.sol =====
+// ===== BEGIN SOURCE FILE: src/libraries/MathLib.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+library MathLib {
+    function max(uint256[] memory values) internal pure returns (uint256) {
+        uint256 maxValue = values[0];
+        for (uint256 i = 1; i < values.length; i++) {
+            if (values[i] > maxValue) {
+                maxValue = values[i];
+            }
+        }
+        return maxValue;
+    }
+
+    function max(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a : b;
+    }
+
+    function min(uint256[] memory values) internal pure returns (uint256) {
+        uint256 minValue = values[0];
+        for (uint256 i = 1; i < values.length; i++) {
+            if (values[i] < minValue) {
+                minValue = values[i];
+            }
+        }
+        return minValue;
+    }
+
+    function min(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a < b ? a : b;
+    }
+
+    function subWithZeroFloor(uint256 a, uint256 b) internal pure returns (uint256) {
+        return a > b ? a - b : 0;
+    }
+}
+// ===== END SOURCE FILE: src/libraries/MathLib.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/auxiliary/FeeRateModel.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+import {IFeeRateImpl} from "../interfaces/IFeeRateModel.sol";
+
+contract FeeRateModel is Owned {
+    event LogImplementationChanged(address indexed implementation);
+    event LogMaintainerChanged(address indexed maintainer);
+
+    error ErrZeroAddress();
+
+    address public maintainer;
+    address public implementation;
+
+    constructor(address maintainer_, address owner_) Owned(owner_) {
+        if (maintainer_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        maintainer = maintainer_;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function getFeeRate(address trader, uint256 lpFeeRate) external view returns (uint256 adjustedLpFeeRate, uint256 mtFeeRate) {
+        if (implementation == address(0)) {
+            return (lpFeeRate, 0);
+        }
+
+        return IFeeRateImpl(implementation).getFeeRate(msg.sender, trader, lpFeeRate);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function setMaintainer(address maintainer_) external onlyOwner {
+        if (maintainer_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        maintainer = maintainer_;
+        emit LogMaintainerChanged(maintainer_);
+    }
+
+    /// @notice Set the fee rate implementation and default fee rate
+    /// @param implementation_ The address of the fee rate implementation, use address(0) to disable
+    function setImplementation(address implementation_) public onlyOwner {
+        implementation = implementation_;
+        emit LogImplementationChanged(implementation_);
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/auxiliary/FeeRateModel.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/auxiliary/FeeRateModelImpl.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {IFeeRateImpl} from "../interfaces/IFeeRateModel.sol";
+import {Math} from "/mimswap/libraries/Math.sol";
+
+contract FeeRateModelImpl {
+    // 50% of the LP fee rate
+    function getFeeRate(
+        address /*pool*/,
+        address /*trader*/,
+        uint256 lpFeeRate
+    ) external pure returns (uint256 adjustedLpFeeRate, uint256 mtFeeRate) {
+        mtFeeRate = Math.divCeil(lpFeeRate, 2);
+        return (lpFeeRate - mtFeeRate, mtFeeRate);
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/auxiliary/FeeRateModelImpl.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/interfaces/ICallee.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+interface ICallee {
+    function SellShareCall(
+        address sender,
+        uint256 burnShareAmount,
+        uint256 baseAmount,
+        uint256 quoteAmount,
+        bytes calldata data
+    ) external;
+
+    function FlashLoanCall(address sender, uint256 baseAmount, uint256 quoteAmount, bytes calldata data) external;
+}
+// ===== END SOURCE FILE: src/mimswap/interfaces/ICallee.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/interfaces/IFactory.sol =====
+// SPDX-License-Identifier: MIT
+pragma solidity >=0.8.0;
+
+interface IFactory {
+    function predictDeterministicAddress(
+        address baseToken_,
+        address quoteToken_,
+        uint256 lpFeeRate_,
+        uint256 i_,
+        uint256 k_
+    ) external view returns (address);
+
+    function maintainerFeeRateModel() external view returns (address);
+
+    function create(address baseToken_, address quoteToken_, uint256 lpFeeRate_, uint256 i_, uint256 k_) external returns (address clone);
+}
+// ===== END SOURCE FILE: src/mimswap/interfaces/IFactory.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/interfaces/IFeeRateModel.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+interface IFeeRateImpl {
+    function getFeeRate(
+        address pool,
+        address trader,
+        uint256 lpFeeRate
+    ) external view returns (uint256 adjustedLpFeeRate, uint256 mtFeeRate);
+}
+
+interface IFeeRateModel {
+    function maintainer() external view returns (address);
+
+    function getFeeRate(address trader, uint256 lpFeeRate) external view returns (uint256 adjustedLpFeeRate, uint256 mtFeeRate);
+}
+// ===== END SOURCE FILE: src/mimswap/interfaces/IFeeRateModel.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/interfaces/IMagicLP.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+interface IMagicLP {
+    function _BASE_TOKEN_() external view returns (address);
+
+    function _QUOTE_TOKEN_() external view returns (address);
+
+    function _BASE_RESERVE_() external view returns (uint112);
+
+    function _QUOTE_RESERVE_() external view returns (uint112);
+
+    function _BASE_TARGET_() external view returns (uint112);
+
+    function _QUOTE_TARGET_() external view returns (uint112);
+
+    function _I_() external view returns (uint256);
+
+    function getReserves() external view returns (uint256 baseReserve, uint256 quoteReserve);
+
+    function totalSupply() external view returns (uint256 totalSupply);
+
+    function init(
+        address baseTokenAddress,
+        address quoteTokenAddress,
+        uint256 lpFeeRate,
+        address mtFeeRateModel,
+        uint256 i,
+        uint256 k
+    ) external;
+
+    function sellBase(address to) external returns (uint256 receiveQuoteAmount);
+
+    function sellQuote(address to) external returns (uint256 receiveBaseAmount);
+
+    function flashLoan(uint256 baseAmount, uint256 quoteAmount, address assetTo, bytes calldata data) external;
+
+    function buyShares(address to) external returns (uint256 shares, uint256 baseInput, uint256 quoteInput);
+
+    function sellShares(
+        uint256 shareAmount,
+        address to,
+        uint256 baseMinAmount,
+        uint256 quoteMinAmount,
+        bytes calldata data,
+        uint256 deadline
+    ) external returns (uint256 baseAmount, uint256 quoteAmount);
+
+    function MIN_LP_FEE_RATE() external view returns (uint256);
+
+    function MAX_LP_FEE_RATE() external view returns (uint256);
+}
+// ===== END SOURCE FILE: src/mimswap/interfaces/IMagicLP.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/libraries/DecimalMath.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+pragma solidity >=0.8.0;
+
+import {Math} from "/mimswap/libraries/Math.sol";
+
+/**
+ * @title DecimalMath
+ * @author DODO Breeder
+ *
+ * @notice Functions for fixed point number with 18 decimals
+ */
+library DecimalMath {
+    using Math for uint256;
+
+    uint256 internal constant ONE = 10 ** 18;
+    uint256 internal constant ONE2 = 10 ** 36;
+
+    function mulFloor(uint256 target, uint256 d) internal pure returns (uint256) {
+        return (target * d) / ONE;
+    }
+
+    function mulCeil(uint256 target, uint256 d) internal pure returns (uint256) {
+        return (target * d).divCeil(ONE);
+    }
+
+    function divFloor(uint256 target, uint256 d) internal pure returns (uint256) {
+        return (target * ONE) / d;
+    }
+
+    function divCeil(uint256 target, uint256 d) internal pure returns (uint256) {
+        return (target * ONE).divCeil(d);
+    }
+
+    function reciprocalFloor(uint256 target) internal pure returns (uint256) {
+        return ONE2 / target;
+    }
+
+    function reciprocalCeil(uint256 target) internal pure returns (uint256) {
+        return ONE2.divCeil(target);
+    }
+
+    function powFloor(uint256 target, uint256 e) internal pure returns (uint256) {
+        if (e == 0) {
+            return 10 ** 18;
+        } else if (e == 1) {
+            return target;
+        } else {
+            uint p = powFloor(target, e / 2);
+            p = (p * p) / ONE;
+            if (e % 2 == 1) {
+                p = (p * target) / ONE;
+            }
+            return p;
+        }
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/libraries/DecimalMath.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/libraries/Math.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+import {DecimalMath} from "/mimswap/libraries/DecimalMath.sol";
+
+/**
+ * @author Adapted from https://github.com/DODOEX/contractV2/blob/main/contracts/lib/Math.sol
+ * @notice Functions for complex calculating. Including ONE Integration and TWO Quadratic solutions
+ */
+library Math {
+    error ErrIsZero();
+
+    function divCeil(uint256 a, uint256 b) internal pure returns (uint256) {
+        uint256 quotient = a / b;
+        uint256 remainder = a - quotient * b;
+        if (remainder > 0) {
+            return quotient + 1;
+        } else {
+            return quotient;
+        }
+    }
+
+    function sqrt(uint256 x) internal pure returns (uint256 y) {
+        uint256 z = x / 2 + 1;
+        y = x;
+        while (z < y) {
+            y = z;
+            z = (x / z + z) / 2;
+        }
+    }
+
+    /*
+        Integrate dodo curve from V1 to V2
+        require V0>=V1>=V2>0
+        res = (1-k)i(V1-V2)+ikV0*V0(1/V2-1/V1)
+        let V1-V2=delta
+        res = i*delta*(1-k+k(V0^2/V1/V2))
+
+        i is the price of V-res trading pair
+
+        support k=1 & k=0 case
+
+        [round down]
+    */
+    function _GeneralIntegrate(uint256 V0, uint256 V1, uint256 V2, uint256 i, uint256 k) internal pure returns (uint256) {
+        if (V0 == 0) {
+            revert ErrIsZero();
+        }
+
+        uint256 fairAmount = i * (V1 - V2); // i*delta
+
+        if (k == 0) {
+            return fairAmount / DecimalMath.ONE;
+        }
+
+        uint256 V0V0V1V2 = DecimalMath.divFloor((V0 * V0) / V1, V2);
+        uint256 penalty = DecimalMath.mulFloor(k, V0V0V1V2); // k(V0^2/V1/V2)
+        return (((DecimalMath.ONE - k) + penalty) * fairAmount) / DecimalMath.ONE2;
+    }
+
+    /*
+        Follow the integration function above
+        i*deltaB = (Q2-Q1)*(1-k+kQ0^2/Q1/Q2)
+        Assume Q2=Q0, Given Q1 and deltaB, solve Q0
+
+        i is the price of delta-V trading pair
+        give out target of V
+
+        support k=1 & k=0 case
+
+        [round down]
+    */
+    function _SolveQuadraticFunctionForTarget(uint256 V1, uint256 delta, uint256 i, uint256 k) internal pure returns (uint256) {
+        if (k == 0) {
+            return V1 + DecimalMath.mulFloor(i, delta);
+        }
+
+        // V0 = V1*(1+(sqrt-1)/2k)
+        // sqrt = √(1+4kidelta/V1)
+        // premium = 1+(sqrt-1)/2k
+        // uint256 sqrt = (4 * k).mul(i).mul(delta).div(V1).add(DecimalMath.ONE2).sqrt();
+
+        if (V1 == 0) {
+            return 0;
+        }
+        uint256 _sqrt;
+        uint256 ki = (4 * k) * i;
+        if (ki == 0) {
+            _sqrt = DecimalMath.ONE;
+        } else if ((ki * delta) / ki == delta) {
+            _sqrt = sqrt(((ki * delta) / V1) + DecimalMath.ONE2);
+        } else {
+            _sqrt = sqrt(((ki / V1) * delta) + DecimalMath.ONE2);
+        }
+        uint256 premium = DecimalMath.divFloor(_sqrt - DecimalMath.ONE, k * 2) + DecimalMath.ONE;
+        // V0 is greater than or equal to V1 according to the solution
+        return DecimalMath.mulFloor(V1, premium);
+    }
+
+    /*
+        Follow the integration expression above, we have:
+        i*deltaB = (Q2-Q1)*(1-k+kQ0^2/Q1/Q2)
+        Given Q1 and deltaB, solve Q2
+        This is a quadratic function and the standard version is
+        aQ2^2 + bQ2 + c = 0, where
+        a=1-k
+        -b=(1-k)Q1-kQ0^2/Q1+i*deltaB
+        c=-kQ0^2 
+        and Q2=(-b+sqrt(b^2+4(1-k)kQ0^2))/2(1-k)
+        note: another root is negative, abondan
+
+        if deltaBSig=true, then Q2>Q1, user sell Q and receive B
+        if deltaBSig=false, then Q2<Q1, user sell B and receive Q
+        return |Q1-Q2|
+
+        as we only support sell amount as delta, the deltaB is always negative
+        the input ideltaB is actually -ideltaB in the equation
+
+        i is the price of delta-V trading pair
+
+        support k=1 & k=0 case
+
+        [round down]
+    */
+    function _SolveQuadraticFunctionForTrade(uint256 V0, uint256 V1, uint256 delta, uint256 i, uint256 k) internal pure returns (uint256) {
+        if (V0 == 0) {
+            revert ErrIsZero();
+        }
+
+        if (delta == 0) {
+            return 0;
+        }
+
+        if (k == 0) {
+            return DecimalMath.mulFloor(i, delta) > V1 ? V1 : DecimalMath.mulFloor(i, delta);
+        }
+
+        if (k == DecimalMath.ONE) {
+            // if k==1
+            // Q2=Q1/(1+ideltaBQ1/Q0/Q0)
+            // temp = ideltaBQ1/Q0/Q0
+            // Q2 = Q1/(1+temp)
+            // Q1-Q2 = Q1*(1-1/(1+temp)) = Q1*(temp/(1+temp))
+            // uint256 temp = i.mul(delta).mul(V1).div(V0.mul(V0));
+            uint256 temp;
+            uint256 idelta = i * delta;
+            if (idelta == 0) {
+                temp = 0;
+            } else if ((idelta * V1) / idelta == V1) {
+                temp = (idelta * V1) / (V0 * V0);
+            } else {
+                temp = (((delta * V1) / V0) * i) / V0;
+            }
+            return (V1 * temp) / (temp + DecimalMath.ONE);
+        }
+
+        // calculate -b value and sig
+        // b = kQ0^2/Q1-i*deltaB-(1-k)Q1
+        // part1 = (1-k)Q1 >=0
+        // part2 = kQ0^2/Q1-i*deltaB >=0
+        // bAbs = abs(part1-part2)
+        // if part1>part2 => b is negative => bSig is false
+        // if part2>part1 => b is positive => bSig is true
+        uint256 part2 = (((k * V0) / V1) * V0) + (i * delta); // kQ0^2/Q1-i*deltaB
+        uint256 bAbs = (DecimalMath.ONE - k) * V1; // (1-k)Q1
+
+        bool bSig;
+        if (bAbs >= part2) {
+            bAbs = bAbs - part2;
+            bSig = false;
+        } else {
+            bAbs = part2 - bAbs;
+            bSig = true;
+        }
+        bAbs = bAbs / DecimalMath.ONE;
+
+        // calculate sqrt
+        uint256 squareRoot = DecimalMath.mulFloor((DecimalMath.ONE - k) * 4, DecimalMath.mulFloor(k, V0) * V0); // 4(1-k)kQ0^2
+        squareRoot = sqrt((bAbs * bAbs) + squareRoot); // sqrt(b*b+4(1-k)kQ0*Q0)
+
+        // final res
+        uint256 denominator = (DecimalMath.ONE - k) * 2; // 2(1-k)
+        uint256 numerator;
+        if (bSig) {
+            numerator = squareRoot - bAbs;
+            if (numerator == 0) {
+                revert ErrIsZero();
+            }
+        } else {
+            numerator = bAbs + squareRoot;
+        }
+
+        uint256 V2 = DecimalMath.divCeil(numerator, denominator);
+        if (V2 > V1) {
+            return 0;
+        } else {
+            return V1 - V2;
+        }
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/libraries/Math.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/libraries/PMMPricing.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+import {DecimalMath} from "/mimswap/libraries/DecimalMath.sol";
+import {Math} from "/mimswap/libraries/Math.sol";
+
+/**
+ * @title Pricing
+ * @author DODO Breeder
+ *
+ * @notice DODO Pricing model
+ */
+
+library PMMPricing {
+    enum RState {
+        ONE,
+        ABOVE_ONE,
+        BELOW_ONE
+    }
+
+    struct PMMState {
+        uint256 i;
+        uint256 K;
+        uint256 B;
+        uint256 Q;
+        uint256 B0;
+        uint256 Q0;
+        RState R;
+    }
+
+    // ============ buy & sell ============
+
+    function sellBaseToken(PMMState memory state, uint256 payBaseAmount) internal pure returns (uint256 receiveQuoteAmount, RState newR) {
+        if (state.R == RState.ONE) {
+            // case 1: R=1
+            // R falls below one
+            receiveQuoteAmount = _ROneSellBaseToken(state, payBaseAmount);
+            newR = RState.BELOW_ONE;
+        } else if (state.R == RState.ABOVE_ONE) {
+            uint256 backToOnePayBase = state.B0 - state.B;
+            uint256 backToOneReceiveQuote = state.Q - state.Q0;
+            // case 2: R>1
+            // complex case, R status depends on trading amount
+            if (payBaseAmount < backToOnePayBase) {
+                // case 2.1: R status do not change
+                receiveQuoteAmount = _RAboveSellBaseToken(state, payBaseAmount);
+                newR = RState.ABOVE_ONE;
+                if (receiveQuoteAmount > backToOneReceiveQuote) {
+                    // [Important corner case!] may enter this branch when some precision problem happens. And consequently contribute to negative spare quote amount
+                    // to make sure spare quote>=0, mannually set receiveQuote=backToOneReceiveQuote
+                    receiveQuoteAmount = backToOneReceiveQuote;
+                }
+            } else if (payBaseAmount == backToOnePayBase) {
+                // case 2.2: R status changes to ONE
+                receiveQuoteAmount = backToOneReceiveQuote;
+                newR = RState.ONE;
+            } else {
+                // case 2.3: R status changes to BELOW_ONE
+                receiveQuoteAmount = backToOneReceiveQuote + _ROneSellBaseToken(state, payBaseAmount - backToOnePayBase);
+                newR = RState.BELOW_ONE;
+            }
+        } else {
+            // state.R == RState.BELOW_ONE
+            // case 3: R<1
+            receiveQuoteAmount = _RBelowSellBaseToken(state, payBaseAmount);
+            newR = RState.BELOW_ONE;
+        }
+    }
+
+    function sellQuoteToken(PMMState memory state, uint256 payQuoteAmount) internal pure returns (uint256 receiveBaseAmount, RState newR) {
+        if (state.R == RState.ONE) {
+            receiveBaseAmount = _ROneSellQuoteToken(state, payQuoteAmount);
+            newR = RState.ABOVE_ONE;
+        } else if (state.R == RState.ABOVE_ONE) {
+            receiveBaseAmount = _RAboveSellQuoteToken(state, payQuoteAmount);
+            newR = RState.ABOVE_ONE;
+        } else {
+            uint256 backToOnePayQuote = state.Q0 - state.Q;
+            uint256 backToOneReceiveBase = state.B - state.B0;
+            if (payQuoteAmount < backToOnePayQuote) {
+                receiveBaseAmount = _RBelowSellQuoteToken(state, payQuoteAmount);
+                newR = RState.BELOW_ONE;
+                if (receiveBaseAmount > backToOneReceiveBase) {
+                    receiveBaseAmount = backToOneReceiveBase;
+                }
+            } else if (payQuoteAmount == backToOnePayQuote) {
+                receiveBaseAmount = backToOneReceiveBase;
+                newR = RState.ONE;
+            } else {
+                receiveBaseAmount = backToOneReceiveBase + _ROneSellQuoteToken(state, payQuoteAmount - backToOnePayQuote);
+                newR = RState.ABOVE_ONE;
+            }
+        }
+    }
+
+    // ============ R = 1 cases ============
+
+    function _ROneSellBaseToken(
+        PMMState memory state,
+        uint256 payBaseAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveQuoteToken
+        )
+    {
+        // in theory Q2 <= targetQuoteTokenAmount
+        // however when amount is close to 0, precision problems may cause Q2 > targetQuoteTokenAmount
+        return Math._SolveQuadraticFunctionForTrade(state.Q0, state.Q0, payBaseAmount, state.i, state.K);
+    }
+
+    function _ROneSellQuoteToken(
+        PMMState memory state,
+        uint256 payQuoteAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveBaseToken
+        )
+    {
+        return Math._SolveQuadraticFunctionForTrade(state.B0, state.B0, payQuoteAmount, DecimalMath.reciprocalFloor(state.i), state.K);
+    }
+
+    // ============ R < 1 cases ============
+
+    function _RBelowSellQuoteToken(
+        PMMState memory state,
+        uint256 payQuoteAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveBaseToken
+        )
+    {
+        return Math._GeneralIntegrate(state.Q0, state.Q + payQuoteAmount, state.Q, DecimalMath.reciprocalFloor(state.i), state.K);
+    }
+
+    function _RBelowSellBaseToken(
+        PMMState memory state,
+        uint256 payBaseAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveQuoteToken
+        )
+    {
+        return Math._SolveQuadraticFunctionForTrade(state.Q0, state.Q, payBaseAmount, state.i, state.K);
+    }
+
+    // ============ R > 1 cases ============
+
+    function _RAboveSellBaseToken(
+        PMMState memory state,
+        uint256 payBaseAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveQuoteToken
+        )
+    {
+        return Math._GeneralIntegrate(state.B0, state.B + payBaseAmount, state.B, state.i, state.K);
+    }
+
+    function _RAboveSellQuoteToken(
+        PMMState memory state,
+        uint256 payQuoteAmount
+    )
+        internal
+        pure
+        returns (
+            uint256 // receiveBaseToken
+        )
+    {
+        return Math._SolveQuadraticFunctionForTrade(state.B0, state.B, payQuoteAmount, DecimalMath.reciprocalFloor(state.i), state.K);
+    }
+
+    // ============ Helper functions ============
+
+    function adjustedTarget(PMMState memory state) internal pure {
+        if (state.R == RState.BELOW_ONE) {
+            state.Q0 = Math._SolveQuadraticFunctionForTarget(state.Q, state.B - state.B0, state.i, state.K);
+        } else if (state.R == RState.ABOVE_ONE) {
+            state.B0 = Math._SolveQuadraticFunctionForTarget(
+                state.B,
+                state.Q - state.Q0,
+                DecimalMath.reciprocalFloor(state.i),
+                state.K
+            );
+        }
+    }
+
+    function getMidPrice(PMMState memory state) internal pure returns (uint256) {
+        if (state.R == RState.BELOW_ONE) {
+            uint256 R = DecimalMath.divFloor((state.Q0 * state.Q0) / state.Q, state.Q);
+            R = (DecimalMath.ONE - state.K) + DecimalMath.mulFloor(state.K, R);
+            return DecimalMath.divFloor(state.i, R);
+        } else {
+            uint256 R = DecimalMath.divFloor((state.B0 * state.B0) / state.B, state.B);
+            R = (DecimalMath.ONE - state.K) + DecimalMath.mulFloor(state.K, R);
+            return DecimalMath.mulFloor(state.i, R);
+        }
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/libraries/PMMPricing.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/MagicLP.sol =====
+/*
+
+    Copyright 2020 DODO ZOO.
+    SPDX-License-Identifier: Apache-2.0
+
+*/
+
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+import {IERC20Metadata} from "openzeppelin-contracts/interfaces/IERC20Metadata.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
+import {ReentrancyGuard} from "solady/utils/ReentrancyGuard.sol";
+import {ERC20} from "solady/tokens/ERC20.sol";
+import {SafeCastLib} from "solady/utils/SafeCastLib.sol";
+import {DecimalMath} from "/mimswap/libraries/DecimalMath.sol";
+import {Math} from "/mimswap/libraries/Math.sol";
+import {PMMPricing} from "/mimswap/libraries/PMMPricing.sol";
+import {ICallee} from "/mimswap/interfaces/ICallee.sol";
+import {IFeeRateModel} from "/mimswap/interfaces/IFeeRateModel.sol";
+import {IWETH} from "interfaces/IWETH.sol";
+
+/// @title MIMSwap MagicLP
+/// @author Adapted from DODOEX DSP https://github.com/DODOEX/contractV2/tree/main/contracts/DODOStablePool
+contract MagicLP is ERC20, ReentrancyGuard, Owned {
+    using Math for uint256;
+    using SafeCastLib for uint256;
+    using SafeTransferLib for address;
+
+    event BuyShares(address to, uint256 increaseShares, uint256 totalShares);
+    event SellShares(address payer, address to, uint256 decreaseShares, uint256 totalShares);
+    event Swap(address fromToken, address toToken, uint256 fromAmount, uint256 toAmount, address trader, address receiver);
+    event FlashLoan(address borrower, address assetTo, uint256 baseAmount, uint256 quoteAmount);
+    event RChange(PMMPricing.RState newRState);
+    event TokenRescue(address indexed token, address to, uint256 amount);
+    event ParametersChanged(uint256 newLpFeeRate, uint256 newI, uint256 newK, uint256 newBaseReserve, uint256 newQuoteReserve);
+
+    error ErrInitialized();
+    error ErrBaseQuoteSame();
+    error ErrInvalidI();
+    error ErrInvalidK();
+    error ErrExpired();
+    error ErrInvalidSignature();
+    error ErrFlashLoanFailed();
+    error ErrNoBaseInput();
+    error ErrZeroAddress();
+    error ErrZeroQuoteAmount();
+    error ErrZeroQuoteTarget();
+    error ErrMintAmountNotEnough();
+    error ErrNotEnough();
+    error ErrWithdrawNotEnough();
+    error ErrSellBackNotAllowed();
+    error ErrInvalidLPFeeRate();
+    error ErrNotImplementationOwner();
+    error ErrNotImplementation();
+    error ErrNotClone();
+    error ErrNotAllowed();
+    error ErrReserveAmountNotEnough();
+    error ErrOverflow();
+
+    MagicLP public immutable implementation;
+
+    uint256 public constant MAX_I = 10 ** 36;
+    uint256 public constant MAX_K = 10 ** 18;
+    uint256 public constant MIN_LP_FEE_RATE = 1e14; // 0.01%
+    uint256 public constant MAX_LP_FEE_RATE = 1e16; // 1%
+
+    bool internal _INITIALIZED_;
+
+    address public _BASE_TOKEN_;
+    address public _QUOTE_TOKEN_;
+    uint112 public _BASE_RESERVE_;
+    uint112 public _QUOTE_RESERVE_;
+    uint32 public _BLOCK_TIMESTAMP_LAST_;
+    uint256 public _BASE_PRICE_CUMULATIVE_LAST_;
+    uint112 public _BASE_TARGET_;
+    uint112 public _QUOTE_TARGET_;
+    uint32 public _RState_;
+    IFeeRateModel public _MT_FEE_RATE_MODEL_;
+    uint256 public _LP_FEE_RATE_;
+    uint256 public _K_;
+    uint256 public _I_;
+
+    constructor(address owner_) Owned(owner_) {
+        implementation = this;
+
+        // prevents the implementation contract initialization
+        _INITIALIZED_ = true;
+    }
+
+    function init(
+        address baseTokenAddress,
+        address quoteTokenAddress,
+        uint256 lpFeeRate,
+        address mtFeeRateModel,
+        uint256 i,
+        uint256 k
+    ) external {
+        if (_INITIALIZED_) {
+            revert ErrInitialized();
+        }
+        if (mtFeeRateModel == address(0) || baseTokenAddress == address(0) || quoteTokenAddress == address(0)) {
+            revert ErrZeroAddress();
+        }
+        if (baseTokenAddress == quoteTokenAddress) {
+            revert ErrBaseQuoteSame();
+        }
+        if (i == 0 || i > MAX_I) {
+            revert ErrInvalidI();
+        }
+        if (k > MAX_K) {
+            revert ErrInvalidK();
+        }
+        if (lpFeeRate < MIN_LP_FEE_RATE || lpFeeRate > MAX_LP_FEE_RATE) {
+            revert ErrInvalidLPFeeRate();
+        }
+
+        _INITIALIZED_ = true;
+        _BASE_TOKEN_ = baseTokenAddress;
+        _QUOTE_TOKEN_ = quoteTokenAddress;
+        _I_ = i;
+        _K_ = k;
+        _LP_FEE_RATE_ = lpFeeRate;
+        _MT_FEE_RATE_MODEL_ = IFeeRateModel(mtFeeRateModel);
+        _BLOCK_TIMESTAMP_LAST_ = uint32(block.timestamp % 2 ** 32);
+
+        _afterInitialized();
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// PUBLIC
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function sync() external nonReentrant {
+        _sync();
+    }
+
+    function correctRState() external {
+        if (_RState_ == uint32(PMMPricing.RState.BELOW_ONE) && _BASE_RESERVE_ < _BASE_TARGET_) {
+            _RState_ = uint32(PMMPricing.RState.ONE);
+            _BASE_TARGET_ = _BASE_RESERVE_;
+            _QUOTE_TARGET_ = _QUOTE_RESERVE_;
+        }
+        if (_RState_ == uint32(PMMPricing.RState.ABOVE_ONE) && _QUOTE_RESERVE_ < _QUOTE_TARGET_) {
+            _RState_ = uint32(PMMPricing.RState.ONE);
+            _BASE_TARGET_ = _BASE_RESERVE_;
+            _QUOTE_TARGET_ = _QUOTE_RESERVE_;
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function name() public view override returns (string memory) {
+        return string(abi.encodePacked("MagicLP ", IERC20Metadata(_BASE_TOKEN_).symbol(), "/", IERC20Metadata(_QUOTE_TOKEN_).symbol()));
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "MagicLP";
+    }
+
+    function decimals() public view override returns (uint8) {
+        return IERC20Metadata(_BASE_TOKEN_).decimals();
+    }
+
+    function querySellBase(
+        address trader,
+        uint256 payBaseAmount
+    ) public view returns (uint256 receiveQuoteAmount, uint256 mtFee, PMMPricing.RState newRState, uint256 newBaseTarget) {
+        PMMPricing.PMMState memory state = getPMMState();
+        (receiveQuoteAmount, newRState) = PMMPricing.sellBaseToken(state, payBaseAmount);
+
+        (uint256 lpFeeRate, uint256 mtFeeRate) = _MT_FEE_RATE_MODEL_.getFeeRate(trader, _LP_FEE_RATE_);
+        mtFee = DecimalMath.mulFloor(receiveQuoteAmount, mtFeeRate);
+        receiveQuoteAmount = receiveQuoteAmount - DecimalMath.mulFloor(receiveQuoteAmount, lpFeeRate) - mtFee;
+        newBaseTarget = state.B0;
+    }
+
+    function querySellQuote(
+        address trader,
+        uint256 payQuoteAmount
+    ) public view returns (uint256 receiveBaseAmount, uint256 mtFee, PMMPricing.RState newRState, uint256 newQuoteTarget) {
+        PMMPricing.PMMState memory state = getPMMState();
+        (receiveBaseAmount, newRState) = PMMPricing.sellQuoteToken(state, payQuoteAmount);
+
+        (uint256 lpFeeRate, uint256 mtFeeRate) = _MT_FEE_RATE_MODEL_.getFeeRate(trader, _LP_FEE_RATE_);
+        mtFee = DecimalMath.mulFloor(receiveBaseAmount, mtFeeRate);
+        receiveBaseAmount = receiveBaseAmount - DecimalMath.mulFloor(receiveBaseAmount, lpFeeRate) - mtFee;
+        newQuoteTarget = state.Q0;
+    }
+
+    function getPMMState() public view returns (PMMPricing.PMMState memory state) {
+        state.i = _I_;
+        state.K = _K_;
+        state.B = _BASE_RESERVE_;
+        state.Q = _QUOTE_RESERVE_;
+        state.B0 = _BASE_TARGET_; // will be calculated in adjustedTarget
+        state.Q0 = _QUOTE_TARGET_;
+        state.R = PMMPricing.RState(_RState_);
+        PMMPricing.adjustedTarget(state);
+    }
+
+    function getPMMStateForCall() external view returns (uint256 i, uint256 K, uint256 B, uint256 Q, uint256 B0, uint256 Q0, uint256 R) {
+        PMMPricing.PMMState memory state = getPMMState();
+        i = state.i;
+        K = state.K;
+        B = state.B;
+        Q = state.Q;
+        B0 = state.B0;
+        Q0 = state.Q0;
+        R = uint256(state.R);
+    }
+
+    function getMidPrice() public view returns (uint256 midPrice) {
+        return PMMPricing.getMidPrice(getPMMState());
+    }
+
+    function getReserves() external view returns (uint256 baseReserve, uint256 quoteReserve) {
+        baseReserve = _BASE_RESERVE_;
+        quoteReserve = _QUOTE_RESERVE_;
+    }
+
+    function getUserFeeRate(address user) external view returns (uint256 lpFeeRate, uint256 mtFeeRate) {
+        return _MT_FEE_RATE_MODEL_.getFeeRate(user, _LP_FEE_RATE_);
+    }
+
+    function getBaseInput() public view returns (uint256 input) {
+        return _BASE_TOKEN_.balanceOf(address(this)) - uint256(_BASE_RESERVE_);
+    }
+
+    function getQuoteInput() public view returns (uint256 input) {
+        return _QUOTE_TOKEN_.balanceOf(address(this)) - uint256(_QUOTE_RESERVE_);
+    }
+
+    function version() external pure virtual returns (string memory) {
+        return "MagicLP 1.0.0";
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// TRADE FUNCTIONS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function sellBase(address to) external nonReentrant returns (uint256 receiveQuoteAmount) {
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 baseInput = baseBalance - uint256(_BASE_RESERVE_);
+        uint256 mtFee;
+        uint256 newBaseTarget;
+        PMMPricing.RState newRState;
+        (receiveQuoteAmount, mtFee, newRState, newBaseTarget) = querySellBase(tx.origin, baseInput);
+
+        _transferQuoteOut(to, receiveQuoteAmount);
+        _transferQuoteOut(_MT_FEE_RATE_MODEL_.maintainer(), mtFee);
+
+        // update TARGET
+        if (_RState_ != uint32(newRState)) {
+            _BASE_TARGET_ = newBaseTarget.toUint112();
+            _RState_ = uint32(newRState);
+            emit RChange(newRState);
+        }
+
+        _setReserve(baseBalance, _QUOTE_TOKEN_.balanceOf(address(this)));
+
+        emit Swap(address(_BASE_TOKEN_), address(_QUOTE_TOKEN_), baseInput, receiveQuoteAmount, msg.sender, to);
+    }
+
+    function sellQuote(address to) external nonReentrant returns (uint256 receiveBaseAmount) {
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+        uint256 quoteInput = quoteBalance - uint256(_QUOTE_RESERVE_);
+        uint256 mtFee;
+        uint256 newQuoteTarget;
+        PMMPricing.RState newRState;
+        (receiveBaseAmount, mtFee, newRState, newQuoteTarget) = querySellQuote(tx.origin, quoteInput);
+
+        _transferBaseOut(to, receiveBaseAmount);
+        _transferBaseOut(_MT_FEE_RATE_MODEL_.maintainer(), mtFee);
+
+        // update TARGET
+        if (_RState_ != uint32(newRState)) {
+            _QUOTE_TARGET_ = newQuoteTarget.toUint112();
+            _RState_ = uint32(newRState);
+            emit RChange(newRState);
+        }
+
+        _setReserve(_BASE_TOKEN_.balanceOf(address(this)), quoteBalance);
+
+        emit Swap(address(_QUOTE_TOKEN_), address(_BASE_TOKEN_), quoteInput, receiveBaseAmount, msg.sender, to);
+    }
+
+    function flashLoan(uint256 baseAmount, uint256 quoteAmount, address assetTo, bytes calldata data) external nonReentrant {
+        _transferBaseOut(assetTo, baseAmount);
+        _transferQuoteOut(assetTo, quoteAmount);
+
+        if (data.length > 0) {
+            ICallee(assetTo).FlashLoanCall(msg.sender, baseAmount, quoteAmount, data);
+        }
+
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+
+        // no input -> pure loss
+        if (baseBalance < _BASE_RESERVE_ && quoteBalance < _QUOTE_RESERVE_) {
+            revert ErrFlashLoanFailed();
+        }
+
+        // sell quote case
+        // quote input + base output
+        if (baseBalance < _BASE_RESERVE_) {
+            uint256 quoteInput = quoteBalance - uint256(_QUOTE_RESERVE_);
+            (uint256 receiveBaseAmount, uint256 mtFee, PMMPricing.RState newRState, uint256 newQuoteTarget) = querySellQuote(
+                tx.origin,
+                quoteInput
+            );
+
+            if (uint256(_BASE_RESERVE_) - baseBalance > receiveBaseAmount) {
+                revert ErrFlashLoanFailed();
+            }
+
+            _transferBaseOut(_MT_FEE_RATE_MODEL_.maintainer(), mtFee);
+            if (_RState_ != uint32(newRState)) {
+                _QUOTE_TARGET_ = newQuoteTarget.toUint112();
+                _RState_ = uint32(newRState);
+                emit RChange(newRState);
+            }
+            emit Swap(address(_QUOTE_TOKEN_), address(_BASE_TOKEN_), quoteInput, receiveBaseAmount, msg.sender, assetTo);
+        }
+
+        // sell base case
+        // base input + quote output
+        if (quoteBalance < _QUOTE_RESERVE_) {
+            uint256 baseInput = baseBalance - uint256(_BASE_RESERVE_);
+            (uint256 receiveQuoteAmount, uint256 mtFee, PMMPricing.RState newRState, uint256 newBaseTarget) = querySellBase(
+                tx.origin,
+                baseInput
+            );
+
+            if (uint256(_QUOTE_RESERVE_) - quoteBalance > receiveQuoteAmount) {
+                revert ErrFlashLoanFailed();
+            }
+
+            _transferQuoteOut(_MT_FEE_RATE_MODEL_.maintainer(), mtFee);
+            if (_RState_ != uint32(newRState)) {
+                _BASE_TARGET_ = newBaseTarget.toUint112();
+                _RState_ = uint32(newRState);
+                emit RChange(newRState);
+            }
+            emit Swap(address(_BASE_TOKEN_), address(_QUOTE_TOKEN_), baseInput, receiveQuoteAmount, msg.sender, assetTo);
+        }
+
+        _sync();
+
+        emit FlashLoan(msg.sender, assetTo, baseAmount, quoteAmount);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// BUY & SELL SHARES
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    // buy shares [round down]
+    function buyShares(address to) external nonReentrant returns (uint256 shares, uint256 baseInput, uint256 quoteInput) {
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+        uint256 baseReserve = _BASE_RESERVE_;
+        uint256 quoteReserve = _QUOTE_RESERVE_;
+
+        baseInput = baseBalance - baseReserve;
+        quoteInput = quoteBalance - quoteReserve;
+
+        if (baseInput == 0) {
+            revert ErrNoBaseInput();
+        }
+
+        // Round down when withdrawing. Therefore, never be a situation occurring balance is 0 but totalsupply is not 0
+        // But May Happen，reserve >0 But totalSupply = 0
+        if (totalSupply() == 0) {
+            // case 1. initial supply
+            if (quoteBalance == 0) {
+                revert ErrZeroQuoteAmount();
+            }
+
+            shares = quoteBalance < DecimalMath.mulFloor(baseBalance, _I_) ? DecimalMath.divFloor(quoteBalance, _I_) : baseBalance;
+            _BASE_TARGET_ = shares.toUint112();
+            _QUOTE_TARGET_ = DecimalMath.mulFloor(shares, _I_).toUint112();
+
+            if (_QUOTE_TARGET_ == 0) {
+                revert ErrZeroQuoteTarget();
+            }
+
+            if (shares <= 2001) {
+                revert ErrMintAmountNotEnough();
+            }
+
+            _mint(address(0), 1001);
+            shares -= 1001;
+        } else if (baseReserve > 0 && quoteReserve > 0) {
+            // case 2. normal case
+            uint256 baseInputRatio = DecimalMath.divFloor(baseInput, baseReserve);
+            uint256 quoteInputRatio = DecimalMath.divFloor(quoteInput, quoteReserve);
+            uint256 mintRatio = quoteInputRatio < baseInputRatio ? quoteInputRatio : baseInputRatio;
+            shares = DecimalMath.mulFloor(totalSupply(), mintRatio);
+
+            _BASE_TARGET_ = (uint256(_BASE_TARGET_) + DecimalMath.mulFloor(uint256(_BASE_TARGET_), mintRatio)).toUint112();
+            _QUOTE_TARGET_ = (uint256(_QUOTE_TARGET_) + DecimalMath.mulFloor(uint256(_QUOTE_TARGET_), mintRatio)).toUint112();
+        }
+
+        _mint(to, shares);
+        _setReserve(baseBalance, quoteBalance);
+
+        emit BuyShares(to, shares, balanceOf(to));
+    }
+
+    // sell shares [round down]
+    function sellShares(
+        uint256 shareAmount,
+        address to,
+        uint256 baseMinAmount,
+        uint256 quoteMinAmount,
+        bytes calldata data,
+        uint256 deadline
+    ) external nonReentrant returns (uint256 baseAmount, uint256 quoteAmount) {
+        if (deadline < block.timestamp) {
+            revert ErrExpired();
+        }
+        if (shareAmount > balanceOf(msg.sender)) {
+            revert ErrNotEnough();
+        }
+        if (to == address(this)) {
+            revert ErrSellBackNotAllowed();
+        }
+
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+        uint256 totalShares = totalSupply();
+
+        baseAmount = (baseBalance * shareAmount) / totalShares;
+        quoteAmount = (quoteBalance * shareAmount) / totalShares;
+
+        _BASE_TARGET_ = uint112(uint256(_BASE_TARGET_) - (uint256(_BASE_TARGET_) * shareAmount).divCeil(totalShares));
+        _QUOTE_TARGET_ = uint112(uint256(_QUOTE_TARGET_) - (uint256(_QUOTE_TARGET_) * shareAmount).divCeil(totalShares));
+
+        if (baseAmount < baseMinAmount || quoteAmount < quoteMinAmount) {
+            revert ErrWithdrawNotEnough();
+        }
+
+        _burn(msg.sender, shareAmount);
+        _transferBaseOut(to, baseAmount);
+        _transferQuoteOut(to, quoteAmount);
+        _sync();
+
+        if (data.length > 0) {
+            ICallee(to).SellShareCall(msg.sender, shareAmount, baseAmount, quoteAmount, data);
+        }
+
+        emit SellShares(msg.sender, to, shareAmount, balanceOf(msg.sender));
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function rescue(address token, address to, uint256 amount) external onlyImplementationOwner {
+        if (token == _BASE_TOKEN_ || token == _QUOTE_TOKEN_) {
+            revert ErrNotAllowed();
+        }
+
+        token.safeTransfer(to, amount);
+        emit TokenRescue(token, to, amount);
+    }
+
+    function setParameters(
+        address assetTo,
+        uint256 newLpFeeRate,
+        uint256 newI,
+        uint256 newK,
+        uint256 baseOutAmount,
+        uint256 quoteOutAmount,
+        uint256 minBaseReserve,
+        uint256 minQuoteReserve
+    ) public nonReentrant onlyImplementationOwner {
+        if (_BASE_RESERVE_ < minBaseReserve || _QUOTE_RESERVE_ < minQuoteReserve) {
+            revert ErrReserveAmountNotEnough();
+        }
+        if (newI == 0 || newI > MAX_I) {
+            revert ErrInvalidI();
+        }
+        if (newK > MAX_K) {
+            revert ErrInvalidK();
+        }
+        if (newLpFeeRate < MIN_LP_FEE_RATE || newLpFeeRate > MAX_LP_FEE_RATE) {
+            revert ErrInvalidLPFeeRate();
+        }
+
+        _LP_FEE_RATE_ = uint64(newLpFeeRate);
+        _K_ = uint64(newK);
+        _I_ = uint128(newI);
+
+        _transferBaseOut(assetTo, baseOutAmount);
+        _transferQuoteOut(assetTo, quoteOutAmount);
+        (uint256 newBaseBalance, uint256 newQuoteBalance) = _resetTargetAndReserve();
+
+        emit ParametersChanged(newLpFeeRate, newI, newK, newBaseBalance, newQuoteBalance);
+    }
+
+    function ratioSync() external nonReentrant onlyImplementationOwner {
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+
+        if (baseBalance > type(uint112).max || quoteBalance > type(uint112).max) {
+            revert ErrOverflow();
+        }
+
+        if (baseBalance != _BASE_RESERVE_) {
+            _BASE_TARGET_ = uint112((uint256(_BASE_TARGET_) * baseBalance) / uint256(_BASE_RESERVE_));
+            _BASE_RESERVE_ = uint112(baseBalance);
+        }
+        if (quoteBalance != _QUOTE_RESERVE_) {
+            _QUOTE_TARGET_ = uint112((uint256(_QUOTE_TARGET_) * quoteBalance) / uint256(_QUOTE_RESERVE_));
+            _QUOTE_RESERVE_ = uint112(quoteBalance);
+        }
+
+        _twapUpdate();
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _resetTargetAndReserve() internal returns (uint256 baseBalance, uint256 quoteBalance) {
+        baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+
+        if (baseBalance > type(uint112).max || quoteBalance > type(uint112).max) {
+            revert ErrOverflow();
+        }
+
+        _BASE_RESERVE_ = uint112(baseBalance);
+        _QUOTE_RESERVE_ = uint112(quoteBalance);
+        _BASE_TARGET_ = uint112(baseBalance);
+        _QUOTE_TARGET_ = uint112(quoteBalance);
+        _RState_ = uint32(PMMPricing.RState.ONE);
+
+        _twapUpdate();
+    }
+
+    function _twapUpdate() internal {
+        uint32 blockTimestamp = uint32(block.timestamp % 2 ** 32);
+        uint32 timeElapsed = blockTimestamp - _BLOCK_TIMESTAMP_LAST_;
+
+        if (timeElapsed > 0 && _BASE_RESERVE_ != 0 && _QUOTE_RESERVE_ != 0) {
+            /// @dev It is desired and expected for this value to
+            /// overflow once it has hit the max of `type.uint256`.
+            unchecked {
+                _BASE_PRICE_CUMULATIVE_LAST_ += getMidPrice() * timeElapsed;
+            }
+        }
+
+        _BLOCK_TIMESTAMP_LAST_ = blockTimestamp;
+    }
+
+    function _setReserve(uint256 baseReserve, uint256 quoteReserve) internal {
+        _BASE_RESERVE_ = baseReserve.toUint112();
+        _QUOTE_RESERVE_ = quoteReserve.toUint112();
+
+        _twapUpdate();
+    }
+
+    function _sync() internal {
+        uint256 baseBalance = _BASE_TOKEN_.balanceOf(address(this));
+        uint256 quoteBalance = _QUOTE_TOKEN_.balanceOf(address(this));
+
+        if (baseBalance != _BASE_RESERVE_) {
+            _BASE_RESERVE_ = baseBalance.toUint112();
+        }
+        if (quoteBalance != _QUOTE_RESERVE_) {
+            _QUOTE_RESERVE_ = quoteBalance.toUint112();
+        }
+
+        _twapUpdate();
+    }
+
+    function _transferBaseOut(address to, uint256 amount) internal {
+        if (amount > 0) {
+            _BASE_TOKEN_.safeTransfer(to, amount);
+        }
+    }
+
+    function _transferQuoteOut(address to, uint256 amount) internal {
+        if (amount > 0) {
+            _QUOTE_TOKEN_.safeTransfer(to, amount);
+        }
+    }
+
+    function _mint(address to, uint256 amount) internal override {
+        if (amount <= 1000) {
+            revert ErrMintAmountNotEnough();
+        }
+
+        super._mint(to, amount);
+    }
+
+    function _afterInitialized() internal virtual {}
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// MODIFIERS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    modifier onlyImplementationOwner() {
+        if (msg.sender != implementation.owner()) {
+            revert ErrNotImplementationOwner();
+        }
+        _;
+    }
+
+    modifier onlyClones() {
+        if (address(this) == address(implementation)) {
+            revert ErrNotClone();
+        }
+        _;
+    }
+
+    modifier onlyImplementation() {
+        if (address(this) != address(implementation)) {
+            revert ErrNotImplementation();
+        }
+        _;
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/MagicLP.sol =====
+// ===== BEGIN SOURCE FILE: src/mimswap/periphery/Factory.sol =====
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity >=0.8.0;
+
+import {Owned} from "solmate/auth/Owned.sol";
+import {LibClone} from "solady/utils/LibClone.sol";
+import {IFeeRateModel} from "/mimswap/interfaces/IFeeRateModel.sol";
+import {IMagicLP} from "/mimswap/interfaces/IMagicLP.sol";
+import {MagicLP} from "/mimswap/MagicLP.sol";
+
+/// @notice Create and register MagicLP pools
+contract Factory is Owned {
+    event LogCreated(
+        address clone_,
+        address indexed baseToken_,
+        address indexed quoteToken_,
+        address indexed creator_,
+        uint256 lpFeeRate_,
+        IFeeRateModel maintainerFeeRateModel,
+        uint256 i_,
+        uint256 k_
+    );
+
+    event LogPoolAdded(address baseToken, address quoteToken, address creator, address pool);
+    event LogPoolRemoved(address pool);
+    event LogSetImplementation(address indexed implementation);
+    event LogSetMaintainer(address indexed newMaintainer);
+    event LogSetMaintainerFeeRateModel(IFeeRateModel newMaintainerFeeRateModel);
+
+    error ErrInvalidUserPoolIndex();
+    error ErrZeroAddress();
+
+    address public implementation;
+    IFeeRateModel public maintainerFeeRateModel;
+
+    mapping(address base => mapping(address quote => address[] pools)) public pools;
+    mapping(address creator => address[] pools) public userPools;
+
+    constructor(address implementation_, IFeeRateModel maintainerFeeRateModel_, address owner_) Owned(owner_) {
+        if (implementation_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+        if (address(maintainerFeeRateModel_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+        implementation = implementation_;
+        maintainerFeeRateModel = maintainerFeeRateModel_;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// VIEWS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function getPoolCount(address token0, address token1) external view returns (uint256) {
+        return pools[token0][token1].length;
+    }
+
+    function getUserPoolCount(address creator) external view returns (uint256) {
+        return userPools[creator].length;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// PUBLIC
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function predictDeterministicAddress(
+        address creator,
+        address baseToken_,
+        address quoteToken_,
+        uint256 lpFeeRate_,
+        uint256 i_,
+        uint256 k_
+    ) public view returns (address) {
+        return
+            LibClone.predictDeterministicAddress(
+                implementation,
+                _computeSalt(creator, baseToken_, quoteToken_, lpFeeRate_, i_, k_),
+                address(this)
+            );
+    }
+
+    function create(address baseToken_, address quoteToken_, uint256 lpFeeRate_, uint256 i_, uint256 k_) external returns (address clone) {
+        address creator = tx.origin;
+
+        bytes32 salt = _computeSalt(creator, baseToken_, quoteToken_, lpFeeRate_, i_, k_);
+        clone = LibClone.cloneDeterministic(address(implementation), salt);
+        IMagicLP(clone).init(address(baseToken_), address(quoteToken_), lpFeeRate_, address(maintainerFeeRateModel), i_, k_);
+
+        emit LogCreated(clone, baseToken_, quoteToken_, creator, lpFeeRate_, maintainerFeeRateModel, i_, k_);
+        _addPool(creator, baseToken_, quoteToken_, clone);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// ADMIN
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function setLpImplementation(address implementation_) external onlyOwner {
+        if (implementation_ == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        implementation = implementation_;
+        emit LogSetImplementation(implementation_);
+    }
+
+    function setMaintainerFeeRateModel(IFeeRateModel maintainerFeeRateModel_) external onlyOwner {
+        if (address(maintainerFeeRateModel_) == address(0)) {
+            revert ErrZeroAddress();
+        }
+
+        maintainerFeeRateModel = maintainerFeeRateModel_;
+        emit LogSetMaintainerFeeRateModel(maintainerFeeRateModel_);
+    }
+
+    /// @notice Register a pool to the list
+    /// Note this doesn't check if the pool is valid or if it's already registered.
+    function addPool(address creator, address baseToken, address quoteToken, address pool) external onlyOwner {
+        _addPool(creator, baseToken, quoteToken, pool);
+    }
+
+    function removePool(
+        address creator,
+        address baseToken,
+        address quoteToken,
+        uint256 poolIndex,
+        uint256 userPoolIndex
+    ) external onlyOwner {
+        address[] storage _pools = pools[baseToken][quoteToken];
+        address pool = _pools[poolIndex];
+        address[] storage _userPools = userPools[creator];
+
+        _pools[poolIndex] = _pools[_pools.length - 1];
+        _pools.pop();
+
+        if (_userPools[userPoolIndex] != pool) {
+            revert ErrInvalidUserPoolIndex();
+        }
+
+        _userPools[userPoolIndex] = _userPools[_userPools.length - 1];
+        _userPools.pop();
+
+        emit LogPoolRemoved(pool);
+    }
+
+    //////////////////////////////////////////////////////////////////////////////////////
+    /// INTERNALS
+    //////////////////////////////////////////////////////////////////////////////////////
+
+    function _addPool(address creator, address baseToken, address quoteToken, address pool) internal {
+        pools[baseToken][quoteToken].push(pool);
+        userPools[creator].push(pool);
+
+        emit LogPoolAdded(baseToken, quoteToken, creator, pool);
+    }
+
+    function _computeSalt(
+        address sender_,
+        address baseToken_,
+        address quoteToken_,
+        uint256 lpFeeRate_,
+        uint256 i_,
+        uint256 k_
+    ) internal view returns (bytes32) {
+        return keccak256(abi.encodePacked(sender_, implementation, baseToken_, quoteToken_, lpFeeRate_, i_, k_));
+    }
+}
+// ===== END SOURCE FILE: src/mimswap/periphery/Factory.sol =====

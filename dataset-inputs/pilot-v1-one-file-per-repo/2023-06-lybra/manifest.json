@@ -1,0 +1,698 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2023-06-lybra",
+  "source_repo_dir": "2023-06-lybra",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "4f7ee7b143d75faebfc9cceb21a0ac794d84978a",
+  "actual_git_head": "4f7ee7b143d75faebfc9cceb21a0ac794d84978a",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 49,
+  "excluded_solidity_file_count": 9,
+  "bundle_count": 1,
+  "estimated_total_bundle_tokens": 54414,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 54414,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "contracts/lybra/configuration/LybraConfigurator.sol",
+          "sha256": "d62b25931251ea7a1cb97ced5daa50950b3937de5f8ef928276c0d8f97c4e5f2",
+          "source_bytes_utf8": 15929,
+          "source_line_count": 363,
+          "imports": [
+            "../interfaces/IGovernanceTimelock.sol",
+            "../interfaces/IEUSD.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 364
+        },
+        {
+          "file": "contracts/lybra/governance/AdminTimelock.sol",
+          "sha256": "6f885ea22faff1f58ca0a0a471f15e93cb169ccd2d231dd6ac9271b976b7276b",
+          "source_bytes_utf8": 348,
+          "source_line_count": 9,
+          "imports": [
+            "@openzeppelin/contracts/governance/TimelockController.sol"
+          ],
+          "bundle_marker_line": 366,
+          "bundle_source_start_line": 367,
+          "bundle_source_end_line": 375
+        },
+        {
+          "file": "contracts/lybra/governance/GovernanceTimelock.sol",
+          "sha256": "39e46bb0a11ccc64eb31b58566fa4ffb4943352940e19526745effe7d29c2011",
+          "source_bytes_utf8": 1117,
+          "source_line_count": 33,
+          "imports": [
+            "@openzeppelin/contracts/governance/TimelockController.sol"
+          ],
+          "bundle_marker_line": 377,
+          "bundle_source_start_line": 378,
+          "bundle_source_end_line": 410
+        },
+        {
+          "file": "contracts/lybra/governance/LybraGovernance.sol",
+          "sha256": "0dbb56f2aa26a7e8e5c84a9364746227b8631755a0e08f7865383f38694371f3",
+          "source_bytes_utf8": 8157,
+          "source_line_count": 206,
+          "imports": [
+            "@openzeppelin/contracts/governance/extensions/GovernorTimelockControl.sol",
+            "../interfaces/IesLBR.sol",
+            "../interfaces/IGovernanceTimelock.sol"
+          ],
+          "bundle_marker_line": 412,
+          "bundle_source_start_line": 413,
+          "bundle_source_end_line": 618
+        },
+        {
+          "file": "contracts/lybra/interfaces/Iconfigurator.sol",
+          "sha256": "f8ebbfb3832bf3d9e94bce91675abacc34337560cdaeca3e8e098241ef942c69",
+          "source_bytes_utf8": 1577,
+          "source_line_count": 28,
+          "imports": [],
+          "bundle_marker_line": 620,
+          "bundle_source_start_line": 621,
+          "bundle_source_end_line": 648
+        },
+        {
+          "file": "contracts/lybra/interfaces/IesLBR.sol",
+          "sha256": "402af0ecf7b34a4825c92414489c78f370e26c02426f2b23524af750cd07ef4e",
+          "source_bytes_utf8": 539,
+          "source_line_count": 11,
+          "imports": [],
+          "bundle_marker_line": 650,
+          "bundle_source_start_line": 651,
+          "bundle_source_end_line": 661
+        },
+        {
+          "file": "contracts/lybra/interfaces/IEUSD.sol",
+          "sha256": "106cda870c6000bba621a39409621378f2ced545672a9150979dda2e3a941e51",
+          "source_bytes_utf8": 1455,
+          "source_line_count": 55,
+          "imports": [],
+          "bundle_marker_line": 663,
+          "bundle_source_start_line": 664,
+          "bundle_source_end_line": 718
+        },
+        {
+          "file": "contracts/lybra/interfaces/IGovernanceTimelock.sol",
+          "sha256": "019aae40ea428d958b79dcfa811f47d187dd58e6f88a9468faa4b7262f2ef7de",
+          "source_bytes_utf8": 262,
+          "source_line_count": 7,
+          "imports": [],
+          "bundle_marker_line": 720,
+          "bundle_source_start_line": 721,
+          "bundle_source_end_line": 727
+        },
+        {
+          "file": "contracts/lybra/interfaces/ILybra.sol",
+          "sha256": "aedad3d8e5a71070f7895c4c9ab57d382c5a30ddd2cebb339db93cd7f5492b6f",
+          "source_bytes_utf8": 688,
+          "source_line_count": 14,
+          "imports": [],
+          "bundle_marker_line": 729,
+          "bundle_source_start_line": 730,
+          "bundle_source_end_line": 743
+        },
+        {
+          "file": "contracts/lybra/interfaces/IPeUSD.sol",
+          "sha256": "487da94fcbff7c3d5b78536c6bab73ffdeca161aa5bdf6aef4b7100479c48bcd",
+          "source_bytes_utf8": 743,
+          "source_line_count": 19,
+          "imports": [],
+          "bundle_marker_line": 745,
+          "bundle_source_start_line": 746,
+          "bundle_source_end_line": 764
+        },
+        {
+          "file": "contracts/lybra/miner/esLBRBoost.sol",
+          "sha256": "d8e774dbc3ac078665de4bd23477efbba91b501a9ee5f3f7ca3d59592304543a",
+          "source_bytes_utf8": 2834,
+          "source_line_count": 70,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol"
+          ],
+          "bundle_marker_line": 766,
+          "bundle_source_start_line": 767,
+          "bundle_source_end_line": 836
+        },
+        {
+          "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+          "sha256": "036cd6cb542c25f312275164b6a791207897963ddf4dd2f048efd74fb7e04c63",
+          "source_bytes_utf8": 9489,
+          "source_line_count": 247,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../interfaces/IesLBR.sol",
+            "../interfaces/IEUSD.sol",
+            "../interfaces/ILybra.sol",
+            "../interfaces/Iconfigurator.sol",
+            "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol"
+          ],
+          "bundle_marker_line": 838,
+          "bundle_source_start_line": 839,
+          "bundle_source_end_line": 1085
+        },
+        {
+          "file": "contracts/lybra/miner/ProtocolRewardsPool.sol",
+          "sha256": "9a7c160726dc734eb7a429bb17586d2c784f58d76b7b40551626d922bcae1d81",
+          "source_bytes_utf8": 10709,
+          "source_line_count": 241,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../interfaces/IEUSD.sol",
+            "../interfaces/Iconfigurator.sol",
+            "../interfaces/IesLBR.sol"
+          ],
+          "bundle_marker_line": 1087,
+          "bundle_source_start_line": 1088,
+          "bundle_source_end_line": 1328
+        },
+        {
+          "file": "contracts/lybra/miner/stakerewardV2pool.sol",
+          "sha256": "151509025235c9bced89b3bf5610ae824cb900044f6eb993b60082fc3f8aa8e7",
+          "source_bytes_utf8": 5661,
+          "source_line_count": 150,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../interfaces/IesLBR.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1330,
+          "bundle_source_start_line": 1331,
+          "bundle_source_end_line": 1480
+        },
+        {
+          "file": "contracts/lybra/pools/base/LybraEUSDVaultBase.sol",
+          "sha256": "9d8060107be2d8ed69faa19ae2b4fc181eebfc63f18adfbbac4c36b74920081a",
+          "source_bytes_utf8": 15867,
+          "source_line_count": 328,
+          "imports": [
+            "../../interfaces/IEUSD.sol",
+            "../../interfaces/Iconfigurator.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1482,
+          "bundle_source_start_line": 1483,
+          "bundle_source_end_line": 1810
+        },
+        {
+          "file": "contracts/lybra/pools/base/LybraPeUSDVaultBase.sol",
+          "sha256": "bca827cd2aa97622343a87373bcb7823d40c5a6b2dc96099eaa1028eda7f2808",
+          "source_bytes_utf8": 12714,
+          "source_line_count": 270,
+          "imports": [
+            "../../interfaces/Iconfigurator.sol",
+            "../../interfaces/IPeUSD.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol"
+          ],
+          "bundle_marker_line": 1812,
+          "bundle_source_start_line": 1813,
+          "bundle_source_end_line": 2082
+        },
+        {
+          "file": "contracts/lybra/pools/LybraRETHVault.sol",
+          "sha256": "2c979a558630b2167942670a3ff310cd10603b8f52537206fb48be4fcc14f977",
+          "source_bytes_utf8": 1732,
+          "source_line_count": 49,
+          "imports": [
+            "../interfaces/IEUSD.sol",
+            "./base/LybraPeUSDVaultBase.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 2084,
+          "bundle_source_start_line": 2085,
+          "bundle_source_end_line": 2133
+        },
+        {
+          "file": "contracts/lybra/pools/LybraStETHVault.sol",
+          "sha256": "46f194fdaaefe1a64c1f4d20e5f0c6ec43ba9f965afdd5df8876b3d270478e50",
+          "source_bytes_utf8": 4796,
+          "source_line_count": 110,
+          "imports": [
+            "../interfaces/IEUSD.sol",
+            "./base/LybraEUSDVaultBase.sol"
+          ],
+          "bundle_marker_line": 2135,
+          "bundle_source_start_line": 2136,
+          "bundle_source_end_line": 2245
+        },
+        {
+          "file": "contracts/lybra/pools/LybraWbETHVault.sol",
+          "sha256": "ed33faf152ceddc6fe237f5d2a83a656b61f400deed12e0da8e5e2ff47d148a2",
+          "source_bytes_utf8": 1412,
+          "source_line_count": 37,
+          "imports": [
+            "../interfaces/IEUSD.sol",
+            "./base/LybraPeUSDVaultBase.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 2247,
+          "bundle_source_start_line": 2248,
+          "bundle_source_end_line": 2284
+        },
+        {
+          "file": "contracts/lybra/pools/LybraWstETHVault.sol",
+          "sha256": "2eec3c3fdf76570678cc660f069c39cd3f04162debeac3ee530c7844ffa57a4a",
+          "source_bytes_utf8": 1768,
+          "source_line_count": 51,
+          "imports": [
+            "../interfaces/IEUSD.sol",
+            "./base/LybraPeUSDVaultBase.sol",
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol"
+          ],
+          "bundle_marker_line": 2286,
+          "bundle_source_start_line": 2287,
+          "bundle_source_end_line": 2337
+        },
+        {
+          "file": "contracts/lybra/Proxy/LybraProxy.sol",
+          "sha256": "e7f9063bb4e54c2a020b0595bf1cbe2ed4686be9f3b6347bebe1fa0ca3403e81",
+          "source_bytes_utf8": 324,
+          "source_line_count": 10,
+          "imports": [
+            "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol"
+          ],
+          "bundle_marker_line": 2339,
+          "bundle_source_start_line": 2340,
+          "bundle_source_end_line": 2349
+        },
+        {
+          "file": "contracts/lybra/Proxy/LybraProxyAdmin.sol",
+          "sha256": "b43a78f4b014997e515fadde1ba5ba2de992519792614fe04f5e3bfe9003c7d4",
+          "source_bytes_utf8": 171,
+          "source_line_count": 6,
+          "imports": [
+            "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol"
+          ],
+          "bundle_marker_line": 2351,
+          "bundle_source_start_line": 2352,
+          "bundle_source_end_line": 2357
+        },
+        {
+          "file": "contracts/lybra/token/esLBR.sol",
+          "sha256": "cfb988d62b5c234858bf175dcc394e17bad2905bbd0698b1b1f2d3d2e8496a47",
+          "source_bytes_utf8": 1673,
+          "source_line_count": 44,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/extensions/ERC20Votes.sol",
+            "../interfaces/Iconfigurator.sol"
+          ],
+          "bundle_marker_line": 2359,
+          "bundle_source_start_line": 2360,
+          "bundle_source_end_line": 2403
+        },
+        {
+          "file": "contracts/lybra/token/EUSD.sol",
+          "sha256": "06218fb6d796551c4f0cf481687fd5214b8b6e305cb94b5a4d2892bc505ace30",
+          "source_bytes_utf8": 18284,
+          "source_line_count": 487,
+          "imports": [
+            "@openzeppelin/contracts/utils/math/SafeMath.sol",
+            "@openzeppelin/contracts/token/ERC20/IERC20.sol",
+            "@openzeppelin/contracts/utils/Context.sol",
+            "../interfaces/Iconfigurator.sol"
+          ],
+          "bundle_marker_line": 2405,
+          "bundle_source_start_line": 2406,
+          "bundle_source_end_line": 2892
+        },
+        {
+          "file": "contracts/lybra/token/LBR.sol",
+          "sha256": "aa6f64cd9ca7080c38e57ce61bc6269dc1c6a38af5819281723b22737e0d38e3",
+          "source_bytes_utf8": 2848,
+          "source_line_count": 73,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../interfaces/Iconfigurator.sol",
+            "../../OFT/BaseOFTV2.sol"
+          ],
+          "bundle_marker_line": 2894,
+          "bundle_source_start_line": 2895,
+          "bundle_source_end_line": 2967
+        },
+        {
+          "file": "contracts/lybra/token/PeUSD.sol",
+          "sha256": "f04ddc99581246347ecfc1bdffc360a58b16de6b7ed76ac27e178736a0f2be03",
+          "source_bytes_utf8": 2109,
+          "source_line_count": 55,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../../OFT/BaseOFTV2.sol"
+          ],
+          "bundle_marker_line": 2969,
+          "bundle_source_start_line": 2970,
+          "bundle_source_end_line": 3024
+        },
+        {
+          "file": "contracts/lybra/token/PeUSDMainnetStableVision.sol",
+          "sha256": "3ce78561e0a56da886a4d8882cca12be0e06fb2c42b4f06e212cc5bd97da391c",
+          "source_bytes_utf8": 8892,
+          "source_line_count": 208,
+          "imports": [
+            "@openzeppelin/contracts/token/ERC20/ERC20.sol",
+            "../../OFT/BaseOFTV2.sol",
+            "../interfaces/Iconfigurator.sol",
+            "../interfaces/IEUSD.sol"
+          ],
+          "bundle_marker_line": 3026,
+          "bundle_source_start_line": 3027,
+          "bundle_source_end_line": 3234
+        },
+        {
+          "file": "contracts/OFT/BaseOFTV2.sol",
+          "sha256": "0a50844350716e8965f01357b91718fa6d7245d88a52109abcfbdaafee907e69",
+          "source_bytes_utf8": 2452,
+          "source_line_count": 43,
+          "imports": [
+            "./OFTCoreV2.sol",
+            "./IOFTV2.sol",
+            "@openzeppelin/contracts/utils/introspection/ERC165.sol"
+          ],
+          "bundle_marker_line": 3236,
+          "bundle_source_start_line": 3237,
+          "bundle_source_end_line": 3279
+        },
+        {
+          "file": "contracts/OFT/ICommonOFT.sol",
+          "sha256": "684bc3bc2151e31ca9eee471f104dc222c879623fc696aeac83b7a6fd3e13069",
+          "source_bytes_utf8": 1502,
+          "source_line_count": 39,
+          "imports": [
+            "@openzeppelin/contracts/utils/introspection/IERC165.sol"
+          ],
+          "bundle_marker_line": 3281,
+          "bundle_source_start_line": 3282,
+          "bundle_source_end_line": 3320
+        },
+        {
+          "file": "contracts/OFT/interfaces/ILayerZeroEndpoint.sol",
+          "sha256": "ac9c6ee0a072d59b14730d50c083307c0d01370d8d88b7cc1f668a9395d037b0",
+          "source_bytes_utf8": 5701,
+          "source_line_count": 87,
+          "imports": [
+            "./ILayerZeroUserApplicationConfig.sol"
+          ],
+          "bundle_marker_line": 3322,
+          "bundle_source_start_line": 3323,
+          "bundle_source_end_line": 3409
+        },
+        {
+          "file": "contracts/OFT/interfaces/ILayerZeroReceiver.sol",
+          "sha256": "97ba50c292043052f45a6be45c7d70719b78768f9a68901a823c14eda7ce3b8f",
+          "source_bytes_utf8": 592,
+          "source_line_count": 12,
+          "imports": [],
+          "bundle_marker_line": 3411,
+          "bundle_source_start_line": 3412,
+          "bundle_source_end_line": 3423
+        },
+        {
+          "file": "contracts/OFT/interfaces/ILayerZeroUserApplicationConfig.sol",
+          "sha256": "55b07be25fb688cef46ef395d31ef4ebdc11363f75bac022e6dacfe3f6f51ab0",
+          "source_bytes_utf8": 1350,
+          "source_line_count": 25,
+          "imports": [],
+          "bundle_marker_line": 3425,
+          "bundle_source_start_line": 3426,
+          "bundle_source_end_line": 3450
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargateFactory.sol",
+          "sha256": "7433a5968dadc494552718df08cf17cd7ff4447ee8e3e6c4260f8986e82c0599",
+          "source_bytes_utf8": 199,
+          "source_line_count": 8,
+          "imports": [
+            "./IStargatePool.sol"
+          ],
+          "bundle_marker_line": 3452,
+          "bundle_source_start_line": 3453,
+          "bundle_source_end_line": 3460
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargatePool.sol",
+          "sha256": "1ee6eadf0ba97c45fa412c22b6441ec50cef1bcae43081f32e1c4682a0ff6fb8",
+          "source_bytes_utf8": 139,
+          "source_line_count": 6,
+          "imports": [],
+          "bundle_marker_line": 3462,
+          "bundle_source_start_line": 3463,
+          "bundle_source_end_line": 3468
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargateReceiver.sol",
+          "sha256": "02df6a7f7a21e637911fabaaa4c3490d19dfb528c229d2d02709a60315aa2a06",
+          "source_bytes_utf8": 292,
+          "source_line_count": 14,
+          "imports": [],
+          "bundle_marker_line": 3470,
+          "bundle_source_start_line": 3471,
+          "bundle_source_end_line": 3484
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargateRouter.sol",
+          "sha256": "cc0d3051e082c1c1382c15896a3737d1304c5290202a0208435eef07205c3f59",
+          "source_bytes_utf8": 1798,
+          "source_line_count": 72,
+          "imports": [],
+          "bundle_marker_line": 3486,
+          "bundle_source_start_line": 3487,
+          "bundle_source_end_line": 3558
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargateRouterETH.sol",
+          "sha256": "c5fba79abaeea35a8e443e485f902749bf3a25b4e2fd114ddf3e98805c98f23e",
+          "source_bytes_utf8": 354,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 3560,
+          "bundle_source_start_line": 3561,
+          "bundle_source_end_line": 3576
+        },
+        {
+          "file": "contracts/OFT/interfaces/IStargateWidget.sol",
+          "sha256": "4d3efff9717e0e9ae7e38f4625e758dbcbff172d07aefee35fa2c60f35cf4f1f",
+          "source_bytes_utf8": 1014,
+          "source_line_count": 40,
+          "imports": [
+            "../interfaces/IStargateRouter.sol"
+          ],
+          "bundle_marker_line": 3578,
+          "bundle_source_start_line": 3579,
+          "bundle_source_end_line": 3618
+        },
+        {
+          "file": "contracts/OFT/IOFTReceiverV2.sol",
+          "sha256": "1213c5781a107a7bdc6f0895886c4c9d7809aa5b577a05032872d4799d5228cf",
+          "source_bytes_utf8": 779,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 3620,
+          "bundle_source_start_line": 3621,
+          "bundle_source_end_line": 3636
+        },
+        {
+          "file": "contracts/OFT/IOFTV2.sol",
+          "sha256": "d9c333079134b9c7e204830bf31c6a270c22c48665b0e5be8b0ae637299845ce",
+          "source_bytes_utf8": 1084,
+          "source_line_count": 25,
+          "imports": [
+            "./ICommonOFT.sol"
+          ],
+          "bundle_marker_line": 3638,
+          "bundle_source_start_line": 3639,
+          "bundle_source_end_line": 3663
+        },
+        {
+          "file": "contracts/OFT/libraries/LzLib.sol",
+          "sha256": "7e3539a689e3d1ac300ce7ca2caab418cf65c3cbe11717daeffe5ae568973a24",
+          "source_bytes_utf8": 3180,
+          "source_line_count": 81,
+          "imports": [],
+          "bundle_marker_line": 3665,
+          "bundle_source_start_line": 3666,
+          "bundle_source_end_line": 3746
+        },
+        {
+          "file": "contracts/OFT/lzApp/LzApp.sol",
+          "sha256": "d82bb08df04674510e3e8600a2e0ffedcbb1aea137109b9d846ae329932ea47b",
+          "source_bytes_utf8": 6867,
+          "source_line_count": 139,
+          "imports": [
+            "@openzeppelin/contracts/access/Ownable.sol",
+            "../interfaces/ILayerZeroReceiver.sol",
+            "../interfaces/ILayerZeroUserApplicationConfig.sol",
+            "../interfaces/ILayerZeroEndpoint.sol",
+            "../util/BytesLib.sol"
+          ],
+          "bundle_marker_line": 3748,
+          "bundle_source_start_line": 3749,
+          "bundle_source_end_line": 3887
+        },
+        {
+          "file": "contracts/OFT/lzApp/NonblockingLzApp.sol",
+          "sha256": "d3a97bfad82006d1b071a73e6ad86210cf0904e5a1b157866b4ca51d68af8f62",
+          "source_bytes_utf8": 3103,
+          "source_line_count": 57,
+          "imports": [
+            "./LzApp.sol",
+            "../util/ExcessivelySafeCall.sol"
+          ],
+          "bundle_marker_line": 3889,
+          "bundle_source_start_line": 3890,
+          "bundle_source_end_line": 3946
+        },
+        {
+          "file": "contracts/OFT/OFTCoreV2.sol",
+          "sha256": "32070ab266b9e6dba59731be86c990ef222dc95c4d9915c49e0ff0eb454acedd",
+          "source_bytes_utf8": 11158,
+          "source_line_count": 243,
+          "imports": [
+            "./lzApp/NonblockingLzApp.sol",
+            "./util/ExcessivelySafeCall.sol",
+            "./ICommonOFT.sol",
+            "./IOFTReceiverV2.sol"
+          ],
+          "bundle_marker_line": 3948,
+          "bundle_source_start_line": 3949,
+          "bundle_source_end_line": 4191
+        },
+        {
+          "file": "contracts/OFT/util/BitLib.sol",
+          "sha256": "16cab3cca383b8843160b5d362129fc688fabb9d7adffba9156377ecb7e1ef55",
+          "source_bytes_utf8": 2239,
+          "source_line_count": 63,
+          "imports": [],
+          "bundle_marker_line": 4193,
+          "bundle_source_start_line": 4194,
+          "bundle_source_end_line": 4256
+        },
+        {
+          "file": "contracts/OFT/util/BytesLib.sol",
+          "sha256": "5a16e80cf11b3e13b8d435ef34552b91444dd6a8c5a8bec2540d286c303be0ce",
+          "source_bytes_utf8": 18479,
+          "source_line_count": 510,
+          "imports": [],
+          "bundle_marker_line": 4258,
+          "bundle_source_start_line": 4259,
+          "bundle_source_end_line": 4768
+        },
+        {
+          "file": "contracts/OFT/util/ExcessivelySafeCall.sol",
+          "sha256": "3e814be30be9483022b67f5d8cc659c7413cb000a153d761f381f3807cf9dbcd",
+          "source_bytes_utf8": 5406,
+          "source_line_count": 136,
+          "imports": [],
+          "bundle_marker_line": 4770,
+          "bundle_source_start_line": 4771,
+          "bundle_source_end_line": 4906
+        },
+        {
+          "file": "discord-export/Code4rena - ARCHIVE-Q2-2023 - lybra-jun23 [1121168405534343270].html_Files/contest.t-7F0EB.sol",
+          "sha256": "184cfb84af1c5109856b4104a11d2eb19c6ce1d1a84cda8d2e485355ed8c3f18",
+          "source_bytes_utf8": 5175,
+          "source_line_count": 136,
+          "imports": [
+            "forge-std/Test.sol",
+            "@lybra/Proxy/LybraProxy.sol",
+            "@lybra/Proxy/LybraProxyAdmin.sol",
+            "@lybra/governance/GovernanceTimelock.sol",
+            "@lybra/token/esLBR.sol",
+            "@lybra/pools/LybraWstETHVault.sol",
+            "@lybra/miner/esLBRBoost.sol",
+            "@lybra/token/LBR.sol",
+            "@lybra/pools/LybraStETHVault.sol",
+            "@lybra/token/PeUSDMainnetStableVision.sol",
+            "@lybra/miner/ProtocolRewardsPool.sol",
+            "@lybra/configuration/LybraConfigurator.sol",
+            "@lybra/miner/EUSDMiningIncentives.sol",
+            "@mocks/chainLinkMock.sol",
+            "@mocks/stETHMock.sol",
+            "@mocks/mockEUSD.sol",
+            "@mocks/mockCurve.sol",
+            "@mocks/mockUSDC.sol",
+            "@mocks/mockLBRPriceOracle.sol"
+          ],
+          "bundle_marker_line": 4908,
+          "bundle_source_start_line": 4909,
+          "bundle_source_end_line": 5044
+        },
+        {
+          "file": "discord-export/Code4rena - ARCHIVE-Q2-2023 - lybra-jun23 [1121168405534343270].txt_Files/contest.t-7F0EB.sol",
+          "sha256": "184cfb84af1c5109856b4104a11d2eb19c6ce1d1a84cda8d2e485355ed8c3f18",
+          "source_bytes_utf8": 5175,
+          "source_line_count": 136,
+          "imports": [
+            "forge-std/Test.sol",
+            "@lybra/Proxy/LybraProxy.sol",
+            "@lybra/Proxy/LybraProxyAdmin.sol",
+            "@lybra/governance/GovernanceTimelock.sol",
+            "@lybra/token/esLBR.sol",
+            "@lybra/pools/LybraWstETHVault.sol",
+            "@lybra/miner/esLBRBoost.sol",
+            "@lybra/token/LBR.sol",
+            "@lybra/pools/LybraStETHVault.sol",
+            "@lybra/token/PeUSDMainnetStableVision.sol",
+            "@lybra/miner/ProtocolRewardsPool.sol",
+            "@lybra/configuration/LybraConfigurator.sol",
+            "@lybra/miner/EUSDMiningIncentives.sol",
+            "@mocks/chainLinkMock.sol",
+            "@mocks/stETHMock.sol",
+            "@mocks/mockEUSD.sol",
+            "@mocks/mockCurve.sol",
+            "@mocks/mockUSDC.sol",
+            "@mocks/mockLBRPriceOracle.sol"
+          ],
+          "bundle_marker_line": 5046,
+          "bundle_source_start_line": 5047,
+          "bundle_source_end_line": 5182
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "contracts/mocks/chainLinkMock.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/LZEndpointMock.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockCurve.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockEtherPriceOracle.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockEUSD.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockLBRPriceOracle.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockUSDC.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/mockWstETH.sol",
+      "reason": "out_of_scope_directory:mocks"
+    },
+    {
+      "file": "contracts/mocks/stETHMock.sol",
+      "reason": "out_of_scope_directory:mocks"
+    }
+  ]
+}

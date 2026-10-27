@@ -1,0 +1,836 @@
+{
+  "schema_version": "smartauditflow-repo-input-v1",
+  "repo_id": "2024-03-abracadabra-money",
+  "working_directory": ".",
+  "source_root_relative_to_repo": ".",
+  "expected_resolved_commit": "b2cfb84d2ae8914e557ede95c028d4dd74c2fb3e",
+  "actual_git_head": "b2cfb84d2ae8914e557ede95c028d4dd74c2fb3e",
+  "commit_verified": true,
+  "ground_truth_content_used": false,
+  "included_solidity_file_count": 53,
+  "excluded_solidity_file_count": 13,
+  "bundle_count": 2,
+  "estimated_total_bundle_tokens": 66575,
+  "bundles": [
+    {
+      "bundle_id": "bundle-0001",
+      "path": "bundles/bundle-0001.txt",
+      "estimated_tokens": 45148,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "script/Blast.s.sol",
+          "sha256": "ad96941f49147a600f3d49ae35c644000f21d64d59bf6ed9d618cce2f914423b",
+          "source_bytes_utf8": 3784,
+          "source_line_count": 89,
+          "imports": [
+            "utils/BaseScript.sol",
+            "BoringSolidity/BoringOwnable.sol",
+            "/blast/interfaces/IBlastBox.sol",
+            "mixins/FeeCollectable.sol",
+            "solmate/auth/Owned.sol",
+            "/blast/BlastTokenRegistry.sol",
+            "interfaces/ICauldronV4.sol",
+            "/blast/libraries/BlastPoints.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 90
+        },
+        {
+          "file": "script/BlastOnboarding.s.sol",
+          "sha256": "15c468bf4b1628e2aa5fee244bb380dfe6b83aa0d45b78eba5fb17588427209c",
+          "source_bytes_utf8": 1706,
+          "source_line_count": 42,
+          "imports": [
+            "utils/BaseScript.sol",
+            "/blast/BlastOnboarding.sol",
+            "BoringSolidity/interfaces/IERC20.sol",
+            "interfaces/IOracle.sol",
+            "interfaces/ICauldronV4.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "interfaces/IBlast.sol",
+            "/blast/libraries/BlastYields.sol"
+          ],
+          "bundle_marker_line": 92,
+          "bundle_source_start_line": 93,
+          "bundle_source_end_line": 134
+        },
+        {
+          "file": "script/LockingMultiRewards.s.sol",
+          "sha256": "0d93901855ac67f2636a264adf4d152179a45eb6733911c8770b641ee2c179fa",
+          "source_bytes_utf8": 1190,
+          "source_line_count": 33,
+          "imports": [
+            "utils/BaseScript.sol",
+            "staking/LockingMultiRewards.sol"
+          ],
+          "bundle_marker_line": 136,
+          "bundle_source_start_line": 137,
+          "bundle_source_end_line": 169
+        },
+        {
+          "file": "script/MIMSwap.s.sol",
+          "sha256": "00cb2e642c17f7cf365a7b611d54baabd9da3f631f496b993416031ba49beea0",
+          "source_bytes_utf8": 3036,
+          "source_line_count": 82,
+          "imports": [
+            "utils/BaseScript.sol",
+            "solmate/auth/Owned.sol",
+            "/mimswap/MagicLP.sol",
+            "/mimswap/periphery/Factory.sol",
+            "/mimswap/periphery/Router.sol",
+            "/mimswap/auxiliary/FeeRateModel.sol",
+            "/blast/BlastTokenRegistry.sol",
+            "script/Blast.s.sol"
+          ],
+          "bundle_marker_line": 171,
+          "bundle_source_start_line": 172,
+          "bundle_source_end_line": 253
+        },
+        {
+          "file": "script/MIMSwapLaunch.s.sol",
+          "sha256": "500c1ea27b544503fc122bb432e9c7b4ad7adbad362ed1104ad76dd665a43179",
+          "source_bytes_utf8": 878,
+          "source_line_count": 26,
+          "imports": [
+            "utils/BaseScript.sol",
+            "script/MIMSwap.s.sol",
+            "/blast/BlastOnboardingBoot.sol"
+          ],
+          "bundle_marker_line": 255,
+          "bundle_source_start_line": 256,
+          "bundle_source_end_line": 281
+        },
+        {
+          "file": "src/blast/BlastBox.sol",
+          "sha256": "edda820963da15b02492d587dc9061a784c115741a96dfd2b828cbf3b5a2966a",
+          "source_bytes_utf8": 3545,
+          "source_line_count": 106,
+          "imports": [
+            "/DegenBox.sol",
+            "/blast/libraries/BlastYields.sol",
+            "/blast/libraries/BlastPoints.sol",
+            "/blast/BlastTokenRegistry.sol",
+            "BoringSolidity/interfaces/IERC20.sol",
+            "mixins/OperatableV3.sol",
+            "interfaces/IWETH.sol"
+          ],
+          "bundle_marker_line": 283,
+          "bundle_source_start_line": 284,
+          "bundle_source_end_line": 389
+        },
+        {
+          "file": "src/blast/BlastDapp.sol",
+          "sha256": "41257ef6270f304d29359f13c2b739fac8f09a7b62218dd64c96546b99777699",
+          "source_bytes_utf8": 210,
+          "source_line_count": 10,
+          "imports": [
+            "/blast/libraries/BlastPoints.sol"
+          ],
+          "bundle_marker_line": 391,
+          "bundle_source_start_line": 392,
+          "bundle_source_end_line": 401
+        },
+        {
+          "file": "src/blast/BlastGovernor.sol",
+          "sha256": "3754be68d3aff4ec3c4b7faefaed50c65ca249a6a56891abd6d62a65b39d84ad",
+          "source_bytes_utf8": 1908,
+          "source_line_count": 56,
+          "imports": [
+            "/blast/libraries/BlastYields.sol",
+            "mixins/OperatableV2.sol"
+          ],
+          "bundle_marker_line": 403,
+          "bundle_source_start_line": 404,
+          "bundle_source_end_line": 459
+        },
+        {
+          "file": "src/blast/BlastMagicLP.sol",
+          "sha256": "0cb036f13c9650da7eba32a868e426fc7403d14aceb69e2acd6d3db2845fe01f",
+          "source_bytes_utf8": 4683,
+          "source_line_count": 124,
+          "imports": [
+            "/mimswap/MagicLP.sol",
+            "/blast/libraries/BlastYields.sol",
+            "/blast/libraries/BlastPoints.sol",
+            "/blast/BlastTokenRegistry.sol"
+          ],
+          "bundle_marker_line": 461,
+          "bundle_source_start_line": 462,
+          "bundle_source_end_line": 585
+        },
+        {
+          "file": "src/blast/BlastOnboarding.sol",
+          "sha256": "5c9b0cfa8193026a78c3be0f3cd22cbb3264b1af9c8db4af42aa850622515cfb",
+          "source_bytes_utf8": 7288,
+          "source_line_count": 229,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "/blast/libraries/BlastYields.sol",
+            "/blast/BlastTokenRegistry.sol",
+            "openzeppelin-contracts/proxy/Proxy.sol",
+            "solady/utils/SafeTransferLib.sol",
+            "/blast/libraries/BlastPoints.sol",
+            "openzeppelin-contracts/security/Pausable.sol"
+          ],
+          "bundle_marker_line": 587,
+          "bundle_source_start_line": 588,
+          "bundle_source_end_line": 816
+        },
+        {
+          "file": "src/blast/BlastOnboardingBoot.sol",
+          "sha256": "b34cdbb60dcfbf02c111a8baaf06e54f9d17c6f09c71270274a6d6440c98eb30",
+          "source_bytes_utf8": 6401,
+          "source_line_count": 165,
+          "imports": [
+            "/blast/BlastOnboarding.sol",
+            "/blast/BlastOnboarding.sol",
+            "/mimswap/periphery/Router.sol",
+            "/mimswap/interfaces/IFeeRateModel.sol",
+            "/mimswap/interfaces/IFactory.sol",
+            "solady/utils/SafeTransferLib.sol",
+            "/mimswap/libraries/DecimalMath.sol",
+            "staking/LockingMultiRewards.sol"
+          ],
+          "bundle_marker_line": 818,
+          "bundle_source_start_line": 819,
+          "bundle_source_end_line": 983
+        },
+        {
+          "file": "src/blast/BlastTokenRegistry.sol",
+          "sha256": "28d03f14ed0cec1698f8fefc1cac46365ae1f44ca78ee288d8071c47d1ba517f",
+          "source_bytes_utf8": 636,
+          "source_line_count": 22,
+          "imports": [
+            "solmate/auth/Owned.sol"
+          ],
+          "bundle_marker_line": 985,
+          "bundle_source_start_line": 986,
+          "bundle_source_end_line": 1007
+        },
+        {
+          "file": "src/blast/BlastWrappers.sol",
+          "sha256": "ecca5008cdae1228610fa96965a4c273e4b7157eb883bd7ee99a31932105744c",
+          "source_bytes_utf8": 2321,
+          "source_line_count": 73,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol",
+            "/blast/libraries/BlastYields.sol",
+            "/mimswap/periphery/Router.sol",
+            "/mimswap/periphery/Factory.sol",
+            "/mimswap/interfaces/IFeeRateModel.sol",
+            "cauldrons/CauldronV4.sol",
+            "interfaces/IWETH.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "/mimswap/interfaces/IFactory.sol"
+          ],
+          "bundle_marker_line": 1009,
+          "bundle_source_start_line": 1010,
+          "bundle_source_end_line": 1082
+        },
+        {
+          "file": "src/blast/interfaces/IBlastBox.sol",
+          "sha256": "7ef52797d546e2672d9e96d1ae390d6d9485a50420a7ebf562ce829bbab467f3",
+          "source_bytes_utf8": 527,
+          "source_line_count": 18,
+          "imports": [],
+          "bundle_marker_line": 1084,
+          "bundle_source_start_line": 1085,
+          "bundle_source_end_line": 1102
+        },
+        {
+          "file": "src/blast/libraries/BlastPoints.sol",
+          "sha256": "288f8aada2a6240b84d2684d396f2d9d2663d3f3564dbd8007e812c28361c1dd",
+          "source_bytes_utf8": 456,
+          "source_line_count": 13,
+          "imports": [
+            "interfaces/IBlast.sol"
+          ],
+          "bundle_marker_line": 1104,
+          "bundle_source_start_line": 1105,
+          "bundle_source_end_line": 1117
+        },
+        {
+          "file": "src/blast/libraries/BlastYields.sol",
+          "sha256": "134313c7729868ada0ffc0862751678b29e3d9673b3260060dbb85c25940e99d",
+          "source_bytes_utf8": 4234,
+          "source_line_count": 89,
+          "imports": [
+            "interfaces/IBlast.sol",
+            "openzeppelin-contracts/utils/Address.sol"
+          ],
+          "bundle_marker_line": 1119,
+          "bundle_source_start_line": 1120,
+          "bundle_source_end_line": 1208
+        },
+        {
+          "file": "src/cauldrons/CauldronV4.sol",
+          "sha256": "089c5b9fd3526e91b006bd33d11ce4b6d80946c013b87979f39ef69ce38a87c9",
+          "source_bytes_utf8": 32671,
+          "source_line_count": 700,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "BoringSolidity/interfaces/IERC20.sol",
+            "interfaces/IOracle.sol",
+            "interfaces/ISwapperV2.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "BoringSolidity/interfaces/IMasterContract.sol",
+            "BoringSolidity/libraries/BoringRebase.sol",
+            "BoringSolidity/libraries/BoringMath.sol"
+          ],
+          "bundle_marker_line": 1210,
+          "bundle_source_start_line": 1211,
+          "bundle_source_end_line": 1910
+        },
+        {
+          "file": "src/DegenBox.sol",
+          "sha256": "0a0122f7edb1933119d850bea0f8f3da7fd9bea32ccb79c56d875f923753a782",
+          "source_bytes_utf8": 25396,
+          "source_line_count": 513,
+          "imports": [
+            "BoringSolidity/ERC20.sol",
+            "BoringSolidity/libraries/BoringERC20.sol",
+            "BoringSolidity/libraries/BoringRebase.sol",
+            "BoringSolidity/BoringOwnable.sol",
+            "BoringSolidity/BoringBatchable.sol",
+            "BoringSolidity/libraries/BoringMath.sol",
+            "interfaces/IStrategy.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "interfaces/IWETH.sol",
+            "mixins/MasterContractManager.sol"
+          ],
+          "bundle_marker_line": 1912,
+          "bundle_source_start_line": 1913,
+          "bundle_source_end_line": 2425
+        },
+        {
+          "file": "src/interfaces/IAggregator.sol",
+          "sha256": "4c45c9e0441aa30c6827ee0daa75bcef4a87ce6420f80a391669661e2383342a",
+          "source_bytes_utf8": 380,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 2427,
+          "bundle_source_start_line": 2428,
+          "bundle_source_end_line": 2440
+        },
+        {
+          "file": "src/interfaces/IBentoBoxV1.sol",
+          "sha256": "f535ded4fc07c2a3ac904850c9dffba1fde6363ae09684554982e93436c40a9d",
+          "source_bytes_utf8": 5221,
+          "source_line_count": 177,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol",
+            "BoringSolidity/libraries/BoringRebase.sol",
+            "interfaces/IStrategy.sol"
+          ],
+          "bundle_marker_line": 2442,
+          "bundle_source_start_line": 2443,
+          "bundle_source_end_line": 2619
+        },
+        {
+          "file": "src/interfaces/IBlast.sol",
+          "sha256": "31ba30c84d76ea00ff6f32cf240df9ac4a793bbc2a6b6ced1b33d62e3b71fc42",
+          "source_bytes_utf8": 3150,
+          "source_line_count": 94,
+          "imports": [],
+          "bundle_marker_line": 2621,
+          "bundle_source_start_line": 2622,
+          "bundle_source_end_line": 2715
+        },
+        {
+          "file": "src/interfaces/ICauldronV2.sol",
+          "sha256": "d3357ab522e803a279cf8c2abb5295ef5b9567f9b54381513df8249b5fa119a4",
+          "source_bytes_utf8": 2240,
+          "source_line_count": 66,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol",
+            "interfaces/IOracle.sol",
+            "BoringSolidity/libraries/BoringRebase.sol"
+          ],
+          "bundle_marker_line": 2717,
+          "bundle_source_start_line": 2718,
+          "bundle_source_end_line": 2783
+        },
+        {
+          "file": "src/interfaces/ICauldronV3.sol",
+          "sha256": "51ecaf3534dad84439d491f5258da3dc0a69e63b5ff9d9d4001d1f4c8b729643",
+          "source_bytes_utf8": 606,
+          "source_line_count": 20,
+          "imports": [
+            "interfaces/ICauldronV2.sol"
+          ],
+          "bundle_marker_line": 2785,
+          "bundle_source_start_line": 2786,
+          "bundle_source_end_line": 2805
+        },
+        {
+          "file": "src/interfaces/ICauldronV4.sol",
+          "sha256": "30a0dcfee2e529d2e1b9354aa3d0f5efdaa1897e0a11ac941ef9e7a9922d461f",
+          "source_bytes_utf8": 381,
+          "source_line_count": 12,
+          "imports": [
+            "interfaces/ICauldronV3.sol"
+          ],
+          "bundle_marker_line": 2807,
+          "bundle_source_start_line": 2808,
+          "bundle_source_end_line": 2819
+        },
+        {
+          "file": "src/interfaces/IOracle.sol",
+          "sha256": "cdf550d9d2759bfd05c09740756ea8997658db4f75041f2a203a86e0afc418d0",
+          "source_bytes_utf8": 555,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 2821,
+          "bundle_source_start_line": 2822,
+          "bundle_source_end_line": 2837
+        },
+        {
+          "file": "src/interfaces/IStrategy.sol",
+          "sha256": "6f06b933aa4e46d81116c878cafdd4bfc67f42314dd95bb361e411ffb2746759",
+          "source_bytes_utf8": 375,
+          "source_line_count": 12,
+          "imports": [],
+          "bundle_marker_line": 2839,
+          "bundle_source_start_line": 2840,
+          "bundle_source_end_line": 2851
+        },
+        {
+          "file": "src/interfaces/ISwapperV2.sol",
+          "sha256": "7728192ab1e3bf3d5555ad33b156943314f58ed1fe58932e81367d1ed62c1913",
+          "source_bytes_utf8": 332,
+          "source_line_count": 13,
+          "imports": [],
+          "bundle_marker_line": 2853,
+          "bundle_source_start_line": 2854,
+          "bundle_source_end_line": 2866
+        },
+        {
+          "file": "src/interfaces/IWETH.sol",
+          "sha256": "2667a07eab9553655267bcd310042e52a5b1120d2777354df33502bb3aba0bf0",
+          "source_bytes_utf8": 267,
+          "source_line_count": 12,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol"
+          ],
+          "bundle_marker_line": 2868,
+          "bundle_source_start_line": 2869,
+          "bundle_source_end_line": 2880
+        },
+        {
+          "file": "src/libraries/CauldronLib.sol",
+          "sha256": "3374288f3ec649012b15ea56148f628739a79158b76845a0c2c1ea424641bb39",
+          "source_bytes_utf8": 9780,
+          "source_line_count": 219,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol",
+            "BoringSolidity/libraries/BoringRebase.sol",
+            "BoringSolidity/libraries/BoringERC20.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "interfaces/ICauldronV2.sol",
+            "interfaces/ICauldronV3.sol",
+            "interfaces/ICauldronV4.sol",
+            "interfaces/IOracle.sol",
+            "libraries/MathLib.sol"
+          ],
+          "bundle_marker_line": 2882,
+          "bundle_source_start_line": 2883,
+          "bundle_source_end_line": 3101
+        },
+        {
+          "file": "src/libraries/MathLib.sol",
+          "sha256": "5f3cc85e7cdb639d900e47e7e215e540ec24f0d3d004bc32bed91f5a6aff9bd1",
+          "source_bytes_utf8": 1028,
+          "source_line_count": 36,
+          "imports": [],
+          "bundle_marker_line": 3103,
+          "bundle_source_start_line": 3104,
+          "bundle_source_end_line": 3139
+        },
+        {
+          "file": "src/mimswap/auxiliary/FeeRateModel.sol",
+          "sha256": "7a9bb459c01dfc913a9ec2df830fa274a69eb1352f117e13d4028d34ba2025c5",
+          "source_bytes_utf8": 1976,
+          "source_line_count": 61,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "../interfaces/IFeeRateModel.sol"
+          ],
+          "bundle_marker_line": 3141,
+          "bundle_source_start_line": 3142,
+          "bundle_source_end_line": 3202
+        },
+        {
+          "file": "src/mimswap/auxiliary/FeeRateModelImpl.sol",
+          "sha256": "a391f1b0789ef95d7341ac91e6a3afbdeca250f39cd2915e1aacfd5b4a66ae6a",
+          "source_bytes_utf8": 525,
+          "source_line_count": 17,
+          "imports": [
+            "../interfaces/IFeeRateModel.sol",
+            "/mimswap/libraries/Math.sol"
+          ],
+          "bundle_marker_line": 3204,
+          "bundle_source_start_line": 3205,
+          "bundle_source_end_line": 3221
+        },
+        {
+          "file": "src/mimswap/interfaces/ICallee.sol",
+          "sha256": "0ee28bcbc6938e9077f59cdb1cb9c624cd970fc3e34cd3bf2bb19b7899d3e291",
+          "source_bytes_utf8": 428,
+          "source_line_count": 20,
+          "imports": [],
+          "bundle_marker_line": 3223,
+          "bundle_source_start_line": 3224,
+          "bundle_source_end_line": 3243
+        },
+        {
+          "file": "src/mimswap/interfaces/IFactory.sol",
+          "sha256": "d94617e771eac8dff559da75de1e17ac06c1183ce6de0002dcec83d41c930473",
+          "source_bytes_utf8": 498,
+          "source_line_count": 16,
+          "imports": [],
+          "bundle_marker_line": 3245,
+          "bundle_source_start_line": 3246,
+          "bundle_source_end_line": 3261
+        },
+        {
+          "file": "src/mimswap/interfaces/IFeeRateModel.sol",
+          "sha256": "e5e3a9096d7e5602eff64a2a419e0790bc8d54bc24c9424487a4ecf5c95329b8",
+          "source_bytes_utf8": 522,
+          "source_line_count": 22,
+          "imports": [],
+          "bundle_marker_line": 3263,
+          "bundle_source_start_line": 3264,
+          "bundle_source_end_line": 3285
+        },
+        {
+          "file": "src/mimswap/interfaces/IMagicLP.sol",
+          "sha256": "9394b1e0bdfd635539adf39b63fd8fb93d31a412c8f34b91a646a229fb289f4a",
+          "source_bytes_utf8": 1665,
+          "source_line_count": 52,
+          "imports": [],
+          "bundle_marker_line": 3287,
+          "bundle_source_start_line": 3288,
+          "bundle_source_end_line": 3339
+        },
+        {
+          "file": "src/mimswap/libraries/DecimalMath.sol",
+          "sha256": "490fa1d450f84ef30afe557bb6c393a859b9fc46c3fc86b000bf66810a7f2462",
+          "source_bytes_utf8": 1575,
+          "source_line_count": 61,
+          "imports": [
+            "/mimswap/libraries/Math.sol"
+          ],
+          "bundle_marker_line": 3341,
+          "bundle_source_start_line": 3342,
+          "bundle_source_end_line": 3402
+        },
+        {
+          "file": "src/mimswap/libraries/Math.sol",
+          "sha256": "4b41b5ee12315f92e362199d41e1709f75fa8d779525f099aeec1cbb453009d8",
+          "source_bytes_utf8": 6396,
+          "source_line_count": 206,
+          "imports": [
+            "/mimswap/libraries/DecimalMath.sol"
+          ],
+          "bundle_marker_line": 3404,
+          "bundle_source_start_line": 3405,
+          "bundle_source_end_line": 3610
+        },
+        {
+          "file": "src/mimswap/libraries/PMMPricing.sol",
+          "sha256": "a902eb1505ae224f388f623f6219f2cf93fbff412390cb70109b9734c92b71e8",
+          "source_bytes_utf8": 7273,
+          "source_line_count": 214,
+          "imports": [
+            "/mimswap/libraries/DecimalMath.sol",
+            "/mimswap/libraries/Math.sol"
+          ],
+          "bundle_marker_line": 3612,
+          "bundle_source_start_line": 3613,
+          "bundle_source_end_line": 3826
+        },
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "sha256": "a97e609f1beb24dea073d1cca7f22e3834ea9f68fb7a0b5ac7370e748c26893b",
+          "source_bytes_utf8": 23543,
+          "source_line_count": 627,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "openzeppelin-contracts/interfaces/IERC20Metadata.sol",
+            "solady/utils/SafeTransferLib.sol",
+            "solady/utils/ReentrancyGuard.sol",
+            "solady/tokens/ERC20.sol",
+            "solady/utils/SafeCastLib.sol",
+            "/mimswap/libraries/DecimalMath.sol",
+            "/mimswap/libraries/Math.sol",
+            "/mimswap/libraries/PMMPricing.sol",
+            "/mimswap/interfaces/ICallee.sol",
+            "/mimswap/interfaces/IFeeRateModel.sol",
+            "interfaces/IWETH.sol"
+          ],
+          "bundle_marker_line": 3828,
+          "bundle_source_start_line": 3829,
+          "bundle_source_end_line": 4455
+        },
+        {
+          "file": "src/mimswap/periphery/Factory.sol",
+          "sha256": "854324e85dff427872b377f4d0796ab2bf551508ff7a8c36c2b4a70d83dcfed3",
+          "source_bytes_utf8": 6125,
+          "source_line_count": 165,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "solady/utils/LibClone.sol",
+            "/mimswap/interfaces/IFeeRateModel.sol",
+            "/mimswap/interfaces/IMagicLP.sol",
+            "/mimswap/MagicLP.sol"
+          ],
+          "bundle_marker_line": 4457,
+          "bundle_source_start_line": 4458,
+          "bundle_source_end_line": 4622
+        }
+      ]
+    },
+    {
+      "bundle_id": "bundle-0002",
+      "path": "bundles/bundle-0002.txt",
+      "estimated_tokens": 21427,
+      "estimated_over_target": false,
+      "files": [
+        {
+          "file": "src/mimswap/periphery/Router.sol",
+          "sha256": "66d92185640d9f7d84a6998564b01929a3101bdc5052de002003788152a7a22c",
+          "source_bytes_utf8": 21247,
+          "source_line_count": 606,
+          "imports": [
+            "solady/utils/SafeTransferLib.sol",
+            "openzeppelin-contracts/interfaces/IERC20.sol",
+            "/mimswap/libraries/DecimalMath.sol",
+            "interfaces/IWETH.sol",
+            "/mimswap/interfaces/IMagicLP.sol",
+            "/mimswap/interfaces/IFactory.sol",
+            "openzeppelin-contracts/interfaces/IERC20Metadata.sol"
+          ],
+          "bundle_marker_line": 1,
+          "bundle_source_start_line": 2,
+          "bundle_source_end_line": 607
+        },
+        {
+          "file": "src/mixins/FeeCollectable.sol",
+          "sha256": "e40a2e31777dd3b8c83bda85f8385e10b8e04d220dec3a3e4d427e167f2bd5cf",
+          "source_bytes_utf8": 1309,
+          "source_line_count": 45,
+          "imports": [
+            "BoringSolidity/interfaces/IERC20.sol"
+          ],
+          "bundle_marker_line": 609,
+          "bundle_source_start_line": 610,
+          "bundle_source_end_line": 654
+        },
+        {
+          "file": "src/mixins/MasterContractManager.sol",
+          "sha256": "425ba24470c56dfc9960ea57341cf6f8bb10ad3e21fb45476854d5d98b750e1e",
+          "source_bytes_utf8": 6542,
+          "source_line_count": 131,
+          "imports": [
+            "BoringSolidity/BoringOwnable.sol",
+            "BoringSolidity/BoringFactory.sol"
+          ],
+          "bundle_marker_line": 656,
+          "bundle_source_start_line": 657,
+          "bundle_source_end_line": 787
+        },
+        {
+          "file": "src/mixins/OperatableV2.sol",
+          "sha256": "aa968d7e07bcdfb10f9efe91c66f23701b4d52417bc68a439dd1536d3db0a571",
+          "source_bytes_utf8": 1105,
+          "source_line_count": 32,
+          "imports": [
+            "solmate/auth/Owned.sol"
+          ],
+          "bundle_marker_line": 789,
+          "bundle_source_start_line": 790,
+          "bundle_source_end_line": 821
+        },
+        {
+          "file": "src/mixins/OperatableV3.sol",
+          "sha256": "e32ca9f37ee533f35687c4305fc9c48a06ec12cff1ae6fdc60e31a2de34b5c08",
+          "source_bytes_utf8": 953,
+          "source_line_count": 34,
+          "imports": [],
+          "bundle_marker_line": 823,
+          "bundle_source_start_line": 824,
+          "bundle_source_end_line": 857
+        },
+        {
+          "file": "src/oracles/aggregators/MagicLpAggregator.sol",
+          "sha256": "b13b23471c4b7643d7111e18be09f9481eddab2ab0b5ed5dea96345688985024",
+          "source_bytes_utf8": 2213,
+          "source_line_count": 51,
+          "imports": [
+            "solady/utils/FixedPointMathLib.sol",
+            "openzeppelin-contracts/interfaces/IERC20Metadata.sol",
+            "interfaces/IAggregator.sol",
+            "/mimswap/interfaces/IMagicLP.sol"
+          ],
+          "bundle_marker_line": 859,
+          "bundle_source_start_line": 860,
+          "bundle_source_end_line": 910
+        },
+        {
+          "file": "src/oracles/ProxyOracle.sol",
+          "sha256": "b2e59d494f6dfa224c275d5a791b3d6cd2fb5b99a154226b0f94808075ceea9b",
+          "source_bytes_utf8": 1813,
+          "source_line_count": 54,
+          "imports": [
+            "solmate/auth/Owned.sol",
+            "interfaces/IOracle.sol"
+          ],
+          "bundle_marker_line": 912,
+          "bundle_source_start_line": 913,
+          "bundle_source_end_line": 966
+        },
+        {
+          "file": "src/staking/LockingMultiRewards.sol",
+          "sha256": "d9038caa25b96fc57851388f111d850264dec881341c4a1da02a638662fd5f73",
+          "source_bytes_utf8": 25808,
+          "source_line_count": 658,
+          "imports": [
+            "mixins/OperatableV2.sol",
+            "openzeppelin-contracts/security/Pausable.sol",
+            "solady/utils/SafeTransferLib.sol",
+            "libraries/MathLib.sol"
+          ],
+          "bundle_marker_line": 968,
+          "bundle_source_start_line": 969,
+          "bundle_source_end_line": 1626
+        },
+        {
+          "file": "utils/BaseScript.sol",
+          "sha256": "df3df7d01ab4be825fc4281a4f64a0a5c63deb266268e7c753e91ec88d2f7b5c",
+          "source_bytes_utf8": 3496,
+          "source_line_count": 92,
+          "imports": [
+            "forge-std/Script.sol",
+            "openzeppelin-contracts/utils/Address.sol",
+            "forge-std/Vm.sol",
+            "utils/Toolkit.sol",
+            "forge-deploy/Deployer.sol",
+            "forge-deploy/DefaultDeployerFunction.sol",
+            "./mocks/BlastMock.sol"
+          ],
+          "bundle_marker_line": 1628,
+          "bundle_source_start_line": 1629,
+          "bundle_source_end_line": 1720
+        },
+        {
+          "file": "utils/BaseTest.sol",
+          "sha256": "3cf1f6781ff1702dbb493bf2522e159c348dffd4e8dfc12a7456d175714ca241",
+          "source_bytes_utf8": 2640,
+          "source_line_count": 85,
+          "imports": [
+            "forge-std/Test.sol",
+            "solady/utils/LibString.sol",
+            "./Toolkit.sol",
+            "./mocks/BlastMock.sol"
+          ],
+          "bundle_marker_line": 1722,
+          "bundle_source_start_line": 1723,
+          "bundle_source_end_line": 1807
+        },
+        {
+          "file": "utils/CauldronDeployLib.sol",
+          "sha256": "e06a8cf4ee97345cbc159052181f458a884699eb147fa91e6c4822badcdbbd79",
+          "source_bytes_utf8": 3241,
+          "source_line_count": 86,
+          "imports": [
+            "forge-std/Vm.sol",
+            "forge-deploy/Deployer.sol",
+            "BoringSolidity/interfaces/IERC20.sol",
+            "libraries/CauldronLib.sol",
+            "interfaces/ICauldronV3.sol",
+            "interfaces/ICauldronV4.sol",
+            "interfaces/IOracle.sol",
+            "interfaces/IBentoBoxV1.sol",
+            "utils/Toolkit.sol"
+          ],
+          "bundle_marker_line": 1809,
+          "bundle_source_start_line": 1810,
+          "bundle_source_end_line": 1895
+        },
+        {
+          "file": "utils/Toolkit.sol",
+          "sha256": "78f19fa1c49e19dba7b77e9f4fdf97dd4abdc5376fe8ce66229c81cd32146260",
+          "source_bytes_utf8": 13843,
+          "source_line_count": 355,
+          "imports": [
+            "forge-std/Vm.sol",
+            "solady/utils/LibString.sol",
+            "forge-deploy/Deployer.sol",
+            "forge-deploy/DefaultDeployerFunction.sol",
+            "interfaces/ICauldronV2.sol"
+          ],
+          "bundle_marker_line": 1897,
+          "bundle_source_start_line": 1898,
+          "bundle_source_end_line": 2252
+        }
+      ]
+    }
+  ],
+  "excluded_files": [
+    {
+      "file": "test/Blast.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/BlastOnboarding.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/CauldronV4.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/invariant/lockStaking/handlers/BaseHandler.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/invariant/lockStaking/handlers/StakingHandler.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/invariant/lockStaking/stores/TimestampStore.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/LockingMultiRewards.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/MagicLpAggregator.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/MIMSwap.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/MIMSwapLaunch.t.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/mocks/ERC20Mock.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "test/utils/ArrayUtils.sol",
+      "reason": "out_of_scope_directory:test"
+    },
+    {
+      "file": "utils/mocks/BlastMock.sol",
+      "reason": "out_of_scope_directory:mocks"
+    }
+  ],
+  "source_repo_dir": "2024-03-abracadabra-money"
+}
