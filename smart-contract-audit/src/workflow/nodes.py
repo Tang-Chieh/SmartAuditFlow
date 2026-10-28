@@ -13,13 +13,7 @@ SOURCE_FILE_BLOCK_RE = re.compile(
 
 PRICE_MANIPULATION_SCOPE = """
 Audit ONLY for price-manipulation vulnerabilities in financially sensitive
-smart-contract logic. Look for values derived from attacker-influenceable AMM/
-DEX state (reserves, token balances, liquidity, spot prices, slot0/getReserves),
-flash-loan or swap-induced temporary state changes, LP-token/vault-share/collateral
-valuation, and downstream borrowing, minting, redemption, withdrawal, liquidation,
-or reward calculations. Check whether manipulation-resistant controls are absent
-or ineffective (for example TWAP, independent oracle sources, freshness and
-deviation checks, liquidity/slippage bounds, or safe state-update ordering).
+smart-contract logic.
 
 Report a vulnerability only when the supplied source shows a concrete data/control
 path from attacker-influenceable state to a security-critical financial outcome.
@@ -54,23 +48,47 @@ class InitialAnalysisNode(WorkflowNode):
             
             # Create prompt for initial analysis
             prompt = f"""
-            You are beginning a focused smart-contract audit.
+            As a smart contract security auditor, analyze the following Solidity smart contract code and provide an initial comprehensive assessment:
 
-            Audit scope:
+            Audit Scope:
             {PRICE_MANIPULATION_SCOPE}
 
-            Solidity source bundle (file boundaries are marked in the text):
+            Smart Contract Code:
             {code_snippet}
 
-            Static analysis results (may be empty; never imply a tool ran if it did not):
+            Static Analysis Results (if available):
             {static_tool}
 
-            Return a concise, evidence-led map of: (1) contracts/functions that read
-            price, reserve, balance, liquidity, oracle, or pool state; (2) financial
-            operations that consume those values; (3) the data/control path between
-            them; and (4) safeguards that are visibly present or absent. Cite the
-            exact source file and symbols. Separate observed facts from hypotheses.
-            Do not audit unrelated vulnerability classes.
+            Please provide a detailed initial analysis including:
+            1. Contract Overview and Purpose
+               - What does this contract do?
+               - What is its main functionality?
+               - What blockchain standards does it implement (ERC-20, ERC-721, etc.)?
+
+            2. Architecture Analysis
+               - Key components and functions
+               - State variables and their purposes
+               - Access control mechanisms
+               - Inheritance structure (if any)
+
+            3. Initial Security Observations
+               - Obvious security patterns or anti-patterns
+               - Access control implementation
+               - Input validation approaches
+               - External call patterns
+
+            4. Potential Areas of Concern
+               - Functions that handle value transfers
+               - External interactions
+               - State-changing functions
+               - Areas requiring deeper analysis
+
+            5. Code Quality Assessment
+               - Code organization and readability
+               - Use of best practices
+               - Documentation quality
+
+            Format your response as a structured analysis with clear sections.
             """
             
             # Call AI model
@@ -105,20 +123,14 @@ class AuditPlanNode(WorkflowNode):
             Based on the initial analysis, create an evidence-led audit plan restricted
             to the following vulnerability class:
             {PRICE_MANIPULATION_SCOPE}
-
             Initial Analysis:
             {initial_analysis}
 
-            Solidity source bundle:
+            Smart Contract Code:
             {code_snippet}
 
-            Produce up to 12 numbered, non-duplicative tasks. Prioritize tracing
-            attacker-controlled reserve/spot-price changes into a financial action;
-            checking LP/vault/collateral valuation math; checking flash-loan or
-            same-transaction manipulation; and verifying TWAP/oracle freshness,
-            deviation, liquidity, and update-order protections. Each task must name
-            the candidate contract/function and specify the concrete evidence needed
-            to confirm or reject the hypothesis. Do not add general audit or gas tasks.
+            Format the audit plan as numbered tasks that can be executed individually.
+            Each task should be specific and actionable.
             """
             
             response = self.model_manager.call_model_sync(prompt)
@@ -210,36 +222,50 @@ class IterationNode(WorkflowNode):
         try:
             tasks = context.get('1728114018925', {}).get('tasks', [])
             code_snippet = context.get('code_snippet', '')
-            static_tool = context.get('static_tool', '')
             results = []
             
             for task in tasks:
                 try:
                     prompt = f"""
-                    You are performing one focused price-manipulation audit task.
+                    As a smart contract security auditor, perform the following specific audit task on this Solidity smart contract:
                     Scope and exclusions:
                     {PRICE_MANIPULATION_SCOPE}
 
                     Audit Task: {task.get('task', '')}
                     Priority: {task.get('priority', 'medium')}
 
-                    Solidity source bundle (paths and original file boundaries are marked):
+                    Smart Contract Code:
                     {code_snippet}
 
-                    Static analysis results (may be empty):
-                    {static_tool}
+                    Provide detailed findings for this specific task including:
 
-                    Trace the exact source/value flow and state transition relevant to
-                    this task. State whether the supplied code demonstrates an
-                    exploitable price-manipulation path, is protected, or lacks enough
-                    evidence. A positive result must cite the marked source path,
-                    contract, function, and relevant original source lines when they
-                    can be determined. Explain attacker prerequisites, transaction
-                    sequence, affected financial operation, and concrete impact.
-                    Suggest a specific mitigation only for a demonstrated issue;
-                    distinguish a recommendation from an existing code behavior.
-                    Do not invent a static-analysis confirmation. If static analysis
-                    input is empty, base conclusions only on the Solidity source.
+                    1. Issue Analysis
+                       - Is there an issue related to this audit task?
+                       - If yes, provide detailed description
+                       - If no, explain why this area is secure
+
+                    2. Severity Assessment (if issue found)
+                       - Critical: Funds can be stolen or contract can be broken
+                       - High: Significant impact on contract functionality
+                       - Medium: Moderate impact or potential for exploitation
+                       - Low: Minor issues or best practice violations
+
+                    3. Technical Details
+                       - Specific code location (function names, line references)
+                       - Technical explanation of the issue
+                       - Attack vectors or exploitation methods
+
+                    4. Impact Assessment
+                       - What could happen if this issue is exploited?
+                       - Financial impact potential
+                       - Operational impact on the contract
+
+                    5. Recommendations
+                       - Specific code changes needed
+                       - Best practices to implement
+                       - Additional security measures
+
+                    Be thorough and specific in your analysis. If no issues are found, clearly state this and explain the security measures that are correctly implemented.
                     """
                     
                     response = self.model_manager.call_model_sync(prompt)
@@ -288,18 +314,14 @@ class FormatConverterNode(WorkflowNode):
             static_tool = context.get('static_tool', '')
             model_choice = context.get('model_choice', 'auto')
             
-            # Ask the model for evaluator-compatible finding objects. The runtime
-            # PredictionCase envelope (repo_id and detector metadata) is attached
-            # by the dataset runner, not inferred from source code.
+            # Ask the model for evaluator-compatible finding objects.
             prompt = f"""
-            Consolidate the audit results into final findings. Keep the analysis
-            strictly within this scope:
-            {PRICE_MANIPULATION_SCOPE}
+            Based on the comprehensive audit analysis, create a final professional audit report for this smart contract.
 
-            Solidity source bundle with original file-path markers:
+            Smart Contract Code:
             {code_snippet}
 
-            Static analysis results (may be empty):
+            Static Analysis Results:
             {static_tool}
 
             Audit Results Summary:
@@ -325,7 +347,8 @@ class FormatConverterNode(WorkflowNode):
               }}
             ]
 
-            Requirements:
+            IMPORTANT REQUIREMENTS:
+
             - Use only the supplied source and task results. No knowledge base was
               provided unless explicitly present above; do not claim otherwise.
             - Only include a finding when a concrete price-manipulation path is
