@@ -1,0 +1,19 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Missing minimum-output protection on secondary buyback swaps",
+    "description": "The non-TEL execution paths in FeeBuyback.submit transfer or forward the fee asset to the immutable aggregator and execute caller-supplied swapData using a low-level call. The contract only verifies that the aggregator call returned successfully and does not enforce a minimum TEL output, maximum execution price, price-impact bound, deadline, or post-swap TEL balance delta. If the underlying route uses attacker-influenceable liquidity, an attacker can manipulate the market or sandwich the owner-submitted transaction so that the swap executes at an unfavorable price. The resulting lower TEL amount is accepted and credited to the referral recipient. The direct TEL path does not perform a market swap and is not affected by this issue. Practical exploitability depends on the configured aggregator route and whether swapData independently contains effective slippage protection, which is not enforced by FeeBuyback.",
+    "impact": "The safe's fee assets may be exchanged for substantially less TEL than intended, reducing referral rewards and potentially transferring value to arbitrageurs or sandwich attackers. Transactions can succeed despite economically unacceptable execution, and repeated unfavorable swaps may cause cumulative protocol losses. The contract also credits the entire TEL balance rather than only the balance increase from the current swap, which can further distort referral accounting.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/fee-buyback/FeeBuyback.sol",
+        "contract": "FeeBuyback",
+        "function": "submit",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Add an explicit minTelOut and deadline parameter to submit. Record the TEL balance immediately before the aggregator call, execute the swap, calculate telReceived as the post-swap balance minus the pre-swap balance, and revert unless telReceived is at least minTelOut and the deadline has not expired. Credit only telReceived to the referral plugin. Where feasible, replace the unrestricted low-level call with a typed or dedicated aggregator adapter that validates the input token, input amount, TEL as the output token, the swap recipient, maximum input consumption, native value, and route-level slippage parameters. Aggregator calldata should also include a bounded minimum return and expiry as defense in depth.",
+    "severity": "Medium"
+  }
+]

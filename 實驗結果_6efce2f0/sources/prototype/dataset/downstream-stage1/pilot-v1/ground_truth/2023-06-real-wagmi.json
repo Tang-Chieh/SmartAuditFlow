@@ -1,0 +1,39 @@
+{
+  "repo_id": "2023-06-real-wagmi",
+  "ground_truth": [
+    {
+      "title": "H-3: Usage of `slot0` is extremely easy to manipulate",
+      "description": "Multipool.getSlots() reads each underlying Uniswap V3 pool's transaction-local slot0 price. _getReserves() feeds that price into LiquidityAmounts.getAmountsForLiquidity() to value the Multipool's positions, and deposit() uses the resulting reserves to optimize deposit amounts and calculate newly minted LP tokens. Because slot0 can be moved within a transaction, an attacker can distort the reserve ratio used for share issuance without changing the Multipool's durable economic value.",
+      "impact": "A manipulated reserve calculation can cause deposits to mint an incorrect number of Multipool LP tokens, diluting other liquidity providers and causing them to receive fewer LP tokens or a smaller share of pool assets than intended.",
+      "vulnerable_code": [
+        {
+          "file": "concentrator/contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "deposit(uint256,uint256,uint256,uint256)",
+          "start_line": 433,
+          "end_line": 486,
+          "snippet": "slots = getSlots(); (uint256 reserve0, uint256 reserve1, , ) = _getReserves(slots); ... lpAmount = l0 < l1 ? l0 : l1;"
+        },
+        {
+          "file": "concentrator/contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "getSlots()",
+          "start_line": 589,
+          "end_line": 602,
+          "snippet": "(slots[i].currentSqrtRatioX96, slots[i].tick, , , , , ) = IUniswapV3Pool(position.poolAddress).slot0();"
+        },
+        {
+          "file": "concentrator/contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "_getReserves(Slot0Data[])",
+          "start_line": 693,
+          "end_line": 768,
+          "snippet": "(uint256 amount0, uint256 amount1) = LiquidityAmounts.getAmountsForLiquidity(slots[i].currentSqrtRatioX96, ...); reserve0 += amount0; reserve1 += amount1;"
+        }
+      ],
+      "mitigation": "Use a manipulation-resistant TWAP or another independently validated price for reserve and share calculations instead of raw slot0. Reject deposits when each underlying pool's current price deviates beyond a configured bound from its weighted-average reference price.",
+      "finding_id": "H-3",
+      "review_status": "gold_verified"
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "Findings": [],
+  "Predictions": [],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [
+    "Report formatting failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}"
+  ],
+  "FindingNumber": 0,
+  "FullReport": "Report generation failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 0,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "ExecutionSummary": {
+    "total_execution_time": 371.5063359737396,
+    "session_id": "ca11949a-eea7-4b54-bd17-92c803efa70a"
+  },
+  "PredictionCase": {
+    "repo_id": "2023-06-tokemak",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": []
+  }
+}

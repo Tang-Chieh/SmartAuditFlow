@@ -1,0 +1,283 @@
+{
+  "Findings": [
+    {
+      "Issue": "Manipulable LP spot price controls PyroFlan issuance",
+      "Severity": "High",
+      "Description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from raw Flan and stablecoin balances held by the configured LP. These balances can be influenced through swaps or direct token transfers before execution. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The contract then mints flanToMint plus premium worth of PyroFlan to the caller. The acceptableHighestPrice check only applies an absolute upper bound to the post-operation spot value and does not authenticate either price, constrain relative price movement, or protect the premium calculation.",
+      "Impact": "An attacker may cause excessive PyroFlan and Flan issuance for a given stablecoin deposit, receive an inflated premium, dilute existing PyroFlan holders, or increase redemption liabilities. Manipulated prices can also cause legitimate purchases to revert because the growth calculation assumes tiltedPrice is not greater than priceBefore.",
+      "Location": "contracts/FlanBackstop.sol — FlanBackstop.purchasePyroFlan",
+      "Mitigation": "Replace raw LP balance pricing with a sufficiently long AMM TWAP, an independent oracle, or a medianized reference price. Calculate issuance and any premium from the protected reference rather than same-transaction balances. Add protocol-side maximum issuance and premium caps, enforce two-sided deviation limits against the reference price, validate the configured pairs and their liquidity, and explicitly handle price movements where tiltedPrice exceeds priceBefore.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Protocol-held tokens can be sold at a manipulable spot price",
+      "Severity": "Medium",
+      "Description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current token and Flan balances of the configured pair and executes the swap without a TWAP, oracle validation, minimum-output parameter, or maximum price-impact check. An attacker can manipulate the pair before calling claimSecondaryRewards, causing protocol-owned tokens to be exchanged at an unfavorable price. The resulting Flan is mostly burned and 1% is transferred to the caller.",
+      "Impact": "Limbo may receive materially less Flan than the fair value of its held tokens, while the sold tokens and most of the resulting Flan become unrecoverable. The caller can also receive the execution reward despite an adverse exchange rate. Repeated exploitation may reduce protocol value and Flan-burning effectiveness.",
+      "Location": "contracts/Limbo.sol — Limbo.claimSecondaryRewards; contracts/UniswapHelper.sol — UniswapHelper.buyFlanAndBurn",
+      "Mitigation": "Add a caller- or keeper-supplied minFlanOut value and revert when the actual quoted output is below it. Validate execution against a manipulation-resistant TWAP or independent oracle, enforce maximum price impact and minimum liquidity requirements, add a deadline, and consider selling protocol balances in bounded chunks rather than in a single unrestricted operation.",
+      "finding_id": "SAF-002"
+    },
+    {
+      "Issue": "Behodler-derived spot quotes influence Flan issuance and reward emissions",
+      "Severity": "High",
+      "Description": "UniswapHelper.getLatestFLNQuote obtains a Behodler-derived SCX quote and the raw DAI balance held by Behodler. The stored values are subsequently used by stabilizeFlan to determine the target Flan balance and amount of Flan minted into the Flan/SCX pool. When no explicit threshold is supplied, minAPY_to_FPS uses the stored Behodler DAI balance to calculate Limbo's Flan-per-second reward rate. The two-snapshot check verifies that observations are close to each other and sufficiently separated in blocks, but it does not establish that either observation represents an honest market value. A manipulated state maintained or recreated across both observations can therefore affect later minting or emissions.",
+      "Impact": "A manipulated quote can cause excess or insufficient Flan to be minted during migration, distort the Flan/SCX liquidity pool, and alter future Limbo reward emissions. This can dilute Flan holders, create excessive staking rewards, or prevent migrations when quote observations fail the divergence checks.",
+      "Location": "contracts/UniswapHelper.sol — UniswapHelper.generateFLNQuote; contracts/UniswapHelper.sol — UniswapHelper.getLatestFLNQuote; contracts/UniswapHelper.sol — UniswapHelper.stabilizeFlan; contracts/UniswapHelper.sol — UniswapHelper.minAPY_to_FPS",
+      "Mitigation": "Use a manipulation-resistant TWAP or independently verified, multi-source oracle for the SCX price and economic threshold. Do not use the raw DAI balance of Behodler as a value proxy for reward emissions. Apply independent maximum bounds to Flan minted per migration and FPS changes, and separate the price source used for liquidity stabilization from the source used to determine staking emissions.",
+      "finding_id": "SAF-003"
+    },
+    {
+      "Issue": "Raw LP EYE balances determine Fate creation",
+      "Severity": "Medium",
+      "Description": "Limbo values approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. This raw balance-derived eyePerUnit is used in setEYEBasedAssetStake to validate the user's implied EYE amount and assign Fate-per-day, and in burnAsset to calculate immediately created Fate. Because an approved LP contract's EYE balance can reflect attacker-influenceable AMM state rather than a protected valuation, the attacker may influence Fate creation. Fate can subsequently be converted into Flan when fateToFlan is enabled.",
+      "Impact": "Manipulated LP valuations can create excess Fate, distort staking rewards and governance influence, and potentially enable excess Flan issuance through convertFateToFlan. The same accounting can also unfairly reduce the Fate value assigned to legitimate participants when the LP balance moves in the opposite direction.",
+      "Location": "contracts/Limbo.sol — Limbo.setEYEBasedAssetStake; contracts/Limbo.sol — Limbo.burnAsset",
+      "Mitigation": "Value LP assets using validated canonical reserves and both underlying assets, preferably through a time-weighted or independently verified valuation. Reject non-canonical or insufficiently liquid LP tokens, introduce valuation snapshots or activation delays, and cap Fate created per transaction and per asset before allowing Fate conversion or governance use.",
+      "finding_id": "SAF-004"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Manipulable LP spot price controls PyroFlan issuance",
+      "description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from raw Flan and stablecoin balances held by the configured LP. These balances can be influenced through swaps or direct token transfers before execution. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The contract then mints flanToMint plus premium worth of PyroFlan to the caller. The acceptableHighestPrice check only applies an absolute upper bound to the post-operation spot value and does not authenticate either price, constrain relative price movement, or protect the premium calculation.",
+      "impact": "An attacker may cause excessive PyroFlan and Flan issuance for a given stablecoin deposit, receive an inflated premium, dilute existing PyroFlan holders, or increase redemption liabilities. Manipulated prices can also cause legitimate purchases to revert because the growth calculation assumes tiltedPrice is not greater than priceBefore.",
+      "mitigation": "Replace raw LP balance pricing with a sufficiently long AMM TWAP, an independent oracle, or a medianized reference price. Calculate issuance and any premium from the protected reference rather than same-transaction balances. Add protocol-side maximum issuance and premium caps, enforce two-sided deviation limits against the reference price, validate the configured pairs and their liquidity, and explicitly handle price movements where tiltedPrice exceeds priceBefore.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/FlanBackstop.sol",
+          "contract": "FlanBackstop",
+          "function": "purchasePyroFlan",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Protocol-held tokens can be sold at a manipulable spot price",
+      "description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current token and Flan balances of the configured pair and executes the swap without a TWAP, oracle validation, minimum-output parameter, or maximum price-impact check. An attacker can manipulate the pair before calling claimSecondaryRewards, causing protocol-owned tokens to be exchanged at an unfavorable price. The resulting Flan is mostly burned and 1% is transferred to the caller.",
+      "impact": "Limbo may receive materially less Flan than the fair value of its held tokens, while the sold tokens and most of the resulting Flan become unrecoverable. The caller can also receive the execution reward despite an adverse exchange rate. Repeated exploitation may reduce protocol value and Flan-burning effectiveness.",
+      "mitigation": "Add a caller- or keeper-supplied minFlanOut value and revert when the actual quoted output is below it. Validate execution against a manipulation-resistant TWAP or independent oracle, enforce maximum price impact and minimum liquidity requirements, add a deadline, and consider selling protocol balances in bounded chunks rather than in a single unrestricted operation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Limbo.sol",
+          "contract": "Limbo",
+          "function": "claimSecondaryRewards",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "buyFlanAndBurn",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-003",
+      "title": "Behodler-derived spot quotes influence Flan issuance and reward emissions",
+      "description": "UniswapHelper.getLatestFLNQuote obtains a Behodler-derived SCX quote and the raw DAI balance held by Behodler. The stored values are subsequently used by stabilizeFlan to determine the target Flan balance and amount of Flan minted into the Flan/SCX pool. When no explicit threshold is supplied, minAPY_to_FPS uses the stored Behodler DAI balance to calculate Limbo's Flan-per-second reward rate. The two-snapshot check verifies that observations are close to each other and sufficiently separated in blocks, but it does not establish that either observation represents an honest market value. A manipulated state maintained or recreated across both observations can therefore affect later minting or emissions.",
+      "impact": "A manipulated quote can cause excess or insufficient Flan to be minted during migration, distort the Flan/SCX liquidity pool, and alter future Limbo reward emissions. This can dilute Flan holders, create excessive staking rewards, or prevent migrations when quote observations fail the divergence checks.",
+      "mitigation": "Use a manipulation-resistant TWAP or independently verified, multi-source oracle for the SCX price and economic threshold. Do not use the raw DAI balance of Behodler as a value proxy for reward emissions. Apply independent maximum bounds to Flan minted per migration and FPS changes, and separate the price source used for liquidity stabilization from the source used to determine staking emissions.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "generateFLNQuote",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "getLatestFLNQuote",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "stabilizeFlan",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "minAPY_to_FPS",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-004",
+      "title": "Raw LP EYE balances determine Fate creation",
+      "description": "Limbo values approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. This raw balance-derived eyePerUnit is used in setEYEBasedAssetStake to validate the user's implied EYE amount and assign Fate-per-day, and in burnAsset to calculate immediately created Fate. Because an approved LP contract's EYE balance can reflect attacker-influenceable AMM state rather than a protected valuation, the attacker may influence Fate creation. Fate can subsequently be converted into Flan when fateToFlan is enabled.",
+      "impact": "Manipulated LP valuations can create excess Fate, distort staking rewards and governance influence, and potentially enable excess Flan issuance through convertFateToFlan. The same accounting can also unfairly reduce the Fate value assigned to legitimate participants when the LP balance moves in the opposite direction.",
+      "mitigation": "Value LP assets using validated canonical reserves and both underlying assets, preferably through a time-weighted or independently verified valuation. Reject non-canonical or insufficiently liquid LP tokens, introduce valuation snapshots or activation delays, and cap Fate created per transaction and per asset before allowing Fate conversion or governance use.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Limbo.sol",
+          "contract": "Limbo",
+          "function": "setEYEBasedAssetStake",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Limbo.sol",
+          "contract": "Limbo",
+          "function": "burnAsset",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 4,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Manipulable LP spot price controls PyroFlan issuance\",\n    \"description\": \"FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from raw Flan and stablecoin balances held by the configured LP. These balances can be influenced through swaps or direct token transfers before execution. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The contract then mints flanToMint plus premium worth of PyroFlan to the caller. The acceptableHighestPrice check only applies an absolute upper bound to the post-operation spot value and does not authenticate either price, constrain relative price movement, or protect the premium calculation.\",\n    \"impact\": \"An attacker may cause excessive PyroFlan and Flan issuance for a given stablecoin deposit, receive an inflated premium, dilute existing PyroFlan holders, or increase redemption liabilities. Manipulated prices can also cause legitimate purchases to revert because the growth calculation assumes tiltedPrice is not greater than priceBefore.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/FlanBackstop.sol\",\n        \"contract\": \"FlanBackstop\",\n        \"function\": \"purchasePyroFlan\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Replace raw LP balance pricing with a sufficiently long AMM TWAP, an independent oracle, or a medianized reference price. Calculate issuance and any premium from the protected reference rather than same-transaction balances. Add protocol-side maximum issuance and premium caps, enforce two-sided deviation limits against the reference price, validate the configured pairs and their liquidity, and explicitly handle price movements where tiltedPrice exceeds priceBefore.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Protocol-held tokens can be sold at a manipulable spot price\",\n    \"description\": \"Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current token and Flan balances of the configured pair and executes the swap without a TWAP, oracle validation, minimum-output parameter, or maximum price-impact check. An attacker can manipulate the pair before calling claimSecondaryRewards, causing protocol-owned tokens to be exchanged at an unfavorable price. The resulting Flan is mostly burned and 1% is transferred to the caller.\",\n    \"impact\": \"Limbo may receive materially less Flan than the fair value of its held tokens, while the sold tokens and most of the resulting Flan become unrecoverable. The caller can also receive the execution reward despite an adverse exchange rate. Repeated exploitation may reduce protocol value and Flan-burning effectiveness.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Limbo.sol\",\n        \"contract\": \"Limbo\",\n        \"function\": \"claimSecondaryRewards\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"buyFlanAndBurn\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Add a caller- or keeper-supplied minFlanOut value and revert when the actual quoted output is below it. Validate execution against a manipulation-resistant TWAP or independent oracle, enforce maximum price impact and minimum liquidity requirements, add a deadline, and consider selling protocol balances in bounded chunks rather than in a single unrestricted operation.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-003\",\n    \"title\": \"Behodler-derived spot quotes influence Flan issuance and reward emissions\",\n    \"description\": \"UniswapHelper.getLatestFLNQuote obtains a Behodler-derived SCX quote and the raw DAI balance held by Behodler. The stored values are subsequently used by stabilizeFlan to determine the target Flan balance and amount of Flan minted into the Flan/SCX pool. When no explicit threshold is supplied, minAPY_to_FPS uses the stored Behodler DAI balance to calculate Limbo's Flan-per-second reward rate. The two-snapshot check verifies that observations are close to each other and sufficiently separated in blocks, but it does not establish that either observation represents an honest market value. A manipulated state maintained or recreated across both observations can therefore affect later minting or emissions.\",\n    \"impact\": \"A manipulated quote can cause excess or insufficient Flan to be minted during migration, distort the Flan/SCX liquidity pool, and alter future Limbo reward emissions. This can dilute Flan holders, create excessive staking rewards, or prevent migrations when quote observations fail the divergence checks.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"generateFLNQuote\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"getLatestFLNQuote\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"stabilizeFlan\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"minAPY_to_FPS\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use a manipulation-resistant TWAP or independently verified, multi-source oracle for the SCX price and economic threshold. Do not use the raw DAI balance of Behodler as a value proxy for reward emissions. Apply independent maximum bounds to Flan minted per migration and FPS changes, and separate the price source used for liquidity stabilization from the source used to determine staking emissions.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-004\",\n    \"title\": \"Raw LP EYE balances determine Fate creation\",\n    \"description\": \"Limbo values approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. This raw balance-derived eyePerUnit is used in setEYEBasedAssetStake to validate the user's implied EYE amount and assign Fate-per-day, and in burnAsset to calculate immediately created Fate. Because an approved LP contract's EYE balance can reflect attacker-influenceable AMM state rather than a protected valuation, the attacker may influence Fate creation. Fate can subsequently be converted into Flan when fateToFlan is enabled.\",\n    \"impact\": \"Manipulated LP valuations can create excess Fate, distort staking rewards and governance influence, and potentially enable excess Flan issuance through convertFateToFlan. The same accounting can also unfairly reduce the Fate value assigned to legitimate participants when the LP balance moves in the opposite direction.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Limbo.sol\",\n        \"contract\": \"Limbo\",\n        \"function\": \"setEYEBasedAssetStake\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Limbo.sol\",\n        \"contract\": \"Limbo\",\n        \"function\": \"burnAsset\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Value LP assets using validated canonical reserves and both underlying assets, preferably through a time-weighted or independently verified valuation. Reject non-canonical or insufficiently liquid LP tokens, introduce valuation snapshots or activation delays, and cap Fate created per transaction and per asset before allowing Fate conversion or governance use.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 2,
+  "MediumIssues": 2,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 11,
+    "failed_tasks": 1,
+    "total_execution_time": 602.0621738433838,
+    "session_id": "3499eb3e-ff53-46a6-890a-6e9b9a0c058e"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2022-01-behodler",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Manipulable LP spot price controls PyroFlan issuance",
+        "description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from raw Flan and stablecoin balances held by the configured LP. These balances can be influenced through swaps or direct token transfers before execution. The resulting tiltedPrice directly determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The contract then mints flanToMint plus premium worth of PyroFlan to the caller. The acceptableHighestPrice check only applies an absolute upper bound to the post-operation spot value and does not authenticate either price, constrain relative price movement, or protect the premium calculation.",
+        "impact": "An attacker may cause excessive PyroFlan and Flan issuance for a given stablecoin deposit, receive an inflated premium, dilute existing PyroFlan holders, or increase redemption liabilities. Manipulated prices can also cause legitimate purchases to revert because the growth calculation assumes tiltedPrice is not greater than priceBefore.",
+        "mitigation": "Replace raw LP balance pricing with a sufficiently long AMM TWAP, an independent oracle, or a medianized reference price. Calculate issuance and any premium from the protected reference rather than same-transaction balances. Add protocol-side maximum issuance and premium caps, enforce two-sided deviation limits against the reference price, validate the configured pairs and their liquidity, and explicitly handle price movements where tiltedPrice exceeds priceBefore.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/FlanBackstop.sol",
+            "contract": "FlanBackstop",
+            "function": "purchasePyroFlan",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Protocol-held tokens can be sold at a manipulable spot price",
+        "description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current token and Flan balances of the configured pair and executes the swap without a TWAP, oracle validation, minimum-output parameter, or maximum price-impact check. An attacker can manipulate the pair before calling claimSecondaryRewards, causing protocol-owned tokens to be exchanged at an unfavorable price. The resulting Flan is mostly burned and 1% is transferred to the caller.",
+        "impact": "Limbo may receive materially less Flan than the fair value of its held tokens, while the sold tokens and most of the resulting Flan become unrecoverable. The caller can also receive the execution reward despite an adverse exchange rate. Repeated exploitation may reduce protocol value and Flan-burning effectiveness.",
+        "mitigation": "Add a caller- or keeper-supplied minFlanOut value and revert when the actual quoted output is below it. Validate execution against a manipulation-resistant TWAP or independent oracle, enforce maximum price impact and minimum liquidity requirements, add a deadline, and consider selling protocol balances in bounded chunks rather than in a single unrestricted operation.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Limbo.sol",
+            "contract": "Limbo",
+            "function": "claimSecondaryRewards",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "buyFlanAndBurn",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-003",
+        "title": "Behodler-derived spot quotes influence Flan issuance and reward emissions",
+        "description": "UniswapHelper.getLatestFLNQuote obtains a Behodler-derived SCX quote and the raw DAI balance held by Behodler. The stored values are subsequently used by stabilizeFlan to determine the target Flan balance and amount of Flan minted into the Flan/SCX pool. When no explicit threshold is supplied, minAPY_to_FPS uses the stored Behodler DAI balance to calculate Limbo's Flan-per-second reward rate. The two-snapshot check verifies that observations are close to each other and sufficiently separated in blocks, but it does not establish that either observation represents an honest market value. A manipulated state maintained or recreated across both observations can therefore affect later minting or emissions.",
+        "impact": "A manipulated quote can cause excess or insufficient Flan to be minted during migration, distort the Flan/SCX liquidity pool, and alter future Limbo reward emissions. This can dilute Flan holders, create excessive staking rewards, or prevent migrations when quote observations fail the divergence checks.",
+        "mitigation": "Use a manipulation-resistant TWAP or independently verified, multi-source oracle for the SCX price and economic threshold. Do not use the raw DAI balance of Behodler as a value proxy for reward emissions. Apply independent maximum bounds to Flan minted per migration and FPS changes, and separate the price source used for liquidity stabilization from the source used to determine staking emissions.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "generateFLNQuote",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "getLatestFLNQuote",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "stabilizeFlan",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "minAPY_to_FPS",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-004",
+        "title": "Raw LP EYE balances determine Fate creation",
+        "description": "Limbo values approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. This raw balance-derived eyePerUnit is used in setEYEBasedAssetStake to validate the user's implied EYE amount and assign Fate-per-day, and in burnAsset to calculate immediately created Fate. Because an approved LP contract's EYE balance can reflect attacker-influenceable AMM state rather than a protected valuation, the attacker may influence Fate creation. Fate can subsequently be converted into Flan when fateToFlan is enabled.",
+        "impact": "Manipulated LP valuations can create excess Fate, distort staking rewards and governance influence, and potentially enable excess Flan issuance through convertFateToFlan. The same accounting can also unfairly reduce the Fate value assigned to legitimate participants when the LP balance moves in the opposite direction.",
+        "mitigation": "Value LP assets using validated canonical reserves and both underlying assets, preferably through a time-weighted or independently verified valuation. Reject non-canonical or insufficiently liquid LP tokens, introduce valuation snapshots or activation delays, and cap Fate created per transaction and per asset before allowing Fate conversion or governance use.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Limbo.sol",
+            "contract": "Limbo",
+            "function": "setEYEBasedAssetStake",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Limbo.sol",
+            "contract": "Limbo",
+            "function": "burnAsset",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

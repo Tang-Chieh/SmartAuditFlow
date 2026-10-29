@@ -1,0 +1,46 @@
+{
+  "repo_id": "2022-01-sandclock",
+  "ground_truth": [
+    {
+      "title": "[H-03] Vaults with non-UST underlying asset vulnerable to flash loan attack on curve pool",
+      "description": "NonUSTStrategy.investedAssets() converts the strategy's UST exposure into the vault's underlying asset using Curve's current get_dy_underlying() quote. Vault.totalUnderlying() includes that result, and deposit and withdrawal share calculations use totalUnderlyingMinusSponsored(). An attacker can temporarily move the Curve pool with a flash loan, make the same UST position appear to be worth more or less underlying, and deposit or withdraw while the vault uses that transient exchange rate.",
+      "impact": "An attacker can mint too many vault shares or withdraw more underlying than their fair share at the expense of existing depositors.",
+      "vulnerable_code": [
+        {
+          "file": "sandclock/contracts/strategy/NonUSTStrategy.sol",
+          "contract": "NonUSTStrategy",
+          "function": "investedAssets()",
+          "start_line": 120,
+          "end_line": 136
+        }
+      ],
+      "mitigation": "Value the UST exposure with a manipulation-resistant oracle or sufficiently long TWAP instead of Curve's transaction-local quote.",
+      "finding_id": "H-03",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-11] Changing a strategy can be bricked",
+      "description": "Vault.setStrategy() only permits replacing the current strategy when strategy.investedAssets() is zero. BaseStrategy.investedAssets() includes the raw aUST token balance held by the strategy, so anyone can transfer aUST directly to the strategy and make the zero-invested-assets check fail. The attacker can repeat this griefing after the protocol initiates and completes the required redemption flow.",
+      "impact": "An attacker can repeatedly prevent the protocol from replacing its strategy, delaying strategy maintenance or migration and forcing the protocol to process the outstanding aUST redemption flow before retrying.",
+      "vulnerable_code": [
+        {
+          "file": "sandclock/contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "setStrategy(address)",
+          "start_line": 103,
+          "end_line": 119
+        },
+        {
+          "file": "sandclock/contracts/strategy/BaseStrategy.sol",
+          "contract": "BaseStrategy",
+          "function": "investedAssets()",
+          "start_line": 263,
+          "end_line": 277
+        }
+      ],
+      "mitigation": "Track the strategy's internal aUST balance and update it on deposits and redemptions, then use that accounting instead of the raw aUST token balance when checking whether the strategy is empty. Alternatively, allow the strategy to transfer aUST back to the vault.",
+      "finding_id": "M-11",
+      "review_status": "gold_verified"
+    }
+  ]
+}

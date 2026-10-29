@@ -1,0 +1,14 @@
+{
+  "status": "completed",
+  "corpus_metrics": {
+    "macro_soft_f1": 0.2980072463768116,
+    "pooled_soft_precision": 0.35480769230769227,
+    "pooled_soft_recall": 0.4392857142857143,
+    "pooled_soft_f1": 0.3925531914893617,
+    "total_matched_weight": 18.45,
+    "total_ground_truth_count": 42,
+    "total_prediction_count": 52
+  },
+  "report": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/llm-judge/report.md",
+  "evaluator_commit": "e46fc2702a1c6506f9a56af00990f8218648f697"
+}

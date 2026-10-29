@@ -1,0 +1,36 @@
+{
+  "repo_id": "2023-06-lybra",
+  "ground_truth": [
+    {
+      "title": "[M-13] It is possible to manipulate WETH/LBR pair to claim reward of the users which shouldn't be claimed",
+      "description": "EUSDMiningIncentives.stakedLBRLpValue() values a user's staked WETH/LBR LP tokens from the pair contract's current WETH and LBR token balances. During a Uniswap V2 flash-swap callback, the transferred-out assets temporarily reduce those balances before the swap is repaid. An attacker can therefore understate a victim's LP value, make isOtherEarningsClaimable() return true, and call purchaseOtherEarnings() while the eligibility check is using the manipulated value.",
+      "impact": "An attacker can redirect a victim's accumulated mining reward to themselves even though the victim has staked enough WETH/LBR LP tokens for the reward to remain protected from buyout.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+          "contract": "EUSDMiningIncentives",
+          "function": "stakedLBRLpValue(address)",
+          "start_line": 149,
+          "end_line": 156
+        },
+        {
+          "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+          "contract": "EUSDMiningIncentives",
+          "function": "isOtherEarningsClaimable(address)",
+          "start_line": 188,
+          "end_line": 190
+        },
+        {
+          "file": "contracts/lybra/miner/EUSDMiningIncentives.sol",
+          "contract": "EUSDMiningIncentives",
+          "function": "purchaseOtherEarnings(address,bool)",
+          "start_line": 202,
+          "end_line": 224
+        }
+      ],
+      "mitigation": "Use the WETH/LBR pair's recorded reserves returned by getReserves() instead of its live token balances when calculating the staked LP value.",
+      "finding_id": "M-13",
+      "review_status": "gold_verified"
+    }
+  ]
+}

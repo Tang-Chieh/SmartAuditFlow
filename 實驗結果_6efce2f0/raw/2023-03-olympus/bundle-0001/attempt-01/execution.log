@@ -1,0 +1,135 @@
+🗄️ In-memory storage initialized successfully
+📝 Created session 6f2a756e-e9c0-407f-878f-a3c5b7282480 with 139229 characters of code
+🔧 Initializing AI models...
+❌ OPENAI_API_KEY not found
+✅ Local Codex OAuth gateway initialized (loopback only)
+❌ GEMINI_API_KEY not found
+❌ DEEPSEEK_API_KEY not found
+❌ ANTHROPIC_API_KEY not found
+🤖 Model initialization complete: 1/8 models available
+🤖 Global model manager initialized
+🎯 Preferred model set to: codex-gateway
+📊 Session 6f2a756e-e9c0-407f-878f-a3c5b7282480 status updated to: running
+🤖 Using AI model: codex-gateway
+📋 Step 1/5: llm
+⚡ Created execution 1 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 24.62s (12422 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 1 - status: completed
+✅ llm completed in 24.62s
+📋 Step 2/5: llm
+⚡ Created execution 2 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 18.35s (9659 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 2 - status: completed
+✅ llm completed in 18.36s
+📋 Step 3/5: parameter-extractor
+⚡ Created execution 3 for node parameter-extractor
+⚡ Executing parameter-extractor...
+📈 Updated execution 3 - status: completed
+✅ parameter-extractor completed in 0.00s
+📋 Step 4/5: iteration
+⚡ Created execution 4 for node iteration
+⚡ Executing iteration...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 14.64s (5946 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 15.22s (6350 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 22.43s (10187 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 26.50s (11762 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 15.17s (6083 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 21.10s (6967 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 17.75s (7363 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 17.61s (7231 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 26.90s (9121 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 25.38s (7600 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 23.06s (8194 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 22.41s (7802 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 4 - status: completed
+✅ iteration completed in 248.20s
+📋 Step 5/5: llm
+⚡ Created execution 5 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 3.38s (2 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 5 - status: completed
+✅ llm completed in 3.38s
+💾 Saved results for session 6f2a756e-e9c0-407f-878f-a3c5b7282480 with 0 findings
+📊 Session 6f2a756e-e9c0-407f-878f-a3c5b7282480 status updated to: completed
+📊 Session 6f2a756e-e9c0-407f-878f-a3c5b7282480 status updated to: completed
+🎉 Audit completed successfully! Found 0 findings.
+{
+  "status": "completed",
+  "session_id": "6f2a756e-e9c0-407f-878f-a3c5b7282480",
+  "model_provider": "codex-gateway",
+  "model_id": "openai-codex/gpt-5.6-luna",
+  "gateway_base_url": "http://127.0.0.1:4000/v1",
+  "workflow_nodes": [
+    "initial-analysis",
+    "audit-plan",
+    "parameter-extractor",
+    "iteration",
+    "format-converter"
+  ],
+  "max_audit_tasks": 12,
+  "result_findings": 0,
+  "prediction_case_written": true,
+  "credential_value_saved": false
+}

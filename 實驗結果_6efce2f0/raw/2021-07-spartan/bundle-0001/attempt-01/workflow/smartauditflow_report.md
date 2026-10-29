@@ -1,0 +1,150 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Manipulable spot price permanently inflates SynthVault reward weight",
+    "description": "Utils.calcSpotValueInBaseWithPool derives token value from the instantaneous pool reserve ratio, baseAmount / tokenAmount. These reserves can be changed through permissionless swaps and public synchronization. SynthVault._deposit uses this value to permanently increase mapMemberSynth_weight, mapMemberTotal_weight, and totalWeight. An attacker can manipulate the relevant pool price, deposit synth tokens while the distorted price is active, and retain an inflated reward weight after the pool price is restored. The stored weight is subsequently used by SynthVault.calcReward and harvestSingle to determine the attacker’s share of Reserve-funded rewards.",
+    "impact": "An attacker may receive a disproportionate share of Reserve-funded incentives, diluting rewards owed to honest SynthVault depositors and potentially causing excessive BASE to be converted into synth rewards for the attacker. The accounting distortion persists after the temporary pool-price manipulation ends.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "calcSpotValueInBaseWithPool",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/synthVault.sol",
+        "contract": "SynthVault",
+        "function": "_deposit",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/synthVault.sol",
+        "contract": "SynthVault",
+        "function": "calcReward",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant valuation source, such as a sufficiently long TWAP or an independent oracle with freshness and deviation checks, when assigning SynthVault weight. Do not make a permanent reward entitlement from a single transaction-time spot price. Consider applying a pricing delay, time-weighted balances, minimum liquidity requirements, and maximum permitted price deviations before a deposit becomes reward-eligible.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "Manipulable pool reserves control bond LP allocation",
+    "description": "Dao.handleTransferIn calculates the protocol-funded SPARTA amount for a bond using Utils.calcSwapValueInBase. That function uses the current Pool.baseAmount and Pool.tokenAmount through calcSwapValueInBaseWithPool and calcSwapOutput. The reserves can be altered by permissionless pool swaps immediately before Dao.bond is called. The calculated SPARTA allocation is then supplied alongside the user’s asset through Router.addLiquidityForMember, and the resulting LP units are minted to the BondVault and credited to the bonding user. No TWAP, independent oracle, deviation bound, maximum allocation, or minimum LP-output check protects this valuation.",
+    "impact": "A manipulated price can cause the protocol to contribute an incorrect amount of SPARTA for a bonded asset and issue an incorrect number of LP units. If the inflated allocation exceeds the cost of manipulating and restoring the pool price, the attacker can obtain an oversized LP claim, diluting existing liquidity providers or imposing a loss on protocol-controlled funds.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "calcSwapValueInBaseWithPool",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Dao.sol",
+        "contract": "Dao",
+        "function": "handleTransferIn",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Dao.sol",
+        "contract": "Dao",
+        "function": "bond",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Value bonded assets using a TWAP, independent oracle, or another manipulation-resistant reference price rather than the instantaneous reserves of the destination pool. Add pool-liquidity and bond-size limits, compare the quote against a reference price with deviation checks, and enforce a maximum SPARTA allocation and an expected LP-unit range before completing the bond.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-003",
+    "title": "Permissionless sync converts unsolicited token transfers into pricing reserves",
+    "description": "Pool.sync is externally callable by any account and sets baseAmount and tokenAmount directly to the pool’s raw token balances. An attacker can transfer BASE or the pool token directly to a pool and call sync, causing the unsolicited balance to become authoritative reserve data. These reserves are then used by Utils spot and swap valuation functions, SynthVault deposits, bond valuation, synth calculations, and pool operations. Pool helper functions also derive pending inputs from the difference between raw balances and recorded reserves, so arbitrary balance changes can be interpreted inconsistently as either liquidity input or pricing reserve.",
+    "impact": "The attacker can distort the pool’s effective price and any subsequent calculation that relies on the synchronized reserves. This can produce incorrect reward weights, bonding allocations, synthetic valuations, and swap outcomes. The exact profitability depends on pool liquidity, available incentives, and the cost of the donated assets, but the source establishes a concrete attacker-controlled path to security-sensitive reserve manipulation.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "sync",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "_getAddedBaseAmount",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Pool.sol",
+        "contract": "Pool",
+        "function": "_getAddedTokenAmount",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Do not allow arbitrary raw balances to redefine reserves used for pricing and reward accounting. Restrict synchronization to validated protocol flows or maintain separate accounting reserves updated only by authorized swaps, liquidity operations, and protocol distributions. Treat unsolicited transfers as donations or pending balances that cannot immediately affect price-sensitive operations. Add reserve-deviation and delayed-activation checks before synchronized values are used for financial calculations.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-004",
+    "title": "Spot-price manipulation can trigger excessive synth collateral burning",
+    "description": "Utils.calcActualSynthUnits values outstanding synth debt using the instantaneous ratio of Pool.baseAmount to Pool.tokenAmount. Public pool swaps can change this ratio immediately before Synth.realise is called. Synth.realise compares the manipulated synth value with the value of LP collateral and, when the LP value is higher, calculates a premium and burns corresponding LP units held by the synth contract. The calculation has no TWAP, historical observation, independent oracle, price-deviation check, or cap on collateral burned per realization.",
+    "impact": "A manipulated reserve ratio can cause Synth.realise to burn an excessive amount of LP collateral, reducing collateral backing outstanding synth debt. Remaining LP holders may receive a larger proportional claim after synth-held LP units are burned, and synth positions may become undercollateralized.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "calcActualSynthUnits",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Synth.sol",
+        "contract": "Synth",
+        "function": "realise",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant price, such as a TWAP or independently validated oracle, for synth-debt valuation. Add minimum liquidity and maximum price-deviation checks, impose a cooldown or delayed price observation for realization, and cap the amount of LP collateral that can be burned in a single realization. Also validate that the supplied pool corresponds to the synth’s LayerONE asset before performing collateral calculations.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-005",
+    "title": "Mutable pool valuation controls stored DAO and bond reward weight",
+    "description": "Utils.getPoolShareWeight calculates weight as LP units multiplied by Pool.baseAmount divided by LP totalSupply. Pool.baseAmount is mutable through public swaps and Pool.sync. BondVault and DaoVault store the resulting weight when positions are deposited or updated, while existing users’ weights are not automatically recalculated when the pool reserve changes. An attacker can manipulate the pool state before triggering a weight recalculation through a bond, deposit, or claim-related operation, causing the newly stored weight to be inconsistent with other participants’ historical weights. The stored weight affects DAO reward allocation and combined governance voting weight.",
+    "impact": "The attacker may obtain an excessive share of reserve-funded DAO rewards, dilute rewards of honest users, and distort governance voting power. The impact depends on pool liquidity, the size of the manipulated reserve change, available reserve incentives, and whether the attacker can economically benefit from the resulting weight.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/Utils.sol",
+        "contract": "Utils",
+        "function": "getPoolShareWeight",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/BondVault.sol",
+        "contract": "BondVault",
+        "function": "increaseWeight",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DaoVault.sol",
+        "contract": "DaoVault",
+        "function": "increaseWeight",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Do not derive persistent reward or governance weight from an instantaneous mutable pool reserve. Use a TWAP, delayed valuation snapshot, independently validated price, or a valuation index updated under controlled conditions. Ensure all positions use a common valuation epoch, and apply minimum liquidity, deviation, and cooldown checks before a changed pool valuation can affect rewards or voting power.",
+    "severity": "Medium"
+  }
+]

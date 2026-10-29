@@ -1,0 +1,155 @@
+{
+  "Findings": [
+    {
+      "Issue": "Uniswap V3 AMO operations lack enforced manipulation-resistant price bounds",
+      "Severity": "High",
+      "Description": "UniV3LiquidityAMO executes position minting, liquidity removal, and swaps against the mutable Uniswap V3 pool state. The contract forwards caller-supplied minimum amounts and price limits without validating them against a trusted oracle or TWAP. An attacker can temporarily trade against the public pool before an authorized administrator transaction. If the supplied minimums are zero, stale, or otherwise permissive, the AMO may mint liquidity, remove a position, or swap tokens at an economically unfavorable manipulated price. The fixed swap deadline of 2105300114 further allows old swap transactions to remain executable under materially different pool conditions.",
+      "Impact": "Protocol-owned rDPX and collateral can be exchanged at an unfavorable rate, liquidity can be minted with an unintended token composition, and positions can be fully removed at a manipulated price. The resulting value loss is borne by the AMO and RdpxV2Core reserves, while an attacker may profit by reversing the temporary pool manipulation.",
+      "Location": "contracts/amo/UniV3LiquidityAmo.sol — UniV3LiquidityAMO.addLiquidity; contracts/amo/UniV3LiquidityAmo.sol — UniV3LiquidityAMO.removeLiquidity; contracts/amo/UniV3LiquidityAmo.sol — UniV3LiquidityAMO.swap",
+      "Mitigation": "Validate all mint, removal, and swap parameters against a trusted, fresh oracle or sufficiently long Uniswap V3 TWAP. Enforce a maximum deviation from the reference price, require minimum output amounts consistent with that reference, validate sqrtPriceLimitX96, and use a short caller-supplied deadline bounded by the contract. Consider rejecting zero minimums for these operations.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "ReLP relies on manipulable V2 reserves and performs unbounded final liquidity addition",
+      "Severity": "High",
+      "Description": "ReLPContract.reLP() reads instantaneous Uniswap V2 reserves and uses them in the liquidity removal and re-LP workflow. The operation subsequently swaps token B for token A against the same AMM and adds liquidity with both minimum amounts set to zero. When reLP is triggered from the public bond() or bondWithDelegate() flow while isReLPActive is enabled, an attacker can temporarily manipulate the pair before the transaction executes. The reserve-dependent sizing term is partially offset by the subsequent LP calculation, but the swap and final addLiquidity() remain exposed to the manipulated pool state, and no oracle/TWAP deviation or post-operation value check is enforced.",
+      "Impact": "The protocol may remove and recreate liquidity using an unfavorable token ratio, receive less economically valuable exposure than intended, or repeatedly revert when manipulation causes the intermediate minimum checks to fail. This can reduce protocol-owned LP value or disrupt public bonding operations.",
+      "Location": "contracts/reLP/ReLPContract.sol — ReLPContract.reLP",
+      "Mitigation": "Use a manipulation-resistant TWAP or independently governed oracle for reserve valuation and re-LP sizing. Reject execution when the AMM price deviates beyond a bounded threshold, calculate nonzero minimum amounts for the final addLiquidity() call, and enforce an expected minimum LP output or post-operation value conservation check. Consider separating reLP from the public bonding path and executing it through a controlled keeper operation with fresh execution bounds.",
+      "finding_id": "SAF-002"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Uniswap V3 AMO operations lack enforced manipulation-resistant price bounds",
+      "description": "UniV3LiquidityAMO executes position minting, liquidity removal, and swaps against the mutable Uniswap V3 pool state. The contract forwards caller-supplied minimum amounts and price limits without validating them against a trusted oracle or TWAP. An attacker can temporarily trade against the public pool before an authorized administrator transaction. If the supplied minimums are zero, stale, or otherwise permissive, the AMO may mint liquidity, remove a position, or swap tokens at an economically unfavorable manipulated price. The fixed swap deadline of 2105300114 further allows old swap transactions to remain executable under materially different pool conditions.",
+      "impact": "Protocol-owned rDPX and collateral can be exchanged at an unfavorable rate, liquidity can be minted with an unintended token composition, and positions can be fully removed at a manipulated price. The resulting value loss is borne by the AMO and RdpxV2Core reserves, while an attacker may profit by reversing the temporary pool manipulation.",
+      "mitigation": "Validate all mint, removal, and swap parameters against a trusted, fresh oracle or sufficiently long Uniswap V3 TWAP. Enforce a maximum deviation from the reference price, require minimum output amounts consistent with that reference, validate sqrtPriceLimitX96, and use a short caller-supplied deadline bounded by the contract. Consider rejecting zero minimums for these operations.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/amo/UniV3LiquidityAmo.sol",
+          "contract": "UniV3LiquidityAMO",
+          "function": "addLiquidity",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/amo/UniV3LiquidityAmo.sol",
+          "contract": "UniV3LiquidityAMO",
+          "function": "removeLiquidity",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/amo/UniV3LiquidityAmo.sol",
+          "contract": "UniV3LiquidityAMO",
+          "function": "swap",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "ReLP relies on manipulable V2 reserves and performs unbounded final liquidity addition",
+      "description": "ReLPContract.reLP() reads instantaneous Uniswap V2 reserves and uses them in the liquidity removal and re-LP workflow. The operation subsequently swaps token B for token A against the same AMM and adds liquidity with both minimum amounts set to zero. When reLP is triggered from the public bond() or bondWithDelegate() flow while isReLPActive is enabled, an attacker can temporarily manipulate the pair before the transaction executes. The reserve-dependent sizing term is partially offset by the subsequent LP calculation, but the swap and final addLiquidity() remain exposed to the manipulated pool state, and no oracle/TWAP deviation or post-operation value check is enforced.",
+      "impact": "The protocol may remove and recreate liquidity using an unfavorable token ratio, receive less economically valuable exposure than intended, or repeatedly revert when manipulation causes the intermediate minimum checks to fail. This can reduce protocol-owned LP value or disrupt public bonding operations.",
+      "mitigation": "Use a manipulation-resistant TWAP or independently governed oracle for reserve valuation and re-LP sizing. Reject execution when the AMM price deviates beyond a bounded threshold, calculate nonzero minimum amounts for the final addLiquidity() call, and enforce an expected minimum LP output or post-operation value conservation check. Consider separating reLP from the public bonding path and executing it through a controlled keeper operation with fresh execution bounds.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/reLP/ReLPContract.sol",
+          "contract": "ReLPContract",
+          "function": "reLP",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 2,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Uniswap V3 AMO operations lack enforced manipulation-resistant price bounds\",\n    \"description\": \"UniV3LiquidityAMO executes position minting, liquidity removal, and swaps against the mutable Uniswap V3 pool state. The contract forwards caller-supplied minimum amounts and price limits without validating them against a trusted oracle or TWAP. An attacker can temporarily trade against the public pool before an authorized administrator transaction. If the supplied minimums are zero, stale, or otherwise permissive, the AMO may mint liquidity, remove a position, or swap tokens at an economically unfavorable manipulated price. The fixed swap deadline of 2105300114 further allows old swap transactions to remain executable under materially different pool conditions.\",\n    \"impact\": \"Protocol-owned rDPX and collateral can be exchanged at an unfavorable rate, liquidity can be minted with an unintended token composition, and positions can be fully removed at a manipulated price. The resulting value loss is borne by the AMO and RdpxV2Core reserves, while an attacker may profit by reversing the temporary pool manipulation.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/amo/UniV3LiquidityAmo.sol\",\n        \"contract\": \"UniV3LiquidityAMO\",\n        \"function\": \"addLiquidity\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/amo/UniV3LiquidityAmo.sol\",\n        \"contract\": \"UniV3LiquidityAMO\",\n        \"function\": \"removeLiquidity\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/amo/UniV3LiquidityAmo.sol\",\n        \"contract\": \"UniV3LiquidityAMO\",\n        \"function\": \"swap\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Validate all mint, removal, and swap parameters against a trusted, fresh oracle or sufficiently long Uniswap V3 TWAP. Enforce a maximum deviation from the reference price, require minimum output amounts consistent with that reference, validate sqrtPriceLimitX96, and use a short caller-supplied deadline bounded by the contract. Consider rejecting zero minimums for these operations.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"ReLP relies on manipulable V2 reserves and performs unbounded final liquidity addition\",\n    \"description\": \"ReLPContract.reLP() reads instantaneous Uniswap V2 reserves and uses them in the liquidity removal and re-LP workflow. The operation subsequently swaps token B for token A against the same AMM and adds liquidity with both minimum amounts set to zero. When reLP is triggered from the public bond() or bondWithDelegate() flow while isReLPActive is enabled, an attacker can temporarily manipulate the pair before the transaction executes. The reserve-dependent sizing term is partially offset by the subsequent LP calculation, but the swap and final addLiquidity() remain exposed to the manipulated pool state, and no oracle/TWAP deviation or post-operation value check is enforced.\",\n    \"impact\": \"The protocol may remove and recreate liquidity using an unfavorable token ratio, receive less economically valuable exposure than intended, or repeatedly revert when manipulation causes the intermediate minimum checks to fail. This can reduce protocol-owned LP value or disrupt public bonding operations.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/reLP/ReLPContract.sol\",\n        \"contract\": \"ReLPContract\",\n        \"function\": \"reLP\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use a manipulation-resistant TWAP or independently governed oracle for reserve valuation and re-LP sizing. Reject execution when the AMM price deviates beyond a bounded threshold, calculate nonzero minimum amounts for the final addLiquidity() call, and enforce an expected minimum LP output or post-operation value conservation check. Consider separating reLP from the public bonding path and executing it through a controlled keeper operation with fresh execution bounds.\",\n    \"severity\": \"High\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 2,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 275.27557396888733,
+    "session_id": "325c3907-3b32-4ef2-b97a-fbffcd93f797"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2023-08-dopex",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Uniswap V3 AMO operations lack enforced manipulation-resistant price bounds",
+        "description": "UniV3LiquidityAMO executes position minting, liquidity removal, and swaps against the mutable Uniswap V3 pool state. The contract forwards caller-supplied minimum amounts and price limits without validating them against a trusted oracle or TWAP. An attacker can temporarily trade against the public pool before an authorized administrator transaction. If the supplied minimums are zero, stale, or otherwise permissive, the AMO may mint liquidity, remove a position, or swap tokens at an economically unfavorable manipulated price. The fixed swap deadline of 2105300114 further allows old swap transactions to remain executable under materially different pool conditions.",
+        "impact": "Protocol-owned rDPX and collateral can be exchanged at an unfavorable rate, liquidity can be minted with an unintended token composition, and positions can be fully removed at a manipulated price. The resulting value loss is borne by the AMO and RdpxV2Core reserves, while an attacker may profit by reversing the temporary pool manipulation.",
+        "mitigation": "Validate all mint, removal, and swap parameters against a trusted, fresh oracle or sufficiently long Uniswap V3 TWAP. Enforce a maximum deviation from the reference price, require minimum output amounts consistent with that reference, validate sqrtPriceLimitX96, and use a short caller-supplied deadline bounded by the contract. Consider rejecting zero minimums for these operations.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/amo/UniV3LiquidityAmo.sol",
+            "contract": "UniV3LiquidityAMO",
+            "function": "addLiquidity",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/amo/UniV3LiquidityAmo.sol",
+            "contract": "UniV3LiquidityAMO",
+            "function": "removeLiquidity",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/amo/UniV3LiquidityAmo.sol",
+            "contract": "UniV3LiquidityAMO",
+            "function": "swap",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "ReLP relies on manipulable V2 reserves and performs unbounded final liquidity addition",
+        "description": "ReLPContract.reLP() reads instantaneous Uniswap V2 reserves and uses them in the liquidity removal and re-LP workflow. The operation subsequently swaps token B for token A against the same AMM and adds liquidity with both minimum amounts set to zero. When reLP is triggered from the public bond() or bondWithDelegate() flow while isReLPActive is enabled, an attacker can temporarily manipulate the pair before the transaction executes. The reserve-dependent sizing term is partially offset by the subsequent LP calculation, but the swap and final addLiquidity() remain exposed to the manipulated pool state, and no oracle/TWAP deviation or post-operation value check is enforced.",
+        "impact": "The protocol may remove and recreate liquidity using an unfavorable token ratio, receive less economically valuable exposure than intended, or repeatedly revert when manipulation causes the intermediate minimum checks to fail. This can reduce protocol-owned LP value or disrupt public bonding operations.",
+        "mitigation": "Use a manipulation-resistant TWAP or independently governed oracle for reserve valuation and re-LP sizing. Reject execution when the AMM price deviates beyond a bounded threshold, calculate nonzero minimum amounts for the final addLiquidity() call, and enforce an expected minimum LP output or post-operation value conservation check. Consider separating reLP from the public bonding path and executing it through a controlled keeper operation with fresh execution bounds.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/reLP/ReLPContract.sol",
+            "contract": "ReLPContract",
+            "function": "reLP",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      }
+    ]
+  }
+}

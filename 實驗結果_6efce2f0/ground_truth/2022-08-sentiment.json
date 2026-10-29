@@ -1,0 +1,60 @@
+{
+  "repo_id": "2022-08-sentiment",
+  "ground_truth": [
+    {
+      "title": "M-10: ERC4626Oracle Vulnerable To Price Manipulation",
+      "description": "ERC4626Oracle.getPrice() values an ERC4626 vault share by calling previewRedeem() for a share amount and multiplying the returned assets by the oracle price of the underlying asset. previewRedeem() delegates to convertToAssets(), which derives the assets-per-share value from the vault's current totalAssets() and totalSupply. Because deposits, mints, withdrawals, and redemptions can change those spot accounting values within a transaction or block, an attacker can temporarily inflate or deflate the LP-token price returned by the oracle.",
+      "impact": "An attacker can make an ERC4626 LP token appear substantially more or less valuable than the underlying asset warrants. This can increase the attacker's borrowing power beyond the intended collateral value or make another account's collateral appear insufficient and trigger premature liquidation.",
+      "vulnerable_code": [
+        {
+          "file": "oracle/src/erc4626/ERC4626Oracle.sol",
+          "contract": "ERC4626Oracle",
+          "function": "getPrice(address)",
+          "start_line": 35,
+          "end_line": 43
+        }
+      ],
+      "mitigation": "Avoid using previewRedeem function to calculate the price of the LP token of an ERC4626 vault. Consider implementing TWAP so that the price cannot be inflated or deflated within a single block/transaction or   within a short period of time.",
+      "finding_id": "M-10",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "H-1: LToken pricePerShare can be manipulated by an early depositor",
+      "description": "ERC4626.deposit() derives minted shares through previewDeposit() and convertToShares(), which rounds down assets multiplied by totalSupply and divided by totalAssets(). LToken.totalAssets() includes the underlying token balance held by the LToken, so an early depositor can mint a very small initial share balance and then transfer additional underlying assets directly to the LToken. This increases totalAssets() without increasing totalSupply, causing later deposits to receive an unfairly small number of shares.",
+      "impact": "The attacker can capture value from future users' deposits. Later users can lose a material portion of their deposited assets when redeeming the shares minted at the manipulated price per share.",
+      "vulnerable_code": [
+        {
+          "file": "protocol/src/tokens/utils/ERC4626.sol",
+          "contract": "ERC4626",
+          "function": "deposit(uint256 assets, address receiver)",
+          "start_line": 48,
+          "end_line": 60
+        },
+        {
+          "file": "protocol/src/tokens/utils/ERC4626.sol",
+          "contract": "ERC4626",
+          "function": "previewDeposit(uint256 assets)",
+          "start_line": 138,
+          "end_line": 140
+        },
+        {
+          "file": "protocol/src/tokens/utils/ERC4626.sol",
+          "contract": "ERC4626",
+          "function": "convertToShares(uint256 assets)",
+          "start_line": 126,
+          "end_line": 130
+        },
+        {
+          "file": "protocol/src/tokens/LToken.sol",
+          "contract": "LToken",
+          "function": "totalAssets()",
+          "start_line": 191,
+          "end_line": 193
+        }
+      ],
+      "mitigation": "Require a minimum amount of shares to be minted for the first minter.",
+      "finding_id": "H-1",
+      "review_status": "gold_verified"
+    }
+  ]
+}

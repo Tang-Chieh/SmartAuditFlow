@@ -1,0 +1,296 @@
+{
+  "Findings": [
+    {
+      "Issue": "Spot-price manipulation affects reserve valuation and LP accounting",
+      "Severity": "High",
+      "Description": "Multipool._getReserves() values concentrated-liquidity positions using the instantaneous sqrtPriceX96 and tick obtained from each underlying Uniswap V3 pool through getSlots() and slot0(). These spot-derived reserves are used by Multipool.deposit() to optimize deposit ratios and calculate LP tokens minted, and by Multipool.snapshot() and Dispatcher deposit/withdraw flows to convert accrued token fees into LP-share withdrawals. The current tick also determines the branch used by _getFeeGrowthInside(), affecting pending-fee calculations. An attacker can temporarily manipulate an underlying pool price, cause a deposit or Dispatcher fee settlement during the manipulated state, and then restore the price, resulting in incorrect LP issuance, fee settlement, or share accounting.",
+      "Impact": "Users may receive too many or too few LP tokens, provide an unfavorable token composition, or have an incorrect number of tracked shares removed for fee claims. Value may be redistributed between the interacting user and existing LP holders. Reserve and claim estimates can also become materially incorrect during manipulation.",
+      "Location": "contracts/Multipool.sol — Multipool._getReserves; contracts/Multipool.sol — Multipool.getSlots; contracts/Multipool.sol — Multipool.deposit; contracts/Dispatcher.sol — Dispatcher._estimateWithdrawalLp; contracts/Dispatcher.sol — Dispatcher.deposit; contracts/Dispatcher.sol — Dispatcher.withdraw",
+      "Mitigation": "Use a sufficiently long TWAP or another manipulation-resistant oracle for position valuation, pending-fee determination, deposit optimization, LP minting, and Dispatcher fee/share conversion. Alternatively, compare spot prices against validated TWAP prices and revert when deviation exceeds a protocol-defined bound. Prefer paying accrued token0 and token1 fees directly rather than converting them into LP shares using spot-derived reserve ratios. Add an explicit user-provided minimum LP-output or equivalent execution bound for deposits.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Strategy ranges are initialized from manipulable spot ticks",
+      "Severity": "Medium",
+      "Description": "Multipool._initializeStrategy() reads each underlying pool's instantaneous slot0 tick and uses it in _getTicksForPosition() to determine the lower and upper ticks of every strategy position. The same unvalidated spot sqrt price is then used by _calcLiquidityAmountToDeposit() when opening liquidity. During the first owner deposit or an operator-authorized rebalance, an attacker can temporarily move an underlying pool price, causing the Multipool to establish ranges around the manipulated tick. Once the price returns, the positions may be out of range or have an unfavorable token composition.",
+      "Impact": "Existing LP holders may suffer reduced fee generation, misallocated liquidity, unfavorable asset exposure, and losses or additional costs when the strategy is later corrected. A rebalance can successfully execute while establishing liquidity at an attacker-influenced price.",
+      "Location": "contracts/Multipool.sol — Multipool._initializeStrategy; contracts/Multipool.sol — Multipool._getTicksForPosition; contracts/Multipool.sol — Multipool._calcLiquidityAmountToDeposit; contracts/Multipool.sol — Multipool.rebalanceAll",
+      "Mitigation": "Derive position centers and ranges from a sufficiently long TWAP for each underlying strategy pool, or require the current spot tick and sqrt price to remain within a strict deviation from the corresponding TWAP before initialization. Apply the validation independently to every pool used by the strategy, and use validated pricing for both range selection and liquidity calculation. Add rebalance bounds for acceptable position centers and resulting token composition.",
+      "finding_id": "SAF-002"
+    },
+    {
+      "Issue": "One-sided TWAP validation can accept an unfavorable rebalance swap",
+      "Severity": "Medium",
+      "Description": "Multipool.getAmountOut() calculates the expected swap output from the arithmetic mean tick of the hard-coded fee-500 underlying pool over twapDuration. In rebalanceAll(), the execution is rejected only when actual output is below the oracle-derived output and the shortfall exceeds maxTwapDeviation. If an attacker manipulates the underlying pool sufficiently to make the TWAP quote artificially low for the swap direction, an unfavorable actual output can still satisfy amountOut >= swappedOut, causing the slippage check to be skipped. The rebalance is operator-restricted, but an attacker may manipulate or anticipate the underlying market during an operator-triggered rebalance.",
+      "Impact": "The Multipool may execute a materially unfavorable token swap while its TWAP protection accepts the transaction. The resulting loss reduces the assets backing LP tokens and is borne by Multipool LP holders. The practical impact depends on the underlying pool's liquidity, twapDuration, swap size, and whether the approved swap target applies independent minimum-output protection.",
+      "Location": "contracts/Multipool.sol — Multipool.getAmountOut; contracts/Multipool.sol — Multipool.rebalanceAll",
+      "Mitigation": "Require an explicit operator-supplied minimum output and pass the same bound to the approved swap target. Treat the TWAP as an additional sanity check rather than the sole execution limit. Use conservative two-sided price bounds, a longer minimum TWAP duration, and preferably multiple validated pools or an independent oracle. Prevent twapDuration from being configured to zero or an excessively short interval.",
+      "finding_id": "SAF-003"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Spot-price manipulation affects reserve valuation and LP accounting",
+      "description": "Multipool._getReserves() values concentrated-liquidity positions using the instantaneous sqrtPriceX96 and tick obtained from each underlying Uniswap V3 pool through getSlots() and slot0(). These spot-derived reserves are used by Multipool.deposit() to optimize deposit ratios and calculate LP tokens minted, and by Multipool.snapshot() and Dispatcher deposit/withdraw flows to convert accrued token fees into LP-share withdrawals. The current tick also determines the branch used by _getFeeGrowthInside(), affecting pending-fee calculations. An attacker can temporarily manipulate an underlying pool price, cause a deposit or Dispatcher fee settlement during the manipulated state, and then restore the price, resulting in incorrect LP issuance, fee settlement, or share accounting.",
+      "impact": "Users may receive too many or too few LP tokens, provide an unfavorable token composition, or have an incorrect number of tracked shares removed for fee claims. Value may be redistributed between the interacting user and existing LP holders. Reserve and claim estimates can also become materially incorrect during manipulation.",
+      "mitigation": "Use a sufficiently long TWAP or another manipulation-resistant oracle for position valuation, pending-fee determination, deposit optimization, LP minting, and Dispatcher fee/share conversion. Alternatively, compare spot prices against validated TWAP prices and revert when deviation exceeds a protocol-defined bound. Prefer paying accrued token0 and token1 fees directly rather than converting them into LP shares using spot-derived reserve ratios. Add an explicit user-provided minimum LP-output or equivalent execution bound for deposits.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "_getReserves",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "getSlots",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "deposit",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Dispatcher.sol",
+          "contract": "Dispatcher",
+          "function": "_estimateWithdrawalLp",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Dispatcher.sol",
+          "contract": "Dispatcher",
+          "function": "deposit",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Dispatcher.sol",
+          "contract": "Dispatcher",
+          "function": "withdraw",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Strategy ranges are initialized from manipulable spot ticks",
+      "description": "Multipool._initializeStrategy() reads each underlying pool's instantaneous slot0 tick and uses it in _getTicksForPosition() to determine the lower and upper ticks of every strategy position. The same unvalidated spot sqrt price is then used by _calcLiquidityAmountToDeposit() when opening liquidity. During the first owner deposit or an operator-authorized rebalance, an attacker can temporarily move an underlying pool price, causing the Multipool to establish ranges around the manipulated tick. Once the price returns, the positions may be out of range or have an unfavorable token composition.",
+      "impact": "Existing LP holders may suffer reduced fee generation, misallocated liquidity, unfavorable asset exposure, and losses or additional costs when the strategy is later corrected. A rebalance can successfully execute while establishing liquidity at an attacker-influenced price.",
+      "mitigation": "Derive position centers and ranges from a sufficiently long TWAP for each underlying strategy pool, or require the current spot tick and sqrt price to remain within a strict deviation from the corresponding TWAP before initialization. Apply the validation independently to every pool used by the strategy, and use validated pricing for both range selection and liquidity calculation. Add rebalance bounds for acceptable position centers and resulting token composition.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "_initializeStrategy",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "_getTicksForPosition",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "_calcLiquidityAmountToDeposit",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "rebalanceAll",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-003",
+      "title": "One-sided TWAP validation can accept an unfavorable rebalance swap",
+      "description": "Multipool.getAmountOut() calculates the expected swap output from the arithmetic mean tick of the hard-coded fee-500 underlying pool over twapDuration. In rebalanceAll(), the execution is rejected only when actual output is below the oracle-derived output and the shortfall exceeds maxTwapDeviation. If an attacker manipulates the underlying pool sufficiently to make the TWAP quote artificially low for the swap direction, an unfavorable actual output can still satisfy amountOut >= swappedOut, causing the slippage check to be skipped. The rebalance is operator-restricted, but an attacker may manipulate or anticipate the underlying market during an operator-triggered rebalance.",
+      "impact": "The Multipool may execute a materially unfavorable token swap while its TWAP protection accepts the transaction. The resulting loss reduces the assets backing LP tokens and is borne by Multipool LP holders. The practical impact depends on the underlying pool's liquidity, twapDuration, swap size, and whether the approved swap target applies independent minimum-output protection.",
+      "mitigation": "Require an explicit operator-supplied minimum output and pass the same bound to the approved swap target. Treat the TWAP as an additional sanity check rather than the sole execution limit. Use conservative two-sided price bounds, a longer minimum TWAP duration, and preferably multiple validated pools or an independent oracle. Prevent twapDuration from being configured to zero or an excessively short interval.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "getAmountOut",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Multipool.sol",
+          "contract": "Multipool",
+          "function": "rebalanceAll",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 3,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Spot-price manipulation affects reserve valuation and LP accounting\",\n    \"description\": \"Multipool._getReserves() values concentrated-liquidity positions using the instantaneous sqrtPriceX96 and tick obtained from each underlying Uniswap V3 pool through getSlots() and slot0(). These spot-derived reserves are used by Multipool.deposit() to optimize deposit ratios and calculate LP tokens minted, and by Multipool.snapshot() and Dispatcher deposit/withdraw flows to convert accrued token fees into LP-share withdrawals. The current tick also determines the branch used by _getFeeGrowthInside(), affecting pending-fee calculations. An attacker can temporarily manipulate an underlying pool price, cause a deposit or Dispatcher fee settlement during the manipulated state, and then restore the price, resulting in incorrect LP issuance, fee settlement, or share accounting.\",\n    \"impact\": \"Users may receive too many or too few LP tokens, provide an unfavorable token composition, or have an incorrect number of tracked shares removed for fee claims. Value may be redistributed between the interacting user and existing LP holders. Reserve and claim estimates can also become materially incorrect during manipulation.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"_getReserves\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"getSlots\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"deposit\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Dispatcher.sol\",\n        \"contract\": \"Dispatcher\",\n        \"function\": \"_estimateWithdrawalLp\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Dispatcher.sol\",\n        \"contract\": \"Dispatcher\",\n        \"function\": \"deposit\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Dispatcher.sol\",\n        \"contract\": \"Dispatcher\",\n        \"function\": \"withdraw\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use a sufficiently long TWAP or another manipulation-resistant oracle for position valuation, pending-fee determination, deposit optimization, LP minting, and Dispatcher fee/share conversion. Alternatively, compare spot prices against validated TWAP prices and revert when deviation exceeds a protocol-defined bound. Prefer paying accrued token0 and token1 fees directly rather than converting them into LP shares using spot-derived reserve ratios. Add an explicit user-provided minimum LP-output or equivalent execution bound for deposits.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Strategy ranges are initialized from manipulable spot ticks\",\n    \"description\": \"Multipool._initializeStrategy() reads each underlying pool's instantaneous slot0 tick and uses it in _getTicksForPosition() to determine the lower and upper ticks of every strategy position. The same unvalidated spot sqrt price is then used by _calcLiquidityAmountToDeposit() when opening liquidity. During the first owner deposit or an operator-authorized rebalance, an attacker can temporarily move an underlying pool price, causing the Multipool to establish ranges around the manipulated tick. Once the price returns, the positions may be out of range or have an unfavorable token composition.\",\n    \"impact\": \"Existing LP holders may suffer reduced fee generation, misallocated liquidity, unfavorable asset exposure, and losses or additional costs when the strategy is later corrected. A rebalance can successfully execute while establishing liquidity at an attacker-influenced price.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"_initializeStrategy\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"_getTicksForPosition\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"_calcLiquidityAmountToDeposit\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"rebalanceAll\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Derive position centers and ranges from a sufficiently long TWAP for each underlying strategy pool, or require the current spot tick and sqrt price to remain within a strict deviation from the corresponding TWAP before initialization. Apply the validation independently to every pool used by the strategy, and use validated pricing for both range selection and liquidity calculation. Add rebalance bounds for acceptable position centers and resulting token composition.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-003\",\n    \"title\": \"One-sided TWAP validation can accept an unfavorable rebalance swap\",\n    \"description\": \"Multipool.getAmountOut() calculates the expected swap output from the arithmetic mean tick of the hard-coded fee-500 underlying pool over twapDuration. In rebalanceAll(), the execution is rejected only when actual output is below the oracle-derived output and the shortfall exceeds maxTwapDeviation. If an attacker manipulates the underlying pool sufficiently to make the TWAP quote artificially low for the swap direction, an unfavorable actual output can still satisfy amountOut >= swappedOut, causing the slippage check to be skipped. The rebalance is operator-restricted, but an attacker may manipulate or anticipate the underlying market during an operator-triggered rebalance.\",\n    \"impact\": \"The Multipool may execute a materially unfavorable token swap while its TWAP protection accepts the transaction. The resulting loss reduces the assets backing LP tokens and is borne by Multipool LP holders. The practical impact depends on the underlying pool's liquidity, twapDuration, swap size, and whether the approved swap target applies independent minimum-output protection.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"getAmountOut\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Multipool.sol\",\n        \"contract\": \"Multipool\",\n        \"function\": \"rebalanceAll\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Require an explicit operator-supplied minimum output and pass the same bound to the approved swap target. Treat the TWAP as an additional sanity check rather than the sole execution limit. Use conservative two-sided price bounds, a longer minimum TWAP duration, and preferably multiple validated pools or an independent oracle. Prevent twapDuration from being configured to zero or an excessively short interval.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 2,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 412.5759799480438,
+    "session_id": "cca6396a-463d-40a4-b3bb-22bb9117c1c8"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2023-06-real-wagmi",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Spot-price manipulation affects reserve valuation and LP accounting",
+        "description": "Multipool._getReserves() values concentrated-liquidity positions using the instantaneous sqrtPriceX96 and tick obtained from each underlying Uniswap V3 pool through getSlots() and slot0(). These spot-derived reserves are used by Multipool.deposit() to optimize deposit ratios and calculate LP tokens minted, and by Multipool.snapshot() and Dispatcher deposit/withdraw flows to convert accrued token fees into LP-share withdrawals. The current tick also determines the branch used by _getFeeGrowthInside(), affecting pending-fee calculations. An attacker can temporarily manipulate an underlying pool price, cause a deposit or Dispatcher fee settlement during the manipulated state, and then restore the price, resulting in incorrect LP issuance, fee settlement, or share accounting.",
+        "impact": "Users may receive too many or too few LP tokens, provide an unfavorable token composition, or have an incorrect number of tracked shares removed for fee claims. Value may be redistributed between the interacting user and existing LP holders. Reserve and claim estimates can also become materially incorrect during manipulation.",
+        "mitigation": "Use a sufficiently long TWAP or another manipulation-resistant oracle for position valuation, pending-fee determination, deposit optimization, LP minting, and Dispatcher fee/share conversion. Alternatively, compare spot prices against validated TWAP prices and revert when deviation exceeds a protocol-defined bound. Prefer paying accrued token0 and token1 fees directly rather than converting them into LP shares using spot-derived reserve ratios. Add an explicit user-provided minimum LP-output or equivalent execution bound for deposits.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "_getReserves",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "getSlots",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "deposit",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Dispatcher.sol",
+            "contract": "Dispatcher",
+            "function": "_estimateWithdrawalLp",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Dispatcher.sol",
+            "contract": "Dispatcher",
+            "function": "deposit",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Dispatcher.sol",
+            "contract": "Dispatcher",
+            "function": "withdraw",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Strategy ranges are initialized from manipulable spot ticks",
+        "description": "Multipool._initializeStrategy() reads each underlying pool's instantaneous slot0 tick and uses it in _getTicksForPosition() to determine the lower and upper ticks of every strategy position. The same unvalidated spot sqrt price is then used by _calcLiquidityAmountToDeposit() when opening liquidity. During the first owner deposit or an operator-authorized rebalance, an attacker can temporarily move an underlying pool price, causing the Multipool to establish ranges around the manipulated tick. Once the price returns, the positions may be out of range or have an unfavorable token composition.",
+        "impact": "Existing LP holders may suffer reduced fee generation, misallocated liquidity, unfavorable asset exposure, and losses or additional costs when the strategy is later corrected. A rebalance can successfully execute while establishing liquidity at an attacker-influenced price.",
+        "mitigation": "Derive position centers and ranges from a sufficiently long TWAP for each underlying strategy pool, or require the current spot tick and sqrt price to remain within a strict deviation from the corresponding TWAP before initialization. Apply the validation independently to every pool used by the strategy, and use validated pricing for both range selection and liquidity calculation. Add rebalance bounds for acceptable position centers and resulting token composition.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "_initializeStrategy",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "_getTicksForPosition",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "_calcLiquidityAmountToDeposit",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "rebalanceAll",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-003",
+        "title": "One-sided TWAP validation can accept an unfavorable rebalance swap",
+        "description": "Multipool.getAmountOut() calculates the expected swap output from the arithmetic mean tick of the hard-coded fee-500 underlying pool over twapDuration. In rebalanceAll(), the execution is rejected only when actual output is below the oracle-derived output and the shortfall exceeds maxTwapDeviation. If an attacker manipulates the underlying pool sufficiently to make the TWAP quote artificially low for the swap direction, an unfavorable actual output can still satisfy amountOut >= swappedOut, causing the slippage check to be skipped. The rebalance is operator-restricted, but an attacker may manipulate or anticipate the underlying market during an operator-triggered rebalance.",
+        "impact": "The Multipool may execute a materially unfavorable token swap while its TWAP protection accepts the transaction. The resulting loss reduces the assets backing LP tokens and is borne by Multipool LP holders. The practical impact depends on the underlying pool's liquidity, twapDuration, swap size, and whether the approved swap target applies independent minimum-output protection.",
+        "mitigation": "Require an explicit operator-supplied minimum output and pass the same bound to the approved swap target. Treat the TWAP as an additional sanity check rather than the sole execution limit. Use conservative two-sided price bounds, a longer minimum TWAP duration, and preferably multiple validated pools or an independent oracle. Prevent twapDuration from being configured to zero or an excessively short interval.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "getAmountOut",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Multipool.sol",
+            "contract": "Multipool",
+            "function": "rebalanceAll",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

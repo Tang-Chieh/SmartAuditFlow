@@ -1,0 +1,126 @@
+{
+  "Findings": [
+    {
+      "Issue": "Uniswap V2 LP valuation relies on instantaneous reserve state",
+      "Severity": "Medium",
+      "Description": "UniswapV2EthOracle.getPriceInEth() values a registered pair using pair.totalSupply() and the current reserve0 and reserve1 returned by getReserves(). The reserve timestamp is ignored, and the implementation applies no TWAP, historical observation, reserve-change bound, liquidity threshold, or independent-price deviation check. Although the geometric-mean formula is generally appropriate for a 50/50 LP token and ordinary swaps primarily alter the reserve ratio rather than the reserve product, pair state remains externally changeable through liquidity operations, direct balance changes followed by synchronization, and other pair-specific behavior. If a registered pair is used as a vault underlying, or as a constituent dependency of a Balancer, Curve, or Maverick position oracle, the resulting price flows through RootPriceOracle into DestinationVault._debtValue() and can be persisted by LMPVault.updateDebtReporting() into totalDebt. The supplied source does not include deployment mappings proving that a live vault currently uses this configuration, nor does it demonstrate a guaranteed profitable extraction sequence; therefore, this finding is conditional on the relevant on-chain configuration and is assessed as Medium.",
+      "Impact": "A transiently distorted LP valuation may cause destination debt and LMP totalAssets/NAV to be overstated or understated. Subsequent ERC-4626 deposits, mints, withdrawals, redemptions, rebalances, and performance-fee calculations may use the incorrect cached valuation until a corrective debt report occurs. The same risk can propagate through composite Balancer, Curve, or Maverick valuation providers when their constituent-token mappings depend on this oracle.",
+      "Location": "src/oracles/providers/UniswapV2EthOracle.sol — UniswapV2EthOracle.getPriceInEth; src/oracles/providers/UniswapV2EthOracle.sol — UniswapV2EthOracle._getReserves; src/vault/DestinationVault.sol — DestinationVault._debtValue; src/vault/LMPVault.sol — LMPVault.updateDebtReporting",
+      "Mitigation": "Replace instantaneous reserve-based valuation with a sufficiently long Uniswap V2 cumulative-price TWAP or an independently sourced LP valuation. Require a minimum observation interval, validate pair identity and liquidity, and reject or cap prices that deviate materially from prior observations or an independent reference. Before persisting debt reports, apply conservative deviation limits and consider using delayed or multi-observation prices. Review on-chain RootPriceOracle.tokenMappings and UniswapV2EthOracle.registrations to ensure that no financially sensitive vault asset depends on an unapproved spot-reserve source.",
+      "finding_id": "SAF-001"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Uniswap V2 LP valuation relies on instantaneous reserve state",
+      "description": "UniswapV2EthOracle.getPriceInEth() values a registered pair using pair.totalSupply() and the current reserve0 and reserve1 returned by getReserves(). The reserve timestamp is ignored, and the implementation applies no TWAP, historical observation, reserve-change bound, liquidity threshold, or independent-price deviation check. Although the geometric-mean formula is generally appropriate for a 50/50 LP token and ordinary swaps primarily alter the reserve ratio rather than the reserve product, pair state remains externally changeable through liquidity operations, direct balance changes followed by synchronization, and other pair-specific behavior. If a registered pair is used as a vault underlying, or as a constituent dependency of a Balancer, Curve, or Maverick position oracle, the resulting price flows through RootPriceOracle into DestinationVault._debtValue() and can be persisted by LMPVault.updateDebtReporting() into totalDebt. The supplied source does not include deployment mappings proving that a live vault currently uses this configuration, nor does it demonstrate a guaranteed profitable extraction sequence; therefore, this finding is conditional on the relevant on-chain configuration and is assessed as Medium.",
+      "impact": "A transiently distorted LP valuation may cause destination debt and LMP totalAssets/NAV to be overstated or understated. Subsequent ERC-4626 deposits, mints, withdrawals, redemptions, rebalances, and performance-fee calculations may use the incorrect cached valuation until a corrective debt report occurs. The same risk can propagate through composite Balancer, Curve, or Maverick valuation providers when their constituent-token mappings depend on this oracle.",
+      "mitigation": "Replace instantaneous reserve-based valuation with a sufficiently long Uniswap V2 cumulative-price TWAP or an independently sourced LP valuation. Require a minimum observation interval, validate pair identity and liquidity, and reject or cap prices that deviate materially from prior observations or an independent reference. Before persisting debt reports, apply conservative deviation limits and consider using delayed or multi-observation prices. Review on-chain RootPriceOracle.tokenMappings and UniswapV2EthOracle.registrations to ensure that no financially sensitive vault asset depends on an unapproved spot-reserve source.",
+      "vulnerable_code": [
+        {
+          "file": "src/oracles/providers/UniswapV2EthOracle.sol",
+          "contract": "UniswapV2EthOracle",
+          "function": "getPriceInEth",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/oracles/providers/UniswapV2EthOracle.sol",
+          "contract": "UniswapV2EthOracle",
+          "function": "_getReserves",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/vault/DestinationVault.sol",
+          "contract": "DestinationVault",
+          "function": "_debtValue",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "src/vault/LMPVault.sol",
+          "contract": "LMPVault",
+          "function": "updateDebtReporting",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 1,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Uniswap V2 LP valuation relies on instantaneous reserve state\",\n    \"description\": \"UniswapV2EthOracle.getPriceInEth() values a registered pair using pair.totalSupply() and the current reserve0 and reserve1 returned by getReserves(). The reserve timestamp is ignored, and the implementation applies no TWAP, historical observation, reserve-change bound, liquidity threshold, or independent-price deviation check. Although the geometric-mean formula is generally appropriate for a 50/50 LP token and ordinary swaps primarily alter the reserve ratio rather than the reserve product, pair state remains externally changeable through liquidity operations, direct balance changes followed by synchronization, and other pair-specific behavior. If a registered pair is used as a vault underlying, or as a constituent dependency of a Balancer, Curve, or Maverick position oracle, the resulting price flows through RootPriceOracle into DestinationVault._debtValue() and can be persisted by LMPVault.updateDebtReporting() into totalDebt. The supplied source does not include deployment mappings proving that a live vault currently uses this configuration, nor does it demonstrate a guaranteed profitable extraction sequence; therefore, this finding is conditional on the relevant on-chain configuration and is assessed as Medium.\",\n    \"impact\": \"A transiently distorted LP valuation may cause destination debt and LMP totalAssets/NAV to be overstated or understated. Subsequent ERC-4626 deposits, mints, withdrawals, redemptions, rebalances, and performance-fee calculations may use the incorrect cached valuation until a corrective debt report occurs. The same risk can propagate through composite Balancer, Curve, or Maverick valuation providers when their constituent-token mappings depend on this oracle.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"src/oracles/providers/UniswapV2EthOracle.sol\",\n        \"contract\": \"UniswapV2EthOracle\",\n        \"function\": \"getPriceInEth\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/oracles/providers/UniswapV2EthOracle.sol\",\n        \"contract\": \"UniswapV2EthOracle\",\n        \"function\": \"_getReserves\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/vault/DestinationVault.sol\",\n        \"contract\": \"DestinationVault\",\n        \"function\": \"_debtValue\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"src/vault/LMPVault.sol\",\n        \"contract\": \"LMPVault\",\n        \"function\": \"updateDebtReporting\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Replace instantaneous reserve-based valuation with a sufficiently long Uniswap V2 cumulative-price TWAP or an independently sourced LP valuation. Require a minimum observation interval, validate pair identity and liquidity, and reject or cap prices that deviate materially from prior observations or an independent reference. Before persisting debt reports, apply conservative deviation limits and consider using delayed or multi-observation prices. Review on-chain RootPriceOracle.tokenMappings and UniswapV2EthOracle.registrations to ensure that no financially sensitive vault asset depends on an unapproved spot-reserve source.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 0,
+  "MediumIssues": 1,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 342.74350476264954,
+    "session_id": "4c5824bf-88dc-48b7-b897-fba97c1807a8"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2023-06-tokemak",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Uniswap V2 LP valuation relies on instantaneous reserve state",
+        "description": "UniswapV2EthOracle.getPriceInEth() values a registered pair using pair.totalSupply() and the current reserve0 and reserve1 returned by getReserves(). The reserve timestamp is ignored, and the implementation applies no TWAP, historical observation, reserve-change bound, liquidity threshold, or independent-price deviation check. Although the geometric-mean formula is generally appropriate for a 50/50 LP token and ordinary swaps primarily alter the reserve ratio rather than the reserve product, pair state remains externally changeable through liquidity operations, direct balance changes followed by synchronization, and other pair-specific behavior. If a registered pair is used as a vault underlying, or as a constituent dependency of a Balancer, Curve, or Maverick position oracle, the resulting price flows through RootPriceOracle into DestinationVault._debtValue() and can be persisted by LMPVault.updateDebtReporting() into totalDebt. The supplied source does not include deployment mappings proving that a live vault currently uses this configuration, nor does it demonstrate a guaranteed profitable extraction sequence; therefore, this finding is conditional on the relevant on-chain configuration and is assessed as Medium.",
+        "impact": "A transiently distorted LP valuation may cause destination debt and LMP totalAssets/NAV to be overstated or understated. Subsequent ERC-4626 deposits, mints, withdrawals, redemptions, rebalances, and performance-fee calculations may use the incorrect cached valuation until a corrective debt report occurs. The same risk can propagate through composite Balancer, Curve, or Maverick valuation providers when their constituent-token mappings depend on this oracle.",
+        "mitigation": "Replace instantaneous reserve-based valuation with a sufficiently long Uniswap V2 cumulative-price TWAP or an independently sourced LP valuation. Require a minimum observation interval, validate pair identity and liquidity, and reject or cap prices that deviate materially from prior observations or an independent reference. Before persisting debt reports, apply conservative deviation limits and consider using delayed or multi-observation prices. Review on-chain RootPriceOracle.tokenMappings and UniswapV2EthOracle.registrations to ensure that no financially sensitive vault asset depends on an unapproved spot-reserve source.",
+        "vulnerable_code": [
+          {
+            "file": "src/oracles/providers/UniswapV2EthOracle.sol",
+            "contract": "UniswapV2EthOracle",
+            "function": "getPriceInEth",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/oracles/providers/UniswapV2EthOracle.sol",
+            "contract": "UniswapV2EthOracle",
+            "function": "_getReserves",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/vault/DestinationVault.sol",
+            "contract": "DestinationVault",
+            "function": "_debtValue",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "src/vault/LMPVault.sol",
+            "contract": "LMPVault",
+            "function": "updateDebtReporting",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

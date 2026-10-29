@@ -1,0 +1,98 @@
+{
+  "repo_id": "2021-07-spartan",
+  "ground_truth": [
+    {
+      "title": "[H-05] Synth realise is vulnerable to flash loan attacks",
+      "description": "Synth.realise() calculates baseValueLP with Utils.calcLiquidityHoldings() from the pool's current baseAmount/tokenAmount reserves and total LP supply, and calculates baseValueSynth with Utils.calcActualSynthUnits() using the same current reserve ratio. If the manipulated values make the LP holdings appear to exceed the synth value, realise() treats the difference as a premium and burns LP tokens from the pool. A flash loan or a large LP holder can shift the AMM ratio before calling realise(), then shift it back and repeat the operation.",
+      "impact": "An attacker can use transient AMM-ratio manipulation to cause LP tokens held by Synth to be burned, then redeem their own LP tokens for a larger share of the pool's underlying assets, extracting value from other pool LP holders.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Synth.sol",
+          "contract": "Synth",
+          "function": "realise(address)",
+          "start_line": 187,
+          "end_line": 199
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcLiquidityHoldings(uint,address,address)",
+          "start_line": 114,
+          "end_line": 125
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcActualSynthUnits(uint,address)",
+          "start_line": 210,
+          "end_line": 216
+        }
+      ],
+      "mitigation": "Do not value LP tokens with the instantaneous AMM spot price. Use a manipulation-resistant TWAP or Chainlink oracle for token pricing, or use an anti-flash-loan LP valuation formula such as Alpha Finance's fair-LP formula.",
+      "finding_id": "H-05",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[H-06] SynthVault rewards can be gamed",
+      "description": "SynthVault._deposit() converts the deposited synth amount into BASE weight using Utils.calcSpotValueInBase(), which ultimately computes amount * pool.baseAmount() / pool.tokenAmount() from current AMM reserves. The resulting weight is stored and later used by calcReward() to allocate an unrelated BASE reward reserve. An attacker can temporarily increase the BASE-per-token spot price, deposit synth while the price is distorted, and then restore the pool; the inflated stored weight remains after the manipulation ends.",
+      "impact": "The attacker can inflate their stored SynthVault weight relative to the deposited synth amount and claim a large share of BASE-funded rewards. The cost of manipulation depends on pool liquidity and the potential profit depends on the reward reserve, so the attack can be profitable under certain circumstances.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/synthVault.sol",
+          "contract": "SynthVault",
+          "function": "_deposit(address,address,uint256)",
+          "start_line": 102,
+          "end_line": 116
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcSpotValueInBase(address,uint256)",
+          "start_line": 160,
+          "end_line": 163
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcSpotValueInBaseWithPool(address,uint256)",
+          "start_line": 186,
+          "end_line": 190
+        }
+      ],
+      "mitigation": "Track a TWAP price of the synth, store deposited synth amounts, and calculate user and total weight on the fly from the TWAP multiplied by the deposit amount instead of at deposit time.",
+      "finding_id": "H-06",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-14] BondVault `BASE` incentive can be gamed",
+      "description": "DAO.bond() calls handleTransferIn(), which calculates the BASE allocation for a bonded token amount through Utils.calcSwapValueInBase() using the pool's current reserves before adding the token and BASE as liquidity for BondVault. Because the reserve-dependent swap calculation can be changed by manipulating the pool, an attacker can distort the allocation, repeatedly trigger bonding, and then reverse the manipulation.",
+      "impact": "An attacker can cause the DAO's Bond allocation to be stolen by making the DAO commit BASE at manipulated exchange rates and then recovering a disproportionate share of the BASE supplied to the pool.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Dao.sol",
+          "contract": "Dao",
+          "function": "bond(address,uint256)",
+          "start_line": 239,
+          "end_line": 253
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcSwapValueInBase(address,uint)",
+          "start_line": 170,
+          "end_line": 173
+        },
+        {
+          "file": "contracts/Utils.sol",
+          "contract": "Utils",
+          "function": "calcSwapValueInBaseWithPool(address,uint)",
+          "start_line": 198,
+          "end_line": 202
+        }
+      ],
+      "mitigation": "Track a TWAP spot price for the TOKEN/BASE pair and verify that the BASE incentive is within an acceptable range of the TWAP before the DAO commits BASE at the manipulated price.",
+      "finding_id": "M-14",
+      "review_status": "gold_verified"
+    }
+  ]
+}

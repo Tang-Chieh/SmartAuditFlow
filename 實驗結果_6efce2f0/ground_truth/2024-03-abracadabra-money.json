@@ -1,0 +1,74 @@
+{
+  "repo_id": "2024-03-abracadabra-money",
+  "ground_truth": [
+    {
+      "title": "[H-04] Oracle price can be manipulated",
+      "description": "MagicLpAggregator.latestAnswer() calculates the MagicLP token price from pool reserves. Because those reserve values can be manipulated, an attacker can use a flash loan to inflate the MagicLP oracle price.",
+      "impact": "A flash-loan-funded swap can substantially inflate the MagicLP oracle valuation within one transaction.",
+      "vulnerable_code": [
+        {
+          "file": "src/oracles/aggregators/MagicLpAggregator.sol",
+          "contract": "MagicLpAggregator",
+          "function": "_getReserves()",
+          "start_line": 33,
+          "end_line": 35
+        },
+        {
+          "file": "src/oracles/aggregators/MagicLpAggregator.sol",
+          "contract": "MagicLpAggregator",
+          "function": "latestAnswer()",
+          "start_line": 37,
+          "end_line": 46
+        }
+      ],
+      "mitigation": "Before using pool reserves, compare the pool's base/quote price with the Chainlink-derived base/quote price and revert when the deviation exceeds a defined limit.",
+      "finding_id": "H-04",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[H-01] Anyone making use of the MagicLP's TWAP to determine token prices will be exploitable.",
+      "description": "Because _twapUpdate() runs after the reserves change, an attacker can make the TWAP accumulator attribute the entire elapsed interval to the manipulated post-update price. An integrating application that later reads the TWAP may therefore receive an attacker-controlled price.",
+      "impact": "Applications that use MagicLP's TWAP to determine token prices can execute trades or other price-dependent operations at an attacker-controlled price, allowing value to be extracted from the integrating application.",
+      "vulnerable_code": [
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "contract": "MagicLP",
+          "function": "ratioSync()",
+          "start_line": 504,
+          "end_line": 522
+        },
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "contract": "MagicLP",
+          "function": "_resetTargetAndReserve()",
+          "start_line": 528,
+          "end_line": 543
+        },
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "contract": "MagicLP",
+          "function": "_twapUpdate()",
+          "start_line": 545,
+          "end_line": 558
+        },
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "contract": "MagicLP",
+          "function": "_setReserve(uint256,uint256)",
+          "start_line": 560,
+          "end_line": 565
+        },
+        {
+          "file": "src/mimswap/MagicLP.sol",
+          "contract": "MagicLP",
+          "function": "_sync()",
+          "start_line": 567,
+          "end_line": 579
+        }
+      ],
+      "mitigation": "Call _twapUpdate() before updating the reserves.",
+      "finding_id": "H-01",
+      "review_status": "gold_verified"
+    }
+  ]
+}

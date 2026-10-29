@@ -1,0 +1,29 @@
+{
+  "repo_id": "2023-03-olympus",
+  "ground_truth": [
+    {
+      "title": "H-1: Adversary can sandwich oracle updates to exploit vault",
+      "description": "BLVaultLido allows an owner to deposit and withdraw around an external oracle update without a minimum holding period. On withdrawal it caps returned wstETH using only the current oracle price, while the Balancer exit executes against the pool state. An attacker can deposit while the pool matches the pre-update oracle, move the pool toward the known post-update price, wait for the oracle update, and then withdraw. Because the withdrawal check now uses the updated oracle, the vault returns the full manipulated wstETH amount instead of capturing the arbitrage for the Treasury.",
+      "impact": "An attacker can repeatedly sandwich predictable oracle updates to extract value from the vault, causing recurring losses to remaining vault liquidity.",
+      "vulnerable_code": [
+        {
+          "file": "sherlock-olympus/src/policies/BoostedLiquidity/BLVaultLido.sol",
+          "contract": "BLVaultLido",
+          "function": "deposit(uint256,uint256)",
+          "start_line": 143,
+          "end_line": 200
+        },
+        {
+          "file": "sherlock-olympus/src/policies/BoostedLiquidity/BLVaultLido.sol",
+          "contract": "BLVaultLido",
+          "function": "withdraw(uint256,uint256[],bool)",
+          "start_line": 203,
+          "end_line": 256
+        }
+      ],
+      "mitigation": "Lock the user into the vault for a minimum amount of time (i.e. 24 hours).",
+      "finding_id": "H-1",
+      "review_status": "gold_verified"
+    }
+  ]
+}

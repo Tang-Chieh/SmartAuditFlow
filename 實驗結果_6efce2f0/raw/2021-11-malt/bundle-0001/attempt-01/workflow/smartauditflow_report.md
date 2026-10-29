@@ -1,0 +1,164 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Permissionless reserve-ratio oracle updates enable auction manipulation",
+    "description": "MaltDataLab.trackReserveRatio() is publicly callable and writes a reserve ratio derived from live AMM reserves into reserveRatioMA without requiring UPDATER_ROLE. An attacker can temporarily manipulate the Malt/collateral pair, call trackReserveRatio() while the reserves are distorted, and then restore the pool. The contaminated moving-average value is later consumed by Auction.triggerAuction(), where it influences auction pricing and the pre-auction reserve ratio used during finalization.",
+    "impact": "An attacker may influence auction starting and ending prices, auction economic terms, and the maximum burn budget used to purchase and burn Malt. This can cause excessive collateral deployment, incorrectly priced auctions, and value transfer to auction participants under manipulated conditions.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/MaltDataLab.sol",
+        "contract": "MaltDataLab",
+        "function": "trackReserveRatio",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/LiquidityExtension.sol",
+        "contract": "LiquidityExtension",
+        "function": "reserveRatio",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/Auction.sol",
+        "contract": "Auction",
+        "function": "triggerAuction",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Restrict trackReserveRatio() with onlyRole(UPDATER_ROLE), enforce a minimum observation interval, and feed the moving average from a manipulation-resistant TWAP or independently validated reserve-ratio source. Add deviation and range checks before accepting observations, and validate that auction reserve-ratio inputs remain within safe bounds before pricing or burn-budget calculations.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "Spot AMM price controls auction escape-hatch collateral payouts",
+    "description": "UniswapHandler.maltMarketPrice() derives Malt's price directly from current Uniswap V2 reserves. AuctionEscapeHatch._calculateMaltRequiredForExit() and earlyExitReturn() use this instantaneous price to calculate the amount of Malt to mint and sell for collateral. An attacker can temporarily skew the Malt/reward-token pool, invoke exitEarly() with a permissive minOut value, and cause the protocol to calculate an incorrect collateral payout using the manipulated price.",
+    "impact": "The protocol may mint and sell an incorrect amount of Malt and transfer excessive collateral to an early-exit caller. The same manipulated price can also cause early-exit quote views to report inaccurate redemption values.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "maltMarketPrice",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/AuctionEscapeHatch.sol",
+        "contract": "AuctionEscapeHatch",
+        "function": "_calculateMaltRequiredForExit",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/AuctionEscapeHatch.sol",
+        "contract": "AuctionEscapeHatch",
+        "function": "exitEarly",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Replace the spot reserve price with a sufficiently long TWAP, a validated MaltDataLab price, or an independent oracle with freshness and deviation checks. Enforce protocol-side price and output bounds, and do not rely solely on the user-controlled minOut parameter. Avoid using the same manipulable pool both as the pricing oracle and execution venue.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-003",
+    "title": "Spot reserves determine protocol stabilization trade sizes",
+    "description": "UniswapHandler._calculateTradeSize() calculates minting and burning trade sizes from instantaneous Uniswap reserves. These values are used by StabilizerNode._distributeSupply() and _startAuction() to determine how much Malt is minted or how much collateral is deployed to buy Malt. The reserve-derived amount is not checked against a TWAP or smoothed price. The resulting swaps in UniswapHandler.buyMalt() and sellMalt() also use amountOutMin equal to zero, allowing execution at any output amount after the manipulated sizing decision.",
+    "impact": "An attacker may skew the AMM reserves before stabilization and cause the protocol to mint an excessive amount of Malt, deploy an inappropriate amount of collateral, create an oversized auction, or execute protocol-owned trades at an unfavorable price. This can cause excess issuance, collateral loss, price distortion, and reduced stabilization effectiveness.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "_calculateTradeSize",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "calculateMintingTradeSize",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "calculateBurningTradeSize",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "buyMalt",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "sellMalt",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant TWAP or validated MaltDataLab price for trade sizing, and use the same protected oracle for stabilization authorization and operation sizing. Add maximum trade-size and per-call collateral limits, compare spot and TWAP prices, and pass meaningful minimum-output parameters to the router instead of zero. Revert when realized execution falls outside the permitted oracle-based range.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-004",
+    "title": "Manipulable spot quote controls user Malt contribution during reinvestment",
+    "description": "UniswapHandler.getOptimalLiquidity() calculates the Malt amount required for a fixed reward-token amount using the current pair reserves. RewardReinvestor.provideReinvest() uses this result to call malt.safeTransferFrom(msg.sender, address(this), maltLiquidity), without a user-supplied maximum Malt amount or minimum LP-token output. An attacker can manipulate the pair before the transaction is executed, causing the user to transfer an economically incorrect amount of Malt and add liquidity at a distorted ratio.",
+    "impact": "Users may provide excessive Malt, receive less value than expected from reinvestment, or receive fewer or less valuable LP tokens. The transaction can also be exposed to sandwich-based value extraction by traders manipulating and then restoring the pool price.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "getOptimalLiquidity",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/RewardReinvestor.sol",
+        "contract": "RewardReinvestor",
+        "function": "provideReinvest",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/DexHandlers/UniswapHandler.sol",
+        "contract": "UniswapHandler",
+        "function": "addLiquidity",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a TWAP or validated oracle-based quote instead of current reserves. Add user-controlled maxMaltInput and minLiquidityCreated parameters, enforce them during provideReinvest(), and pass explicit slippage limits to the liquidity router. Do not derive protection thresholds solely from balances calculated using the manipulated spot ratio.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-005",
+    "title": "Spot AMM reserves can be recorded into the Malt price oracle",
+    "description": "MaltDataLab.trackMaltPrice() reads instantaneous reserves from the configured Uniswap pair and submits the resulting spot price to maltPriceMA. Although the function is restricted to UPDATER_ROLE, the source does not show a delay, deviation check, or manipulation-resistant observation before an authorized updater records the value. MovingAverage stores the supplied value as lastValue for subsequent cumulative calculations. If reserves are manipulated when the updater records them, the contaminated sample can influence stabilization direction, auction pricing, and pool-transfer restrictions.",
+    "impact": "A manipulated oracle sample may cause the protocol to incorrectly initiate an auction, distribute supply, calculate auction prices, or block transfers from the pool. The resulting protocol behavior can create unfavorable stabilization operations and financial losses depending on pool liquidity and updater timing.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/MaltDataLab.sol",
+        "contract": "MaltDataLab",
+        "function": "trackMaltPrice",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/MovingAverage.sol",
+        "contract": "MovingAverage",
+        "function": "update",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Feed maltPriceMA from a genuine time-weighted Uniswap observation or an independent validated oracle rather than an instantaneous reserve snapshot. Enforce minimum observation age, maximum deviation from the prior validated value, and sufficient sample history before allowing a new price to influence high-impact protocol actions. Keep UPDATER_ROLE tightly restricted and monitored.",
+    "severity": "High"
+  }
+]

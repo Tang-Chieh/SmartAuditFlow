@@ -1,0 +1,37 @@
+{
+  "Findings": [],
+  "Predictions": [],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [
+    "Report formatting failed: All AI models failed. Last error: Codex-Gateway API call timed out after 60 seconds"
+  ],
+  "FindingNumber": 0,
+  "FullReport": "Report generation failed: All AI models failed. Last error: Codex-Gateway API call timed out after 60 seconds",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 0,
+  "MediumIssues": 0,
+  "LowIssues": 0,
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "ExecutionSummary": {
+    "total_execution_time": 517.2914197444916,
+    "session_id": "883d9234-7e78-4576-8425-f9c5e344013e"
+  },
+  "PredictionCase": {
+    "repo_id": "2023-06-real-wagmi",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": []
+  }
+}

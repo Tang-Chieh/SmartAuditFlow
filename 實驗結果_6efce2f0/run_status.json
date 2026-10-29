@@ -1,0 +1,1151 @@
+{
+  "status": "completed",
+  "model": "openai-codex/gpt-5.6-luna",
+  "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+  "ground_truth_count": 23,
+  "excluded_repositories": [
+    "margintrading"
+  ],
+  "max_tasks_per_bundle": 12,
+  "max_bundle_attempts": 3,
+  "smartauditflow_commit": "6efce2f0e92efe2e26397a6e832f1b533a27480d",
+  "evaluator_commit": "e46fc2702a1c6506f9a56af00990f8218648f697",
+  "repos": {
+    "2021-04-marginswap": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 378.3969039916992,
+                "session_id": "281ac8fe-ce05-4051-9948-269f3cbec7ea"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-04-marginswap/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 3,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 3,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2021-07-spartan": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 413.71617698669434,
+                "session_id": "9fba1da1-ce08-45d3-aaa5-88709546b7ac"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-07-spartan/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 5,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 5,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2021-08-notional": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": false,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 11,
+                "failed_tasks": 1,
+                "total_execution_time": 450.64702796936035,
+                "session_id": "52b8ee40-a085-49e0-afce-41a722a6c0b8"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-08-notional/bundle-0001/attempt-01/execution.log"
+            },
+            {
+              "attempt": 2,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 318.85257172584534,
+                "session_id": "e6c27590-07c7-41f0-ae57-095643f2e8fd"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-08-notional/bundle-0001/attempt-02/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2021-11-malt": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 389.4003667831421,
+                "session_id": "fe3cc464-33b9-48e1-b970-4be1cca08699"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-11-malt/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 5,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 5,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2021-12-vader": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 396.48504614830017,
+                "session_id": "3935f44e-62c1-466b-8134-0f5db95ae66a"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2021-12-vader/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 4,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 4,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2022-01-behodler": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": false,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 11,
+                "failed_tasks": 1,
+                "total_execution_time": 602.0621738433838,
+                "session_id": "3499eb3e-ff53-46a6-890a-6e9b9a0c058e"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-01-behodler/bundle-0001/attempt-01/execution.log"
+            },
+            {
+              "attempt": 2,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 461.0778410434723,
+                "session_id": "547dfbaa-3017-41bf-9bac-27ca6ce8d472"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-01-behodler/bundle-0001/attempt-02/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 4,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 4,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2022-01-sandclock": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 381.6007089614868,
+                "session_id": "e9f3f351-92db-4d14-a1ab-3e45deea7cdb"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-01-sandclock/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2022-08-sentiment": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 315.63442301750183,
+                "session_id": "6c9861c5-6a9e-4acf-92c0-f95568d039cc"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-08-sentiment/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 1,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2022-09-notional": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": false,
+              "execution_summary": {
+                "total_execution_time": 246.50742411613464,
+                "session_id": "592b00e8-76b1-44b6-a542-db8283e05491"
+              },
+              "output_warnings": [
+                "Report formatting failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 9.70s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}"
+              ],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-09-notional/bundle-0001/attempt-01/execution.log"
+            },
+            {
+              "attempt": 2,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 326.8726119995117,
+                "session_id": "109ce26a-0b1a-4c71-9432-cc4f29c313a7"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-09-notional/bundle-0001/attempt-02/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2022-11-paraspace": {
+      "status": "completed",
+      "input_mode": "50k-estimated-token-bundles",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 270.2159616947174,
+                "session_id": "223427ef-2c67-4c37-bd91-86311fbb14b1"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        },
+        "bundle-0002": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 184.40737009048462,
+                "session_id": "0096dfe5-85c7-482e-9b7d-aa2efaff5539"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0002/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0003": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 317.5587809085846,
+                "session_id": "2aea9f8b-ff67-4de3-8d68-9d12cd665118"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0003/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0004": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 274.36895990371704,
+                "session_id": "90580b64-b57a-435f-9397-11a5b39419ab"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0004/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0005": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 249.45730805397034,
+                "session_id": "ba175b2d-c722-4daf-a72e-80623ad451db"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0005/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0006": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 266.2689187526703,
+                "session_id": "2c0081ef-e24f-472b-954c-e8f418468b7c"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0006/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0007": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 273.3956868648529,
+                "session_id": "6472b358-fdbc-491f-8140-70c552c3c5d0"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0007/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0008": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 296.21499586105347,
+                "session_id": "5c4e91f0-7312-4488-bed2-fe37b3dffc52"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0008/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        },
+        "bundle-0009": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 293.83804392814636,
+                "session_id": "a4b2f7e7-1f70-4edd-a212-ea55ad72d77c"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0009/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0010": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 342.0764169692993,
+                "session_id": "05a99a87-75d7-4322-9110-9fbaaa53d5f8"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0010/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0011": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 218.08472990989685,
+                "session_id": "0b000b31-00b5-460a-93ec-f681612e29fb"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0011/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        },
+        "bundle-0012": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 234.63427305221558,
+                "session_id": "5e77f1cc-b7d9-4598-8dff-6c4269dd3dc4"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-paraspace/bundle-0012/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 12
+    },
+    "2022-11-telcoin": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 317.6860029697418,
+                "session_id": "0e9dd228-51cb-4103-b9fb-f3bd9317bc2d"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2022-11-telcoin/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 1,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-03-olympus": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 294.5585060119629,
+                "session_id": "6f2a756e-e9c0-407f-878f-a3c5b7282480"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-03-olympus/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 0,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-04-blueberry": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 411.95122718811035,
+                "session_id": "881eaaaf-b1f8-4678-972a-82e0a6d1f697"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-04-blueberry/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 3,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 3,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-05-ussd": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 409.06123900413513,
+                "session_id": "65095315-730f-4622-ada7-ee66249641db"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-05-ussd/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-06-lybra": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 320.99037408828735,
+                "session_id": "7e0123c8-aaab-4842-95bb-5298b613c2c9"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-06-lybra/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 0,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-06-real-wagmi": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": false,
+              "execution_summary": {
+                "total_execution_time": 517.2914197444916,
+                "session_id": "883d9234-7e78-4576-8425-f9c5e344013e"
+              },
+              "output_warnings": [
+                "Report formatting failed: All AI models failed. Last error: Codex-Gateway API call timed out after 60 seconds"
+              ],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-06-real-wagmi/bundle-0001/attempt-01/execution.log"
+            },
+            {
+              "attempt": 2,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 412.5759799480438,
+                "session_id": "cca6396a-463d-40a4-b3bb-22bb9117c1c8"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-06-real-wagmi/bundle-0001/attempt-02/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 3,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 3,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-06-tokemak": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": false,
+              "execution_summary": {
+                "total_execution_time": 371.5063359737396,
+                "session_id": "ca11949a-eea7-4b54-bd17-92c803efa70a"
+              },
+              "output_warnings": [
+                "Report formatting failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}"
+              ],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-06-tokemak/bundle-0001/attempt-01/execution.log"
+            },
+            {
+              "attempt": 2,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 342.74350476264954,
+                "session_id": "4c5824bf-88dc-48b7-b897-fba97c1807a8"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-06-tokemak/bundle-0001/attempt-02/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 1,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 1,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2023-08-dopex": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 275.27557396888733,
+                "session_id": "325c3907-3b32-4ef2-b97a-fbffcd93f797"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2023-08-dopex/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2024-03-abracadabra-money": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 254.1616930961609,
+                "session_id": "570a0bef-32aa-4cac-ad19-7af6ce29ff29"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2024-03-abracadabra-money/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 0,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 0,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2024-03-revert-lend": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 399.6717252731323,
+                "session_id": "16b82258-b9c5-4e8a-b148-4f678ed65f5b"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2024-03-revert-lend/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2024-03-woofi-swap": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 329.37024116516113,
+                "session_id": "cc7ea033-5f65-445a-b7c2-dca9e17c4d87"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2024-03-woofi-swap/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2024-04-panoptic": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 381.4823377132416,
+                "session_id": "e5a0e656-93fa-4a1b-a3a3-106e4388b985"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2024-04-panoptic/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 4,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 4,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    },
+    "2025-12-panoptic": {
+      "status": "completed",
+      "input_mode": "one-bundle-per-repo",
+      "bundles": {
+        "bundle-0001": {
+          "status": "completed",
+          "attempts": [
+            {
+              "attempt": 1,
+              "returncode": 0,
+              "accepted": true,
+              "execution_summary": {
+                "total_tasks": 12,
+                "completed_tasks": 12,
+                "failed_tasks": 0,
+                "total_execution_time": 312.1397602558136,
+                "session_id": "3bb117b9-e96e-492d-9a2e-cd7026a4be29"
+              },
+              "output_warnings": [],
+              "log": "/Users/williamtang/Documents/Codex/2026-07-16/new-chat/SmartAuditFlow-codex-smoke/experiment-results/merged-pr1-6efce2f0-20261029/raw/2025-12-panoptic/bundle-0001/attempt-01/execution.log"
+            }
+          ],
+          "task_count": 12,
+          "completed_tasks": 12,
+          "failed_tasks": 0,
+          "prediction_count": 2,
+          "output_warning_count": 0
+        }
+      },
+      "accepted_prediction_count": 2,
+      "output_warning_count": 0,
+      "output_warnings": [],
+      "exact_duplicate_predictions_removed": 0,
+      "bundle_count": 1
+    }
+  }
+}

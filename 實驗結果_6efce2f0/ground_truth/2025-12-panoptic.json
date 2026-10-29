@@ -1,0 +1,98 @@
+{
+  "repo_id": "2025-12-panoptic",
+  "ground_truth": [
+    {
+      "title": "[M-11] An attacker can manipulate oracle easily",
+      "description": "PanopticPool.pokeOracle() is permissionless and passes the current Uniswap pool tick to RiskEngine.computeInternalMedian(). OraclePack.computeInternalMedian() records the observation only when the current epoch differs from the recorded epoch. An attacker can manipulate the pool's current tick before an update, cause that value to be clamped and inserted into the internal oracle, and prevent later calls in the same epoch from replacing it. Repeating this across epochs can progressively move the oracle away from the legitimate market price.",
+      "impact": "Manipulating the internal oracle causes positions to be evaluated at incorrect prices, which can produce incorrect solvency validations, unfair liquidations, or allow insolvent positions to remain active.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/types/OraclePack.sol",
+          "contract": "OraclePackLibrary",
+          "function": "computeInternalMedian(OraclePack,int24,uint96,int24)",
+          "start_line": 536,
+          "end_line": 567
+        },
+        {
+          "file": "contracts/PanopticPool.sol",
+          "contract": "PanopticPool",
+          "function": "pokeOracle()",
+          "start_line": 552,
+          "end_line": 558
+        }
+      ],
+      "mitigation": "Update the oracle continuously with the current tick as time progresses, similar to a Uniswap TWAP, instead of allowing only one update per epoch. Alternatively, restrict pokeOracle() to trusted callers or use a commit-reveal scheme to prevent frontrunning.",
+      "finding_id": "M-11",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-03] TWAP misweights EMAs in RiskEngine, anchoring liquidation price to slow EMA and letting insolvent accounts dodge liquidation",
+      "description": "RiskEngine.twapEMA() destructures OraclePack.getEMAs() in the wrong order: it treats the returned (spotEMA, fastEMA, slowEMA, eonsEMA, medianTick) tuple as (eonsEMA, slowEMA, fastEMA, ...). The intended weighted TWAP therefore uses the wrong EMA values, includes the spot EMA in place of the eons EMA, and omits the eons EMA. PanopticPool.getTWAP() uses this value in liquidation and force-exercise checks, so rapid adverse price movements can leave the TWAP near a stale value and cause an unhealthy account to appear solvent at that check.",
+      "impact": "Unhealthy accounts can appear solvent at that tick and block liquidation/force-exercise (`NotMarginCalled`), delaying cleanup and risking larger bad debt or mispriced exercises/settlements.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/RiskEngine.sol",
+          "contract": "RiskEngine",
+          "function": "twapEMA(OraclePack)",
+          "start_line": 836,
+          "end_line": 840
+        },
+        {
+          "file": "contracts/types/OraclePack.sol",
+          "contract": "OraclePackLibrary",
+          "function": "getEMAs(OraclePack)",
+          "start_line": 209,
+          "end_line": 226
+        }
+      ],
+      "mitigation": "Destructure the EMAs in the correct order so the intended fast/slow/eons weighting is applied, and add a regression test proving that twapEMA uses those three EMAs rather than the spot EMA.",
+      "finding_id": "M-03",
+      "review_status": "gold_verified"
+    },
+    {
+      "title": "[M-15] Commission share-burn distribution is JIT-capturable when `builderCode == 0` (default)",
+      "description": "When riskParameters.feeRecipient() is zero, CollateralTracker.settleMint() and settleBurn() burn shares from the option owner without removing the corresponding assets. This decreases totalSupply while leaving totalAssets approximately unchanged, immediately increasing the share value for holders at that moment. RiskEngine maps builderCode == 0 to address(0), and PanopticPool's liquidation and force-exercise paths request getRiskParameters(0), so a searcher can deposit before a commission-burn event and exit after it to capture value intended for incumbent liquidity providers.",
+      "impact": "Just-In-Time entrants can capture commission distributions intended for longer-term liquidity providers. A sufficiently dominant entrant can also reduce the effective commission through fee self-rebating, weakening the fee model and LP incentives.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/CollateralTracker.sol",
+          "contract": "CollateralTracker",
+          "function": "settleMint(address,int128,int128,int128,RiskParameters)",
+          "start_line": 1553,
+          "end_line": 1561
+        },
+        {
+          "file": "contracts/CollateralTracker.sol",
+          "contract": "CollateralTracker",
+          "function": "settleBurn(address,int128,int128,int128,int128,RiskParameters)",
+          "start_line": 1635,
+          "end_line": 1640
+        },
+        {
+          "file": "contracts/RiskEngine.sol",
+          "contract": "RiskEngine",
+          "function": "_computeBuilderWallet(uint256)",
+          "start_line": 253,
+          "end_line": 255
+        },
+        {
+          "file": "contracts/PanopticPool.sol",
+          "contract": "PanopticPool",
+          "function": "_burnAllOptionsFrom(address,int24,int24,bool,TokenId[])",
+          "start_line": 837,
+          "end_line": 839
+        },
+        {
+          "file": "contracts/PanopticPool.sol",
+          "contract": "PanopticPool",
+          "function": "_forceExercise(address,TokenId,int24,int24)",
+          "start_line": 1630,
+          "end_line": 1634
+        }
+      ],
+      "mitigation": "Avoid instantaneous burn-based commission distribution. Treat builderCode == 0 as a non-zero protocol or treasury recipient, or distribute commissions through a time-weighted or streamed mechanism; any cooldown must also account for transfers so it cannot be bypassed.",
+      "finding_id": "M-15",
+      "review_status": "gold_verified"
+    }
+  ]
+}

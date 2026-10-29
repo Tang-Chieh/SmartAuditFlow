@@ -1,0 +1,211 @@
+{
+  "Findings": [
+    {
+      "Issue": "Share-price inflation through unsolicited underlying-token transfers",
+      "Severity": "High",
+      "Description": "Vault.totalUnderlying() derives the vault asset value from underlying.balanceOf(address(this)), which includes arbitrary ERC-20 transfers made directly to the vault. These transfers do not mint shares or update depositor records. During deposit(), _createDeposit() calculates shares before receiving the new deposit, and _computeShares() divides the deposit amount by the inflated totalUnderlyingMinusSponsored() value. An attacker can make an initial deposit, transfer a sufficiently large donation directly to the vault, and cause a subsequent victim deposit to receive severely reduced or zero shares due to integer truncation. The victim's tokens are still transferred successfully by _transferAndCheckUnderlying(). Existing shareholders can then retain control over the vault assets, including the victim's deposit, while the victim may be unable to withdraw meaningful value.",
+      "Impact": "A nonzero deposit can result in zero or materially underpriced shares. The affected depositor may lose part or all of the deposited principal, while an attacker holding the existing shares may withdraw a disproportionate amount of vault assets. Direct donations also distort yield, withdrawal, and investment calculations.",
+      "Location": "contracts/Vault.sol — Vault.totalUnderlying; contracts/Vault.sol — Vault._computeShares; contracts/Vault.sol — Vault._createDeposit; contracts/Vault.sol — Vault._transferAndCheckUnderlying",
+      "Mitigation": "Use separately accounted assets for share pricing instead of treating every raw ERC-20 balance increase as distributable assets. Recognize deposits and other approved asset flows explicitly, and prevent unsolicited transfers from changing the exchange rate unless they are intentionally synchronized. Additionally, reject nonzero deposits that mint zero shares, support a user-supplied minimum share amount, use virtual assets and virtual shares where appropriate, and record the exact shares assigned to each deposit rather than recomputing withdrawal shares from a later exchange rate.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Curve spot-price valuation and zero-slippage swaps in NonUSTStrategy",
+      "Severity": "Medium",
+      "Description": "NonUSTStrategy uses the configured Curve pool's current get_dy_underlying() quote to value UST-denominated strategy assets in investedAssets(). This valuation flows into Vault.totalUnderlying(), share issuance, withdrawals, yield claims, and investment calculations. The same strategy executes conversions through exchange_underlying() with min_dy set to zero in both directions and ignores the returned output amount. If the configured Curve pool's spot state is moved before a strategy operation, the strategy can accept an unfavorable conversion price, while a manipulated quote can distort the vault's reported asset value and consequently alter share or withdrawal calculations. No TWAP, independent oracle, deviation bound, or minimum-output protection is present in the supplied source.",
+      "Impact": "The strategy may receive substantially fewer tokens than expected during underlying-to-UST or UST-to-underlying conversions. A distorted Curve quote can also cause incorrect asset valuation, excessive or insufficient share issuance, inaccurate yield claims, incorrect withdrawals, and incorrect amounts transferred to the strategy. Losses are borne by vault depositors and sponsors.",
+      "Location": "contracts/strategy/NonUSTStrategy.sol — NonUSTStrategy.investedAssets; contracts/strategy/NonUSTStrategy.sol — NonUSTStrategy._swapUnderlyingToUst; contracts/strategy/NonUSTStrategy.sol — NonUSTStrategy._swapUstToUnderlying; contracts/Vault.sol — Vault.totalUnderlying",
+      "Mitigation": "Do not use a single instantaneous Curve quote as the sole vault valuation source. Use a manipulation-resistant oracle or sufficiently long-window TWAP, validate the result against an independent reference price, and reject stale or abnormal deviations. For both Curve swaps, calculate and enforce a nonzero minimum output based on a trusted price and configured slippage tolerance, and verify the actual received amount after execution.",
+      "finding_id": "SAF-002"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Share-price inflation through unsolicited underlying-token transfers",
+      "description": "Vault.totalUnderlying() derives the vault asset value from underlying.balanceOf(address(this)), which includes arbitrary ERC-20 transfers made directly to the vault. These transfers do not mint shares or update depositor records. During deposit(), _createDeposit() calculates shares before receiving the new deposit, and _computeShares() divides the deposit amount by the inflated totalUnderlyingMinusSponsored() value. An attacker can make an initial deposit, transfer a sufficiently large donation directly to the vault, and cause a subsequent victim deposit to receive severely reduced or zero shares due to integer truncation. The victim's tokens are still transferred successfully by _transferAndCheckUnderlying(). Existing shareholders can then retain control over the vault assets, including the victim's deposit, while the victim may be unable to withdraw meaningful value.",
+      "impact": "A nonzero deposit can result in zero or materially underpriced shares. The affected depositor may lose part or all of the deposited principal, while an attacker holding the existing shares may withdraw a disproportionate amount of vault assets. Direct donations also distort yield, withdrawal, and investment calculations.",
+      "mitigation": "Use separately accounted assets for share pricing instead of treating every raw ERC-20 balance increase as distributable assets. Recognize deposits and other approved asset flows explicitly, and prevent unsolicited transfers from changing the exchange rate unless they are intentionally synchronized. Additionally, reject nonzero deposits that mint zero shares, support a user-supplied minimum share amount, use virtual assets and virtual shares where appropriate, and record the exact shares assigned to each deposit rather than recomputing withdrawal shares from a later exchange rate.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "totalUnderlying",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "_computeShares",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "_createDeposit",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "_transferAndCheckUnderlying",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Curve spot-price valuation and zero-slippage swaps in NonUSTStrategy",
+      "description": "NonUSTStrategy uses the configured Curve pool's current get_dy_underlying() quote to value UST-denominated strategy assets in investedAssets(). This valuation flows into Vault.totalUnderlying(), share issuance, withdrawals, yield claims, and investment calculations. The same strategy executes conversions through exchange_underlying() with min_dy set to zero in both directions and ignores the returned output amount. If the configured Curve pool's spot state is moved before a strategy operation, the strategy can accept an unfavorable conversion price, while a manipulated quote can distort the vault's reported asset value and consequently alter share or withdrawal calculations. No TWAP, independent oracle, deviation bound, or minimum-output protection is present in the supplied source.",
+      "impact": "The strategy may receive substantially fewer tokens than expected during underlying-to-UST or UST-to-underlying conversions. A distorted Curve quote can also cause incorrect asset valuation, excessive or insufficient share issuance, inaccurate yield claims, incorrect withdrawals, and incorrect amounts transferred to the strategy. Losses are borne by vault depositors and sponsors.",
+      "mitigation": "Do not use a single instantaneous Curve quote as the sole vault valuation source. Use a manipulation-resistant oracle or sufficiently long-window TWAP, validate the result against an independent reference price, and reject stale or abnormal deviations. For both Curve swaps, calculate and enforce a nonzero minimum output based on a trusted price and configured slippage tolerance, and verify the actual received amount after execution.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/strategy/NonUSTStrategy.sol",
+          "contract": "NonUSTStrategy",
+          "function": "investedAssets",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/strategy/NonUSTStrategy.sol",
+          "contract": "NonUSTStrategy",
+          "function": "_swapUnderlyingToUst",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/strategy/NonUSTStrategy.sol",
+          "contract": "NonUSTStrategy",
+          "function": "_swapUstToUnderlying",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Vault.sol",
+          "contract": "Vault",
+          "function": "totalUnderlying",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 2,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Share-price inflation through unsolicited underlying-token transfers\",\n    \"description\": \"Vault.totalUnderlying() derives the vault asset value from underlying.balanceOf(address(this)), which includes arbitrary ERC-20 transfers made directly to the vault. These transfers do not mint shares or update depositor records. During deposit(), _createDeposit() calculates shares before receiving the new deposit, and _computeShares() divides the deposit amount by the inflated totalUnderlyingMinusSponsored() value. An attacker can make an initial deposit, transfer a sufficiently large donation directly to the vault, and cause a subsequent victim deposit to receive severely reduced or zero shares due to integer truncation. The victim's tokens are still transferred successfully by _transferAndCheckUnderlying(). Existing shareholders can then retain control over the vault assets, including the victim's deposit, while the victim may be unable to withdraw meaningful value.\",\n    \"impact\": \"A nonzero deposit can result in zero or materially underpriced shares. The affected depositor may lose part or all of the deposited principal, while an attacker holding the existing shares may withdraw a disproportionate amount of vault assets. Direct donations also distort yield, withdrawal, and investment calculations.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Vault.sol\",\n        \"contract\": \"Vault\",\n        \"function\": \"totalUnderlying\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Vault.sol\",\n        \"contract\": \"Vault\",\n        \"function\": \"_computeShares\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Vault.sol\",\n        \"contract\": \"Vault\",\n        \"function\": \"_createDeposit\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Vault.sol\",\n        \"contract\": \"Vault\",\n        \"function\": \"_transferAndCheckUnderlying\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use separately accounted assets for share pricing instead of treating every raw ERC-20 balance increase as distributable assets. Recognize deposits and other approved asset flows explicitly, and prevent unsolicited transfers from changing the exchange rate unless they are intentionally synchronized. Additionally, reject nonzero deposits that mint zero shares, support a user-supplied minimum share amount, use virtual assets and virtual shares where appropriate, and record the exact shares assigned to each deposit rather than recomputing withdrawal shares from a later exchange rate.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Curve spot-price valuation and zero-slippage swaps in NonUSTStrategy\",\n    \"description\": \"NonUSTStrategy uses the configured Curve pool's current get_dy_underlying() quote to value UST-denominated strategy assets in investedAssets(). This valuation flows into Vault.totalUnderlying(), share issuance, withdrawals, yield claims, and investment calculations. The same strategy executes conversions through exchange_underlying() with min_dy set to zero in both directions and ignores the returned output amount. If the configured Curve pool's spot state is moved before a strategy operation, the strategy can accept an unfavorable conversion price, while a manipulated quote can distort the vault's reported asset value and consequently alter share or withdrawal calculations. No TWAP, independent oracle, deviation bound, or minimum-output protection is present in the supplied source.\",\n    \"impact\": \"The strategy may receive substantially fewer tokens than expected during underlying-to-UST or UST-to-underlying conversions. A distorted Curve quote can also cause incorrect asset valuation, excessive or insufficient share issuance, inaccurate yield claims, incorrect withdrawals, and incorrect amounts transferred to the strategy. Losses are borne by vault depositors and sponsors.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/strategy/NonUSTStrategy.sol\",\n        \"contract\": \"NonUSTStrategy\",\n        \"function\": \"investedAssets\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/strategy/NonUSTStrategy.sol\",\n        \"contract\": \"NonUSTStrategy\",\n        \"function\": \"_swapUnderlyingToUst\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/strategy/NonUSTStrategy.sol\",\n        \"contract\": \"NonUSTStrategy\",\n        \"function\": \"_swapUstToUnderlying\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Vault.sol\",\n        \"contract\": \"Vault\",\n        \"function\": \"totalUnderlying\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Do not use a single instantaneous Curve quote as the sole vault valuation source. Use a manipulation-resistant oracle or sufficiently long-window TWAP, validate the result against an independent reference price, and reject stale or abnormal deviations. For both Curve swaps, calculate and enforce a nonzero minimum output based on a trusted price and configured slippage tolerance, and verify the actual received amount after execution.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 1,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 381.6007089614868,
+    "session_id": "e9f3f351-92db-4d14-a1ab-3e45deea7cdb"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2022-01-sandclock",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Share-price inflation through unsolicited underlying-token transfers",
+        "description": "Vault.totalUnderlying() derives the vault asset value from underlying.balanceOf(address(this)), which includes arbitrary ERC-20 transfers made directly to the vault. These transfers do not mint shares or update depositor records. During deposit(), _createDeposit() calculates shares before receiving the new deposit, and _computeShares() divides the deposit amount by the inflated totalUnderlyingMinusSponsored() value. An attacker can make an initial deposit, transfer a sufficiently large donation directly to the vault, and cause a subsequent victim deposit to receive severely reduced or zero shares due to integer truncation. The victim's tokens are still transferred successfully by _transferAndCheckUnderlying(). Existing shareholders can then retain control over the vault assets, including the victim's deposit, while the victim may be unable to withdraw meaningful value.",
+        "impact": "A nonzero deposit can result in zero or materially underpriced shares. The affected depositor may lose part or all of the deposited principal, while an attacker holding the existing shares may withdraw a disproportionate amount of vault assets. Direct donations also distort yield, withdrawal, and investment calculations.",
+        "mitigation": "Use separately accounted assets for share pricing instead of treating every raw ERC-20 balance increase as distributable assets. Recognize deposits and other approved asset flows explicitly, and prevent unsolicited transfers from changing the exchange rate unless they are intentionally synchronized. Additionally, reject nonzero deposits that mint zero shares, support a user-supplied minimum share amount, use virtual assets and virtual shares where appropriate, and record the exact shares assigned to each deposit rather than recomputing withdrawal shares from a later exchange rate.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Vault.sol",
+            "contract": "Vault",
+            "function": "totalUnderlying",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Vault.sol",
+            "contract": "Vault",
+            "function": "_computeShares",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Vault.sol",
+            "contract": "Vault",
+            "function": "_createDeposit",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Vault.sol",
+            "contract": "Vault",
+            "function": "_transferAndCheckUnderlying",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Curve spot-price valuation and zero-slippage swaps in NonUSTStrategy",
+        "description": "NonUSTStrategy uses the configured Curve pool's current get_dy_underlying() quote to value UST-denominated strategy assets in investedAssets(). This valuation flows into Vault.totalUnderlying(), share issuance, withdrawals, yield claims, and investment calculations. The same strategy executes conversions through exchange_underlying() with min_dy set to zero in both directions and ignores the returned output amount. If the configured Curve pool's spot state is moved before a strategy operation, the strategy can accept an unfavorable conversion price, while a manipulated quote can distort the vault's reported asset value and consequently alter share or withdrawal calculations. No TWAP, independent oracle, deviation bound, or minimum-output protection is present in the supplied source.",
+        "impact": "The strategy may receive substantially fewer tokens than expected during underlying-to-UST or UST-to-underlying conversions. A distorted Curve quote can also cause incorrect asset valuation, excessive or insufficient share issuance, inaccurate yield claims, incorrect withdrawals, and incorrect amounts transferred to the strategy. Losses are borne by vault depositors and sponsors.",
+        "mitigation": "Do not use a single instantaneous Curve quote as the sole vault valuation source. Use a manipulation-resistant oracle or sufficiently long-window TWAP, validate the result against an independent reference price, and reject stale or abnormal deviations. For both Curve swaps, calculate and enforce a nonzero minimum output based on a trusted price and configured slippage tolerance, and verify the actual received amount after execution.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/strategy/NonUSTStrategy.sol",
+            "contract": "NonUSTStrategy",
+            "function": "investedAssets",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/strategy/NonUSTStrategy.sol",
+            "contract": "NonUSTStrategy",
+            "function": "_swapUnderlyingToUst",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/strategy/NonUSTStrategy.sol",
+            "contract": "NonUSTStrategy",
+            "function": "_swapUstToUnderlying",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Vault.sol",
+            "contract": "Vault",
+            "function": "totalUnderlying",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

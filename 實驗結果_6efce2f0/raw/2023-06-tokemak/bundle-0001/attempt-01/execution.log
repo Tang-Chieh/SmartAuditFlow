@@ -1,0 +1,139 @@
+🗄️ In-memory storage initialized successfully
+📝 Created session ca11949a-eea7-4b54-bd17-92c803efa70a with 720873 characters of code
+🔧 Initializing AI models...
+❌ OPENAI_API_KEY not found
+✅ Local Codex OAuth gateway initialized (loopback only)
+❌ GEMINI_API_KEY not found
+❌ DEEPSEEK_API_KEY not found
+❌ ANTHROPIC_API_KEY not found
+🤖 Model initialization complete: 1/8 models available
+🤖 Global model manager initialized
+🎯 Preferred model set to: codex-gateway
+📊 Session ca11949a-eea7-4b54-bd17-92c803efa70a status updated to: running
+🤖 Using AI model: codex-gateway
+📋 Step 1/5: llm
+⚡ Created execution 1 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 35.73s (14227 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 1 - status: completed
+✅ llm completed in 35.73s
+📋 Step 2/5: llm
+⚡ Created execution 2 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 19.14s (10150 characters)
+🎉 Successfully used codex-gateway model
+📈 Updated execution 2 - status: completed
+✅ llm completed in 19.14s
+📋 Step 3/5: parameter-extractor
+⚡ Created execution 3 for node parameter-extractor
+⚡ Executing parameter-extractor...
+📈 Updated execution 3 - status: completed
+✅ parameter-extractor completed in 0.00s
+📋 Step 4/5: iteration
+⚡ Created execution 4 for node iteration
+⚡ Executing iteration...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 13.01s (5369 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 20.23s (9190 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 23.48s (7660 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 38.72s (7926 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 24.45s (9354 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 46.45s (8636 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 23.40s (6182 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 29.52s (10072 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 37.46s (8847 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+✅ Codex-Gateway model call successful in 27.90s (5236 characters)
+🎉 Successfully used codex-gateway model
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+❌ Codex-Gateway API call failed after 9.04s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+❌ Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 9.04s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+💥 All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 9.04s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+❌ Codex-Gateway API call failed after 11.61s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+❌ Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.61s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+💥 All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.61s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+📈 Updated execution 4 - status: completed
+✅ iteration completed in 305.29s
+📋 Step 5/5: llm
+⚡ Created execution 5 for node llm
+⚡ Executing llm...
+🤖 Starting AI model call (preferred: codex-gateway, timeout: 60s)
+🔥 Trying codex-gateway model...
+📡 Calling codex-gateway model (OpenAI-compatible, timeout: 60s)
+❌ Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+❌ Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+💥 All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+Report formatting failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 11.34s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
+📈 Updated execution 5 - status: completed
+✅ llm completed in 11.34s
+💾 Saved results for session ca11949a-eea7-4b54-bd17-92c803efa70a with 0 findings
+📊 Session ca11949a-eea7-4b54-bd17-92c803efa70a status updated to: completed
+📊 Session ca11949a-eea7-4b54-bd17-92c803efa70a status updated to: completed
+🎉 Audit completed successfully! Found 0 findings.
+{
+  "status": "completed",
+  "session_id": "ca11949a-eea7-4b54-bd17-92c803efa70a",
+  "model_provider": "codex-gateway",
+  "model_id": "openai-codex/gpt-5.6-luna",
+  "gateway_base_url": "http://127.0.0.1:4000/v1",
+  "workflow_nodes": [
+    "initial-analysis",
+    "audit-plan",
+    "parameter-extractor",
+    "iteration",
+    "format-converter"
+  ],
+  "max_audit_tasks": 12,
+  "result_findings": 0,
+  "prediction_case_written": true,
+  "credential_value_saved": false
+}

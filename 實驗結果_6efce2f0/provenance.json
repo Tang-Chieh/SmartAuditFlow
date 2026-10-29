@@ -1,0 +1,115 @@
+{
+  "smartauditflow_commit": "6efce2f0e92efe2e26397a6e832f1b533a27480d",
+  "evaluator_commit": "e46fc2702a1c6506f9a56af00990f8218648f697",
+  "renderer_commit": "e46fc2702a1c6506f9a56af00990f8218648f697",
+  "prompt_file_sha256": "337bd8b8710167952785cef81eba4b7672c749d135d035d056fd8a713cd9bbfc",
+  "model": "openai-codex/gpt-5.6-luna",
+  "transport": "local Codex OAuth gateway; injected OpenAI-compatible client",
+  "ground_truth_sha256": {
+    "2021-04-marginswap.json": "44c55d331ee5caa19e77b6ae12e6f2001d5964b068c5e9cf5c83e031812eaa1a",
+    "2021-07-spartan.json": "7689ce1a3ef22da641ff7144fdbeb1ae36f053539351719a207f5549ef6d06cf",
+    "2021-08-notional.json": "a96940420377b95f89b1c04af53b5a3377e49cbbf1335ebc9a112774b539eaf8",
+    "2021-11-malt.json": "4e727b69c06e39cc46eb4d7b8845615d9c86a2ee780b5650c37440e68df6a94f",
+    "2021-12-vader.json": "f8ad3db5c417f69d453cdf3f692e7b2249d596dcbcb23bc1c6ffee02a9708f3f",
+    "2022-01-behodler.json": "585cc80e1bc3e49a048543580a1fff65e3b4a0406e77f1db555f1d78fa599836",
+    "2022-01-sandclock.json": "7aac734e3aebb157f0f8d2c5cbd4a97659eb2aa13becb10a2ec2ceac58d3b900",
+    "2022-08-sentiment.json": "b3690ad80f5ea99f8747892af53875c89f78cb1c124dfb046d8cf6425f6b7d1e",
+    "2022-09-notional.json": "cd3761b33673437cfd2399480c3a3ebd3d093b36308aea5b6c77ab2070f7f881",
+    "2022-11-paraspace.json": "ff522ca8bb1cc62741de71269de775326416d664a7246faa6ffac5e4a0d302b8",
+    "2022-11-telcoin.json": "b871426140ead5e4d7785190a77cd9765b91d22558728ffa14718da27627c56d",
+    "2023-03-olympus.json": "329b9fafb588c5cd67cb99f6c8ecc044b812b5fce5dfbff8942510ee7bb4d578",
+    "2023-04-blueberry.json": "abed80014d9a30ca7bae73d386409f494531c3b1638ed674dedfc49c0ca812d9",
+    "2023-05-ussd.json": "16df083f9fc63964574296f03b2ee220793025452eee97ab25f2c28469d9f324",
+    "2023-06-lybra.json": "861c5782ed61682b3492c99ff6c84b37355bc0d07628f322f04769f6397b1254",
+    "2023-06-real-wagmi.json": "5970becfe27195fdcc7e5d3415b37682473cf92e1ae02e4ab10701e0cf7835df",
+    "2023-06-tokemak.json": "8438a0284a1deda70043fa7d6fb5c0213ae339305ae10b3b7708bb92ebc6ee25",
+    "2023-08-dopex.json": "dacdb663139243d1228f5c8af9b329bdecaf808987fab177b65c6669e4d149ae",
+    "2024-03-abracadabra-money.json": "13c7fcc3109b242534b6a6163a2c0bfe160cfa76aca77127904abbe1f749e50f",
+    "2024-03-revert-lend.json": "ec0081369789e0a77737fa800dc20ce6e3f10fb8f56b5522e0a3cb48dd25b3a0",
+    "2024-03-woofi-swap.json": "2df304c0587ba5e5fee514f2869c21af3c8adbef3ad5cc08a908bf5e3c6cc60e",
+    "2024-04-panoptic.json": "73dc116a50ec3b24ffc31de905fd9c31546d28fb8492263b0de6ddc83b08a6ba",
+    "2025-12-panoptic.json": "bf44bf5735fd73391d81f19fbbd5c610d5bfeed00ade7cfa2da671361978b6fc"
+  },
+  "input_bundle_sha256": {
+    "2021-04-marginswap": {
+      "bundle-0001": "4564c7df0525135ad9c859c7df1d51838a69a7fdda4cee4cf9689310859feadc"
+    },
+    "2021-07-spartan": {
+      "bundle-0001": "f1fb2dc976ede3ac079fb3088cc4a78bf4478aa9d76ec26cc106cacbeac9a2ae"
+    },
+    "2021-08-notional": {
+      "bundle-0001": "2ba640021553fe37de1d3cf20d3f2922d939fabe375c0d7d24bcdca18b42c915"
+    },
+    "2021-11-malt": {
+      "bundle-0001": "e4d0d1eabb7c3f322b91bb6956d805d7a344c5f446c0f926f67e378aef783f14"
+    },
+    "2021-12-vader": {
+      "bundle-0001": "094a79ee9d5bf286d7abdc02302379bacddd205964a2c6ae967704d7323ac68c"
+    },
+    "2022-01-behodler": {
+      "bundle-0001": "a777a69e383e8bd9ad377d4d5477a2fe4496eeb14bd194149f476b7aac60ae84"
+    },
+    "2022-01-sandclock": {
+      "bundle-0001": "1b46afdac49afe2a93c9160f5fd58a7c0fe307ec263c747d0d36441e376039b4"
+    },
+    "2022-08-sentiment": {
+      "bundle-0001": "2e8c8936d7d172ed4509e58693ec07e47e4b43c2f5d61675c107a5f52d2ab747"
+    },
+    "2022-09-notional": {
+      "bundle-0001": "2f3ee4d7400bc2f2c8cc3d9c040491f5165f91fd950a2fecf54db7aee80ced84"
+    },
+    "2022-11-paraspace": {
+      "bundle-0001": "83d21bee8699882c21d868518e892bf324aa776baca4fc2b1b381ee3aa0edfd6",
+      "bundle-0002": "6df97cc5fbc551a9e199e55371206cca514db5d80091da3d2fb14fc3889639cf",
+      "bundle-0003": "fa459d6ecf1a465ee38978ac421bda4e7223505c3629afe064707e3bbdb61343",
+      "bundle-0004": "91aca876909b6a66bee95cbc09db4b9da63f6c319e76eef0a0ac288d56378de1",
+      "bundle-0005": "c636adec4d9426b500aae01ac473513b3448ede345c088495bb6463833dda4dc",
+      "bundle-0006": "e3398bc1fff489ca415f55023f25780001eb6cbb39ca15255831dc269b146bc6",
+      "bundle-0007": "8ceb783f063f05429fcf4ea8e263a56f81cc478e5359c3c64fcbabd6fc267605",
+      "bundle-0008": "261728052a1a57ea67ba3b0770c275d50b92d82e86b6fb9fc433b1a4b14ef3c1",
+      "bundle-0009": "b0d80eca611a18a71637596727cc11b1269b6c2197dbd3870da4bebe58067045",
+      "bundle-0010": "19fba1a20480444fadc70fe39db80ee7217db5de59c7ecdd112ab2431e19aabd",
+      "bundle-0011": "015b1d50792181660db2d096cb4d3cf2e119753a35eae1042cb89e32f385ad7f",
+      "bundle-0012": "0c1020e16b56ca75463a1c4b55ad7cac9a856cdb0d1c0be812d9c6fa22a3e932"
+    },
+    "2022-11-telcoin": {
+      "bundle-0001": "990d8b2d82c0d6f64af738f51280716280725446ab927559bd3b487cffcc4daf"
+    },
+    "2023-03-olympus": {
+      "bundle-0001": "7df046e2377a0e32f9c99a8d539f6ce2bff78c999b1c83948083ee86a2807fcd"
+    },
+    "2023-04-blueberry": {
+      "bundle-0001": "ff7bdc77e6b5a786a2b73ce1505a464a2ad93154f8522352b95a4fa7798cb48c"
+    },
+    "2023-05-ussd": {
+      "bundle-0001": "3d17fd535a620ac9e6d2bddda6fb7349185565c55db1be443683c703079c1b03"
+    },
+    "2023-06-lybra": {
+      "bundle-0001": "e643dacd13009665195eec82a744c377a1a84401c37f0167b4d7b73bf95d7952"
+    },
+    "2023-06-real-wagmi": {
+      "bundle-0001": "3b519d90285be22d9afc01a05d39f2f66e08090d2da0eed8331fc17f1eb80352"
+    },
+    "2023-06-tokemak": {
+      "bundle-0001": "392ccf8a89552bc8fc4c28349ec6ca8f3d928673f51c6e37921963e4ea3ded4a"
+    },
+    "2023-08-dopex": {
+      "bundle-0001": "37acab07e84c458ebc68f5b96585f1fb5a88c67fab75821d7b97cb93c247fd3a"
+    },
+    "2024-03-abracadabra-money": {
+      "bundle-0001": "d9d14d899a4281a30eeeee2f7c8fe95e2727c6ad47167e02bdcae7a99eeee3d0"
+    },
+    "2024-03-revert-lend": {
+      "bundle-0001": "6c635c0bd5e0497976822f7a9a229e830eb7869c1be4184b3ff12ebdb719136a"
+    },
+    "2024-03-woofi-swap": {
+      "bundle-0001": "9a2ab20a0dfa2c889a9a0a915ecbe9b14c911ffe7f875bafa4d284a126808e96"
+    },
+    "2024-04-panoptic": {
+      "bundle-0001": "db8bf715f4ac5ed9d3d10f6c73afb00c498908cb070044d863cb438a44608a84"
+    },
+    "2025-12-panoptic": {
+      "bundle-0001": "a4a40bab017f3ba8e17c7f6bac15ba5f52280991d2bba7af8972383cfcf835bb"
+    }
+  }
+}

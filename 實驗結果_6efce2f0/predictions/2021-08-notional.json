@@ -1,0 +1,78 @@
+{
+  "repo_id": "2021-08-notional",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": [
+    {
+      "finding_id": "SAF-bundle-0001-001",
+      "title": "NToken redemption lacks execution-price slippage protection",
+      "description": "The nToken redemption path can sell fCash through the current AMM state without enforcing a minimum output, maximum execution rate, oracle-deviation bound, or caller-supplied slippage parameter. In `nTokenRedeemAction._sellfCashAssets`, fCash received from redeemed liquidity-token positions is exchanged using `Market.calculateTrade`. That function derives execution pricing from mutable market reserves and implied-rate state, rather than `market.oracleRate`, and the redemption accepts any nonzero result. An attacker can temporarily move the relevant market through a large lend or borrow before a redemption executes, causing the redeemer's fCash to be sold at an unfavorable price. The attacker may subsequently reverse the market position, subject to liquidity and trading costs.",
+      "impact": "NToken redeemers may receive materially less asset cash than expected. The loss is borne by the redeemer and may become significant for large redemptions or markets with limited liquidity. Integrators cannot protect users with a redemption-specific minimum-output parameter because the affected redemption entry point does not expose one.",
+      "mitigation": "Add a caller-provided minimum aggregate asset-cash output, or equivalent maximum execution-price and price-impact bounds, to `nTokenRedeem`. Enforce the bound after `_sellfCashAssets` completes and before crediting the redeemer. Consider adding an oracle-deviation check as an additional safeguard, while preserving the distinction between execution pricing and valuation pricing.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/external/actions/nTokenRedeemAction.sol",
+          "contract": "nTokenRedeemAction",
+          "function": "_sellfCashAssets",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "calculateTrade",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-bundle-0001-002",
+      "title": "Spot market reserve composition can manipulate liquidity-token and nToken valuation",
+      "description": "Permissionless trades can immediately modify `market.totalfCash` and `market.totalAssetCash` through `Market.calculateTrade`. These current reserve values are then used by `AssetHandler.getLiquidityTokenValue`, `AssetHandler.getCashClaims`, and `AssetHandler.getHaircutCashClaims` to determine the cash and fCash claims of liquidity tokens. The resulting fCash claim is discounted using the lagged `oracleRate`, but the underlying reserve composition remains based on the immediately mutable market state. Consequently, a trader can temporarily alter the cash/fCash composition used in free-collateral, liquidation, and nToken present-value calculations without the corresponding composition being smoothed by the oracle. The same valuation is used by nToken minting through `nTokenHandler.getNTokenAssetPV`, so a temporary reserve imbalance can also distort the nToken mint exchange ratio and market-deployment decision.",
+      "impact": "Temporary market manipulation may cause liquidity-token and nToken collateral to be overvalued or undervalued, affecting free-collateral results, liquidation eligibility, liquidation quantities, and collateral transferred to liquidators. NToken minting may issue an incorrect number of tokens for a deposit or choose an unintended lending-versus-liquidity path. The resulting value transfer depends on market depth, oracle-window duration, exposed collateral, and the attacker's ability to execute and unwind the market trades.",
+      "mitigation": "Use a valuation method that is internally consistent with the protected oracle rate. For collateral, liquidation, and nToken valuation, derive liquidity-token cash/fCash claims from time-weighted or historical reserve snapshots, an oracle-consistent virtual-reserve model, or a conservative lower-bound methodology rather than the immediately current `totalfCash` and `totalAssetCash`. Consider delaying collateral-sensitive operations after material market changes, applying additional conservative haircuts, and adding a user-controlled `minTokensToMint` bound for nToken minting.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/internal/markets/Market.sol",
+          "contract": "Market",
+          "function": "calculateTrade",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getLiquidityTokenValue",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getCashClaims",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/valuation/AssetHandler.sol",
+          "contract": "AssetHandler",
+          "function": "getHaircutCashClaims",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/internal/nTokenHandler.sol",
+          "contract": "nTokenHandler",
+          "function": "getNTokenAssetPV",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ]
+}

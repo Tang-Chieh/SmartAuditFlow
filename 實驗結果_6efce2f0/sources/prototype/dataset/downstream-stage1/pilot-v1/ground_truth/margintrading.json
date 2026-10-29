@@ -1,0 +1,29 @@
+{
+  "repo_id": "margintrading",
+  "ground_truth": [
+    {
+      "title": "[C-01] Using Uniswap spot price is subject to manipulation",
+      "description": "UniswapModule.getInputPositionValue() and getOutputPositionValue() call the Uniswap V3 quoter with the configured path, so the returned token-to-USDC values are based on the pools' current state rather than a manipulation-resistant reference. ModularSwapRouter forwards these quotes into ERC20 amount conversions and total position valuation. A flash loan or large trade can temporarily skew the pool state before the quote is consumed, causing the margin system to perform its collateral and debt calculations using a manipulated price.",
+      "impact": "An attacker can cause withdrawal, borrowing, liquidation, and debt-clearing checks to use an incorrect base-token value, potentially allowing favorable asset extraction or leaving other users' positions with bad debt and causing losses to other users.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/modularSwapRouter/uniswap/UniswapModule.sol",
+          "contract": "UniswapModule",
+          "function": "getInputPositionValue(uint256)",
+          "start_line": 61,
+          "end_line": 65
+        },
+        {
+          "file": "contracts/modularSwapRouter/uniswap/UniswapModule.sol",
+          "contract": "UniswapModule",
+          "function": "getOutputPositionValue(uint256)",
+          "start_line": 67,
+          "end_line": 71
+        }
+      ],
+      "mitigation": "Use Chainlink oracles to price supported assets instead of the Uniswap V3 quoter's current spot quote.",
+      "finding_id": "C-01",
+      "review_status": "gold_verified"
+    }
+  ]
+}

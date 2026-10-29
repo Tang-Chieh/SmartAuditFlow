@@ -1,0 +1,151 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "AMM spot-price manipulation can trigger wrongful margin liquidations",
+    "description": "Liquidation eligibility and liquidation valuation rely on current Uniswap-style AMM reserves rather than a manipulation-resistant price. CrossMarginAccounts.belowMaintenanceThreshold and IsolatedMarginAccounts.belowMaintenanceThreshold call getCurrentPriceInPeg with forceCurBlock set to true. In that mode, PriceAware.getCurrentPriceInPeg either returns getPriceFromAMM or viewCurrentPriceInPeg, both of which derive prices using UniswapStyleLib.getAmountsOut and current pair reserves. An attacker can temporarily manipulate the configured AMM path, then call the public liquidation function while collateral is undervalued or debt is overvalued. The account may be incorrectly classified as liquidatable and permanently deleted. The same AMM paths are also used for liquidation execution, and the liquidation swaps use effectively unrestricted slippage parameters.",
+    "impact": "Healthy cross-margin or isolated-margin accounts may be liquidated, collateral may be sold at manipulated prices, residual user payouts may be reduced or eliminated, and the protocol may incur liquidation shortfalls or lender haircuts. Maintainer and attacker compensation can also be calculated from distorted liquidation results.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getCurrentPriceInPeg",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "viewCurrentPriceInPeg",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getPriceFromAMM",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/CrossMarginAccounts.sol",
+        "contract": "CrossMarginAccounts",
+        "function": "belowMaintenanceThreshold",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/CrossMarginLiquidation.sol",
+        "contract": "CrossMarginLiquidation",
+        "function": "liquidate",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/IsolatedMarginAccounts.sol",
+        "contract": "IsolatedMarginAccounts",
+        "function": "belowMaintenanceThreshold",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/IsolatedMarginLiquidation.sol",
+        "contract": "IsolatedMarginLiquidation",
+        "function": "liquidate",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant oracle, such as a sufficiently long TWAP, an independent oracle, or a validated multi-source price, for liquidation eligibility and account valuation. Do not return a current AMM spot quote when forceCurBlock is true. Separate price updates from liquidation decisions and require a previously finalized, fresh price with maximum-deviation and stale-price checks. Add oracle-based minimum-output or maximum-input bounds to liquidation swaps instead of using amountOutMin equal to zero or amountInMax equal to type(uint256).max. Consider limiting liquidation batch size or using an auction for large positions.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "AMM-derived valuations can bypass cross-margin borrowing and withdrawal collateral checks",
+    "description": "CrossMarginAccounts.positiveBalance authorizes borrowing and withdrawals by comparing holdings and debt valued through PriceAware.getCurrentPriceInPeg with forceCurBlock set to false. When a price is uninitialized, the function directly returns an AMM-derived quote. When the cached price is stale, it refreshes the cache using getPriceFromAMM, which reads current AMM reserves. The EMA-style update weight and update window limit individual movements but do not make the underlying spot-price observation manipulation-resistant. An attacker can overvalue collateral or undervalue debt, then invoke crossBorrow, crossOvercollateralizedBorrow, or crossWithdraw while the favorable valuation is used.",
+    "impact": "An attacker may borrow or withdraw more value than their collateral supports, leaving an undercollateralized account and potential bad debt for lenders, liquidity providers, or the protocol. The cooling-off period does not prevent manipulation by an existing account after the period has elapsed.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/CrossMarginAccounts.sol",
+        "contract": "CrossMarginAccounts",
+        "function": "positiveBalance",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/CrossMarginTrading.sol",
+        "contract": "CrossMarginTrading",
+        "function": "registerOvercollateralizedBorrow",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/CrossMarginTrading.sol",
+        "contract": "CrossMarginTrading",
+        "function": "_registerWithdrawal",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getCurrentPriceInPeg",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getPriceFromAMM",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use an independent, manipulation-resistant oracle for collateral and debt valuation. Require prices to be initialized and sufficiently fresh before permitting borrowing or withdrawal; do not fall back to a current AMM quote for an uninitialized asset. Separate oracle updates from user borrowing and withdrawal transactions, use fixed-notional or normalized observations, and enforce maximum-deviation, liquidity, and stale-price checks. Value collateral conservatively and debt at a conservative higher price where multiple observations are available.",
+    "severity": "Medium"
+  },
+  {
+    "finding_id": "SAF-003",
+    "title": "AMM-derived prices can permit undercollateralized isolated-margin borrowing",
+    "description": "IsolatedMarginAccounts.positiveBalance determines whether additional debt can be recorded using holdingInPeg and loanInPeg, both of which call PriceAware.getCurrentPriceInPeg with forceCurBlock set to false. For an uninitialized or stale price, PriceAware obtains or refreshes the value from current AMM reserves through getPriceFromAMM and UniswapStyleLib.getAmountsOut. An attacker able to manipulate the configured AMM can make the holding token appear more valuable or the borrow token appear cheaper when the isolated borrowing flow reaches borrow and positiveBalance.",
+    "impact": "If the authorized isolated-margin trading route can be reached during the manipulated price state, an attacker may create debt that is not adequately backed by collateral. After the AMM price normalizes, the position may become undercollateralized, causing bad debt, liquidation losses, or lender haircuts.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/IsolatedMarginAccounts.sol",
+        "contract": "IsolatedMarginAccounts",
+        "function": "positiveBalance",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/IsolatedMarginAccounts.sol",
+        "contract": "IsolatedMarginAccounts",
+        "function": "borrow",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/IsolatedMarginTrading.sol",
+        "contract": "IsolatedMarginTrading",
+        "function": "registerPosition",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getCurrentPriceInPeg",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/PriceAware.sol",
+        "contract": "PriceAware",
+        "function": "getPriceFromAMM",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant and independently validated oracle for isolated-margin collateral checks. Require explicit oracle initialization, freshness, sufficient market liquidity, and bounded deviation before allowing borrowing. Do not update the oracle from a spot AMM quote during the same transaction that authorizes borrowing; instead consume a previously finalized price snapshot and apply conservative collateral and debt valuations.",
+    "severity": "Medium"
+  }
+]

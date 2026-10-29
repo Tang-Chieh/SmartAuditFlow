@@ -1,0 +1,22 @@
+{
+  "repo_id": "2024-04-panoptic",
+  "ground_truth": [
+    {
+      "title": "[M-01] `PanopticFactory` uses spot price when deploying new pools, resulting in liquidity manipulation when minting",
+      "description": "PanopticFactory._mintFullRange() reads the Uniswap V3 pool's instantaneous sqrt price from slot0() and uses it to calculate the full-range liquidity minted during deployNewPool(). Because the factory does not validate this price against an oracle or a time-weighted average, an attacker can manipulate the spot price with flash-loaned funds before deployment and cause a highly inaccurate liquidity calculation.",
+      "impact": "The manipulated spot price can cause the factory to mint an inaccurate amount of liquidity for each token, resulting in an unbalanced newly deployed pool.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/PanopticFactory.sol",
+          "contract": "PanopticFactory",
+          "function": "_mintFullRange(IUniswapV3Pool,address,address,uint24)",
+          "start_line": 335,
+          "end_line": 411
+        }
+      ],
+      "mitigation": "Consider using the TWAP price instead of the spot price.",
+      "finding_id": "M-01",
+      "review_status": "gold_verified"
+    }
+  ]
+}

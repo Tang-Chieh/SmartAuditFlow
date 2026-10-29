@@ -1,0 +1,22 @@
+{
+  "repo_id": "2023-04-blueberry",
+  "ground_truth": [
+    {
+      "title": "H-4: Potential flash loan attack vulnerability in `getPrice` function of CurveOracle",
+      "description": "CurveOracle.getPrice() retrieves the price of each underlying token in a Curve LP pool, selects the minimum price, and multiplies it by the LP token's virtual price to calculate its USD value. If the price of one or more underlying tokens is manipulated, the minimum-price calculation can be skewed and produce an incorrect USD value for the LP token. An attacker can exploit this incorrect valuation to profit at the expense of other users.",
+      "impact": "An attacker can manipulate the price used to value Curve LP tokens and profit at the expense of other users. Exploitation can result in significant financial losses for affected users.",
+      "vulnerable_code": [
+        {
+          "file": "blueberry-core/contracts/oracle/CurveOracle.sol",
+          "contract": "CurveOracle",
+          "function": "getPrice(address)",
+          "start_line": 122,
+          "end_line": 134
+        }
+      ],
+      "mitigation": "Use TWAP prices for the Curve pool's underlying assets.",
+      "finding_id": "H-4",
+      "review_status": "gold_verified"
+    }
+  ]
+}

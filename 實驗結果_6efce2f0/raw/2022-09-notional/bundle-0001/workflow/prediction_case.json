@@ -1,0 +1,43 @@
+{
+  "repo_id": "2022-09-notional",
+  "detector_metadata": {
+    "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+    "llm_model": "openai-codex/gpt-5.6-luna"
+  },
+  "predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Boosted vault valuation relies on attacker-influenceable current pool balances",
+      "description": "Boosted three-token vault valuation is described as time-weighted but is calculated from current Balancer pool balances obtained through getPoolTokens. The balances are passed into _getValidatedPoolData, used to calculate the StableMath invariant, and then used by _getTimeWeightedPrimaryBalance and _calcTokenOutGivenExactBptIn to determine the primary-token value of BPT and strategy tokens. An attacker can trade against the Balancer pool before a valuation or settlement operation and alter these balances, the invariant, and the resulting strategy-token valuation. The Chainlink spot-price checks constrain the accepted deviation but do not independently validate the final BPT-to-primary valuation or make the valuation time-weighted.",
+      "impact": "Manipulated balances may cause strategy tokens to be overvalued or undervalued during convertStrategyToUnderlying and settlement. This could affect collateral valuation, liquidation behavior, settlement surplus checks, or cause settlement operations to revert when the calculated expectedUnderlyingRedeemed is inconsistent with the actual redemption value.",
+      "mitigation": "Use a genuinely manipulation-resistant accounting valuation for boosted pools. Prefer a historical or time-weighted BPT-to-primary valuation, or independently derive and validate the final BPT price against Chainlink or another external oracle with a conservative deviation bound. Keep current pool balances only for execution-related calculations and do not use them as the sole basis for collateral or settlement valuation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/vaults/balancer/internal/pool/Boosted3TokenPoolUtils.sol",
+          "contract": "Boosted3TokenPoolUtils",
+          "function": "_getTimeWeightedPrimaryBalance",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "MetaStable strategy valuation can rely entirely on Balancer BPT TWAP",
+      "description": "MetaStable strategy-token valuation directly uses the Balancer BPT_PRICE returned by getTimeWeightedAverage in _getTimeWeightedPrimaryBalance. This BPT price is not independently checked against Chainlink or another external valuation source. In addition, governance may configure balancerOracleWeight to 100%, allowing the pair-price component to be entirely Balancer-TWAP-based. Because Balancer TWAP values remain influenced by trades over the configured window, sustained pool manipulation can affect convertStrategyToUnderlying and settlement valuation.",
+      "impact": "A manipulated Balancer oracle value may inflate or depress strategy-token valuations, affecting collateral values, liquidation thresholds, redemption expectations, and settlement accounting. An inflated valuation may cause settlement surplus checks to revert or permit inaccurate accounting, while a depressed valuation may cause premature liquidation or underpayment.",
+      "mitigation": "Require a nonzero minimum Chainlink contribution for financially sensitive valuation and enforce a minimum, governance-bounded oracle window. Independently validate Balancer BPT_PRICE against a Chainlink-derived or otherwise independent BPT valuation, applying a conservative deviation limit before using it for collateral conversion or settlement. Do not permit a 100% Balancer-oracle configuration unless the BPT price is independently validated.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/vaults/balancer/internal/pool/TwoTokenPoolUtils.sol",
+          "contract": "TwoTokenPoolUtils",
+          "function": "_getTimeWeightedPrimaryBalance",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ]
+}

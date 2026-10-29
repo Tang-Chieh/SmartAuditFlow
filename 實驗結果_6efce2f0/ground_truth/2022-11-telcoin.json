@@ -1,0 +1,22 @@
+{
+  "repo_id": "2022-11-telcoin",
+  "ground_truth": [
+    {
+      "title": "H-1: Flashloan `TEL` tokens to stake and exit in the same block can fake a huge amount of stake with minimal material cost",
+      "description": "StakingModule.stakedByAt() reads an account's stake history through CheckpointsUpgradeable.getAtBlock(). When an account stakes and exits in the same block, the checkpoint history can contain both the large stake and the zeroed post-exit value for that block. The historical lookup can then return the earlier same-block stake value, causing balanceOfAt() to expose an incorrect historical balance even though the account no longer retains the corresponding stake.",
+      "impact": "A same-block stake and exit can cause balanceOfAt() to report an incorrect historical stake. In this repository, the value is exposed through a standalone view and the slashing path uses the latest stake value instead. The direct consequence is inaccurate historical stake reporting; further loss requires a downstream integration that relies on this view.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/StakingModule.sol",
+          "contract": "StakingModule",
+          "function": "stakedByAt(address,uint256)",
+          "start_line": 147,
+          "end_line": 149
+        }
+      ],
+      "mitigation": "Require an account's exit to occur at least one block after the block in which the original stake was created, so a stake cannot be opened and closed within the same checkpoint block.",
+      "finding_id": "H-1",
+      "review_status": "gold_verified"
+    }
+  ]
+}

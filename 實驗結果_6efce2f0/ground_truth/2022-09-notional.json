@@ -1,0 +1,36 @@
+{
+  "repo_id": "2022-09-notional",
+  "ground_truth": [
+    {
+      "title": "[M-7] Gain From Balancer Vaults Can Be Stolen",
+      "description": "Balancer strategy vaults mint strategy tokens from a deposit using the pre-deposit BPT balance and global strategy-token supply, then convert strategy tokens back to BPT using the current total BPT balance and the unchanged global supply. A user can enter immediately before the permissionless reinvestReward operation adds reward BPT, so the user's newly minted strategy tokens participate in the reward distribution without any deposit-duration snapshot. The user can then redeem those tokens immediately and receive a disproportionate share of the newly reinvested BPT.",
+      "impact": "Loss of assets for the users as their BPT gain (rewards) can be stolen.",
+      "vulnerable_code": [
+        {
+          "file": "leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol",
+          "contract": "StrategyUtils",
+          "function": "_convertStrategyTokensToBPTClaim(StrategyContext,uint256)",
+          "start_line": 17,
+          "end_line": 24
+        },
+        {
+          "file": "leveraged-vaults/contracts/vaults/balancer/internal/strategy/StrategyUtils.sol",
+          "contract": "StrategyUtils",
+          "function": "_convertBPTClaimToStrategyTokens(StrategyContext,uint256)",
+          "start_line": 26,
+          "end_line": 39
+        },
+        {
+          "file": "leveraged-vaults/contracts/vaults/MetaStable2TokenAuraVault.sol",
+          "contract": "MetaStable2TokenAuraVault",
+          "function": "reinvestReward(ReinvestRewardParams)",
+          "start_line": 164,
+          "end_line": 166
+        }
+      ],
+      "mitigation": "Use snapshot-based reward accounting so BPT gains are weighted by deposit duration, and prevent users from entering and exiting in the same transaction or block. As additional defenses, restrict reinvestReward to authorized Notional callers, charge fees to users who do not borrow from Notional, and submit reinvestment transactions privately to reduce front-running.",
+      "finding_id": "M-7",
+      "review_status": "gold_verified"
+    }
+  ]
+}

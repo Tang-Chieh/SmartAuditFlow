@@ -1,0 +1,50 @@
+[
+  {
+    "finding_id": "SAF-001",
+    "title": "Uniswap V3 AMO operations lack enforced manipulation-resistant price bounds",
+    "description": "UniV3LiquidityAMO executes position minting, liquidity removal, and swaps against the mutable Uniswap V3 pool state. The contract forwards caller-supplied minimum amounts and price limits without validating them against a trusted oracle or TWAP. An attacker can temporarily trade against the public pool before an authorized administrator transaction. If the supplied minimums are zero, stale, or otherwise permissive, the AMO may mint liquidity, remove a position, or swap tokens at an economically unfavorable manipulated price. The fixed swap deadline of 2105300114 further allows old swap transactions to remain executable under materially different pool conditions.",
+    "impact": "Protocol-owned rDPX and collateral can be exchanged at an unfavorable rate, liquidity can be minted with an unintended token composition, and positions can be fully removed at a manipulated price. The resulting value loss is borne by the AMO and RdpxV2Core reserves, while an attacker may profit by reversing the temporary pool manipulation.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/amo/UniV3LiquidityAmo.sol",
+        "contract": "UniV3LiquidityAMO",
+        "function": "addLiquidity",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/amo/UniV3LiquidityAmo.sol",
+        "contract": "UniV3LiquidityAMO",
+        "function": "removeLiquidity",
+        "start_line": null,
+        "end_line": null
+      },
+      {
+        "file": "contracts/amo/UniV3LiquidityAmo.sol",
+        "contract": "UniV3LiquidityAMO",
+        "function": "swap",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Validate all mint, removal, and swap parameters against a trusted, fresh oracle or sufficiently long Uniswap V3 TWAP. Enforce a maximum deviation from the reference price, require minimum output amounts consistent with that reference, validate sqrtPriceLimitX96, and use a short caller-supplied deadline bounded by the contract. Consider rejecting zero minimums for these operations.",
+    "severity": "High"
+  },
+  {
+    "finding_id": "SAF-002",
+    "title": "ReLP relies on manipulable V2 reserves and performs unbounded final liquidity addition",
+    "description": "ReLPContract.reLP() reads instantaneous Uniswap V2 reserves and uses them in the liquidity removal and re-LP workflow. The operation subsequently swaps token B for token A against the same AMM and adds liquidity with both minimum amounts set to zero. When reLP is triggered from the public bond() or bondWithDelegate() flow while isReLPActive is enabled, an attacker can temporarily manipulate the pair before the transaction executes. The reserve-dependent sizing term is partially offset by the subsequent LP calculation, but the swap and final addLiquidity() remain exposed to the manipulated pool state, and no oracle/TWAP deviation or post-operation value check is enforced.",
+    "impact": "The protocol may remove and recreate liquidity using an unfavorable token ratio, receive less economically valuable exposure than intended, or repeatedly revert when manipulation causes the intermediate minimum checks to fail. This can reduce protocol-owned LP value or disrupt public bonding operations.",
+    "vulnerable_code": [
+      {
+        "file": "contracts/reLP/ReLPContract.sol",
+        "contract": "ReLPContract",
+        "function": "reLP",
+        "start_line": null,
+        "end_line": null
+      }
+    ],
+    "mitigation": "Use a manipulation-resistant TWAP or independently governed oracle for reserve valuation and re-LP sizing. Reject execution when the AMM price deviates beyond a bounded threshold, calculate nonzero minimum amounts for the final addLiquidity() call, and enforce an expected minimum LP output or post-operation value conservation check. Consider separating reLP from the public bonding path and executing it through a controlled keeper operation with fresh execution bounds.",
+    "severity": "High"
+  }
+]

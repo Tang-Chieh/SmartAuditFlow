@@ -1,0 +1,183 @@
+{
+  "Findings": [
+    {
+      "Issue": "Infeasible Wooracle prices influence cross-chain fee calculations",
+      "Severity": "Medium",
+      "Description": "WooCrossFee.currentBalance() reads the numeric price returned by wooracle.price(base) but discards the accompanying feasibility flag. WooracleV2.price() can return a nonzero Wooracle price with feasible == false when the posted price is outside the configured Chainlink deviation bound. The supplied WooPPV2 implementation updates Wooracle prices during public swaps through postPrice(), allowing a permitted swap to alter the price subsequently used by WooCrossFee. The manipulated valuation is then consumed by ingressFee() and outgressFee(), which are used by WooUsdOFTCrossRouter to determine bridge amounts and fee accounting.",
+      "Impact": "An attacker may influence cross-chain ingress or egress fees by moving the WooPPV2-derived oracle price before fee calculation. This can cause users to be overcharged or undercharged, move fees across configured fee-curve thresholds, reduce protocol fee revenue, and alter the net amount bridged or swapped.",
+      "Location": "contracts/CrossChain/WooCrossFee.sol — WooCrossFee.currentBalance; contracts/WooPPV2.sol — WooPPV2._sellBase; contracts/WooPPV2.sol — WooPPV2._sellQuote; contracts/WooPPV2.sol — WooPPV2._swapBaseToBase",
+      "Mitigation": "Require feasible == true for every price used by WooCrossFee.currentBalance(), or use a separately validated fallback such as a fresh Chainlink price. Reject zero, stale, negative, or out-of-bound oracle values. For stronger protection, use a TWAP or independent valuation source for fee accounting and apply bounds to changes in the calculated balance and resulting fee.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "Reward conversions execute without minimum-output protection",
+      "Severity": "Medium",
+      "Description": "WooRebateManager.claimRebate() and WooVaultManager.distributeAllReward() execute quote-token to reward-token conversions through WooRouterV2.swap() with minToAmount set to zero. Where the configured router uses WooPPV2, public swaps can update the Wooracle price through WooPPV2.postPrice(), and the subsequent reward conversion may execute at a price influenced by recent trading activity. The displayed rebate quote from pendingRebateInReward() is not enforced during claim execution, and the full vault reward balance is converted without a protocol-defined minimum output.",
+      "Impact": "A rebate claimant may receive materially fewer reward tokens than expected, and vault users may receive reduced distributions when the full reward balance is converted at an unfavorable manipulated spot price. Large conversions may be economically attractive to sandwich or otherwise influence, subject to WooPP limits, liquidity, oracle configuration, and deployment wiring.",
+      "Location": "contracts/WooRebateManager.sol — WooRebateManager.claimRebate; contracts/WooVaultManager.sol — WooVaultManager.distributeAllReward",
+      "Mitigation": "Add a caller- or keeper-supplied minimum-output parameter and pass it to WooRouterV2.swap(). For rebate claims, require the obtained reward amount to satisfy the user's minimum. For vault distributions, derive a conservative minimum from an independent, fresh oracle or TWAP, split large conversions into bounded transactions, and reject execution when the relevant oracle price is stale or infeasible.",
+      "finding_id": "SAF-002"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Infeasible Wooracle prices influence cross-chain fee calculations",
+      "description": "WooCrossFee.currentBalance() reads the numeric price returned by wooracle.price(base) but discards the accompanying feasibility flag. WooracleV2.price() can return a nonzero Wooracle price with feasible == false when the posted price is outside the configured Chainlink deviation bound. The supplied WooPPV2 implementation updates Wooracle prices during public swaps through postPrice(), allowing a permitted swap to alter the price subsequently used by WooCrossFee. The manipulated valuation is then consumed by ingressFee() and outgressFee(), which are used by WooUsdOFTCrossRouter to determine bridge amounts and fee accounting.",
+      "impact": "An attacker may influence cross-chain ingress or egress fees by moving the WooPPV2-derived oracle price before fee calculation. This can cause users to be overcharged or undercharged, move fees across configured fee-curve thresholds, reduce protocol fee revenue, and alter the net amount bridged or swapped.",
+      "mitigation": "Require feasible == true for every price used by WooCrossFee.currentBalance(), or use a separately validated fallback such as a fresh Chainlink price. Reject zero, stale, negative, or out-of-bound oracle values. For stronger protection, use a TWAP or independent valuation source for fee accounting and apply bounds to changes in the calculated balance and resulting fee.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/CrossChain/WooCrossFee.sol",
+          "contract": "WooCrossFee",
+          "function": "currentBalance",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_sellBase",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_sellQuote",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooPPV2.sol",
+          "contract": "WooPPV2",
+          "function": "_swapBaseToBase",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "Reward conversions execute without minimum-output protection",
+      "description": "WooRebateManager.claimRebate() and WooVaultManager.distributeAllReward() execute quote-token to reward-token conversions through WooRouterV2.swap() with minToAmount set to zero. Where the configured router uses WooPPV2, public swaps can update the Wooracle price through WooPPV2.postPrice(), and the subsequent reward conversion may execute at a price influenced by recent trading activity. The displayed rebate quote from pendingRebateInReward() is not enforced during claim execution, and the full vault reward balance is converted without a protocol-defined minimum output.",
+      "impact": "A rebate claimant may receive materially fewer reward tokens than expected, and vault users may receive reduced distributions when the full reward balance is converted at an unfavorable manipulated spot price. Large conversions may be economically attractive to sandwich or otherwise influence, subject to WooPP limits, liquidity, oracle configuration, and deployment wiring.",
+      "mitigation": "Add a caller- or keeper-supplied minimum-output parameter and pass it to WooRouterV2.swap(). For rebate claims, require the obtained reward amount to satisfy the user's minimum. For vault distributions, derive a conservative minimum from an independent, fresh oracle or TWAP, split large conversions into bounded transactions, and reject execution when the relevant oracle price is stale or infeasible.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/WooRebateManager.sol",
+          "contract": "WooRebateManager",
+          "function": "claimRebate",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/WooVaultManager.sol",
+          "contract": "WooVaultManager",
+          "function": "distributeAllReward",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 2,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Infeasible Wooracle prices influence cross-chain fee calculations\",\n    \"description\": \"WooCrossFee.currentBalance() reads the numeric price returned by wooracle.price(base) but discards the accompanying feasibility flag. WooracleV2.price() can return a nonzero Wooracle price with feasible == false when the posted price is outside the configured Chainlink deviation bound. The supplied WooPPV2 implementation updates Wooracle prices during public swaps through postPrice(), allowing a permitted swap to alter the price subsequently used by WooCrossFee. The manipulated valuation is then consumed by ingressFee() and outgressFee(), which are used by WooUsdOFTCrossRouter to determine bridge amounts and fee accounting.\",\n    \"impact\": \"An attacker may influence cross-chain ingress or egress fees by moving the WooPPV2-derived oracle price before fee calculation. This can cause users to be overcharged or undercharged, move fees across configured fee-curve thresholds, reduce protocol fee revenue, and alter the net amount bridged or swapped.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/CrossChain/WooCrossFee.sol\",\n        \"contract\": \"WooCrossFee\",\n        \"function\": \"currentBalance\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooPPV2.sol\",\n        \"contract\": \"WooPPV2\",\n        \"function\": \"_sellBase\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooPPV2.sol\",\n        \"contract\": \"WooPPV2\",\n        \"function\": \"_sellQuote\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooPPV2.sol\",\n        \"contract\": \"WooPPV2\",\n        \"function\": \"_swapBaseToBase\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Require feasible == true for every price used by WooCrossFee.currentBalance(), or use a separately validated fallback such as a fresh Chainlink price. Reject zero, stale, negative, or out-of-bound oracle values. For stronger protection, use a TWAP or independent valuation source for fee accounting and apply bounds to changes in the calculated balance and resulting fee.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"Reward conversions execute without minimum-output protection\",\n    \"description\": \"WooRebateManager.claimRebate() and WooVaultManager.distributeAllReward() execute quote-token to reward-token conversions through WooRouterV2.swap() with minToAmount set to zero. Where the configured router uses WooPPV2, public swaps can update the Wooracle price through WooPPV2.postPrice(), and the subsequent reward conversion may execute at a price influenced by recent trading activity. The displayed rebate quote from pendingRebateInReward() is not enforced during claim execution, and the full vault reward balance is converted without a protocol-defined minimum output.\",\n    \"impact\": \"A rebate claimant may receive materially fewer reward tokens than expected, and vault users may receive reduced distributions when the full reward balance is converted at an unfavorable manipulated spot price. Large conversions may be economically attractive to sandwich or otherwise influence, subject to WooPP limits, liquidity, oracle configuration, and deployment wiring.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/WooRebateManager.sol\",\n        \"contract\": \"WooRebateManager\",\n        \"function\": \"claimRebate\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/WooVaultManager.sol\",\n        \"contract\": \"WooVaultManager\",\n        \"function\": \"distributeAllReward\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Add a caller- or keeper-supplied minimum-output parameter and pass it to WooRouterV2.swap(). For rebate claims, require the obtained reward amount to satisfy the user's minimum. For vault distributions, derive a conservative minimum from an independent, fresh oracle or TWAP, split large conversions into bounded transactions, and reject execution when the relevant oracle price is stale or infeasible.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 0,
+  "MediumIssues": 2,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 329.37024116516113,
+    "session_id": "cc7ea033-5f65-445a-b7c2-dca9e17c4d87"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2024-03-woofi-swap",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Infeasible Wooracle prices influence cross-chain fee calculations",
+        "description": "WooCrossFee.currentBalance() reads the numeric price returned by wooracle.price(base) but discards the accompanying feasibility flag. WooracleV2.price() can return a nonzero Wooracle price with feasible == false when the posted price is outside the configured Chainlink deviation bound. The supplied WooPPV2 implementation updates Wooracle prices during public swaps through postPrice(), allowing a permitted swap to alter the price subsequently used by WooCrossFee. The manipulated valuation is then consumed by ingressFee() and outgressFee(), which are used by WooUsdOFTCrossRouter to determine bridge amounts and fee accounting.",
+        "impact": "An attacker may influence cross-chain ingress or egress fees by moving the WooPPV2-derived oracle price before fee calculation. This can cause users to be overcharged or undercharged, move fees across configured fee-curve thresholds, reduce protocol fee revenue, and alter the net amount bridged or swapped.",
+        "mitigation": "Require feasible == true for every price used by WooCrossFee.currentBalance(), or use a separately validated fallback such as a fresh Chainlink price. Reject zero, stale, negative, or out-of-bound oracle values. For stronger protection, use a TWAP or independent valuation source for fee accounting and apply bounds to changes in the calculated balance and resulting fee.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/CrossChain/WooCrossFee.sol",
+            "contract": "WooCrossFee",
+            "function": "currentBalance",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooPPV2.sol",
+            "contract": "WooPPV2",
+            "function": "_sellBase",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooPPV2.sol",
+            "contract": "WooPPV2",
+            "function": "_sellQuote",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooPPV2.sol",
+            "contract": "WooPPV2",
+            "function": "_swapBaseToBase",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "Reward conversions execute without minimum-output protection",
+        "description": "WooRebateManager.claimRebate() and WooVaultManager.distributeAllReward() execute quote-token to reward-token conversions through WooRouterV2.swap() with minToAmount set to zero. Where the configured router uses WooPPV2, public swaps can update the Wooracle price through WooPPV2.postPrice(), and the subsequent reward conversion may execute at a price influenced by recent trading activity. The displayed rebate quote from pendingRebateInReward() is not enforced during claim execution, and the full vault reward balance is converted without a protocol-defined minimum output.",
+        "impact": "A rebate claimant may receive materially fewer reward tokens than expected, and vault users may receive reduced distributions when the full reward balance is converted at an unfavorable manipulated spot price. Large conversions may be economically attractive to sandwich or otherwise influence, subject to WooPP limits, liquidity, oracle configuration, and deployment wiring.",
+        "mitigation": "Add a caller- or keeper-supplied minimum-output parameter and pass it to WooRouterV2.swap(). For rebate claims, require the obtained reward amount to satisfy the user's minimum. For vault distributions, derive a conservative minimum from an independent, fresh oracle or TWAP, split large conversions into bounded transactions, and reject execution when the relevant oracle price is stale or infeasible.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/WooRebateManager.sol",
+            "contract": "WooRebateManager",
+            "function": "claimRebate",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/WooVaultManager.sol",
+            "contract": "WooVaultManager",
+            "function": "distributeAllReward",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

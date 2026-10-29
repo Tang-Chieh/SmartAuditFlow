@@ -1,0 +1,84 @@
+{
+  "Findings": [
+    {
+      "Issue": "Uniswap V2 LP price relies on manipulable spot reserves",
+      "Severity": "Medium",
+      "Description": "UniV2LpOracle.getPrice() derives the LP-token price directly from the pair's current getReserves() values using a geometric-mean valuation. These reserves are instantaneous pool state and are not time-weighted, historically bounded, or checked against an independent valuation. Reserve-changing pair operations can therefore alter the value returned by the oracle before a consumer reads it. The supplied source does not include a downstream financial consumer, so the exact exploit transaction cannot be established; however, the attacker-influenceable reserve-to-price path is present in the oracle itself.",
+      "Impact": "If consumed for collateral valuation, borrowing, liquidation, minting, redemption, or settlement, an attacker may cause the protocol to use an inflated or understated LP-token value. This could enable excessive borrowing against LP collateral, incorrect liquidation decisions, or incorrect asset transfers and accounting.",
+      "Location": "src/uniswap/UniV2LPOracle.sol — UniV2LpOracle.getPrice",
+      "Mitigation": "Replace the direct getReserves() dependency with a sufficiently long Uniswap V2 cumulative-price or other historical TWAP-based valuation, and require a minimum observation period. Add maximum-deviation and freshness checks against a stored or independently sourced reference price, validate that the pair is an approved canonical pair, and apply conservative collateral or valuation parameters in downstream consumers.",
+      "finding_id": "SAF-001"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Uniswap V2 LP price relies on manipulable spot reserves",
+      "description": "UniV2LpOracle.getPrice() derives the LP-token price directly from the pair's current getReserves() values using a geometric-mean valuation. These reserves are instantaneous pool state and are not time-weighted, historically bounded, or checked against an independent valuation. Reserve-changing pair operations can therefore alter the value returned by the oracle before a consumer reads it. The supplied source does not include a downstream financial consumer, so the exact exploit transaction cannot be established; however, the attacker-influenceable reserve-to-price path is present in the oracle itself.",
+      "impact": "If consumed for collateral valuation, borrowing, liquidation, minting, redemption, or settlement, an attacker may cause the protocol to use an inflated or understated LP-token value. This could enable excessive borrowing against LP collateral, incorrect liquidation decisions, or incorrect asset transfers and accounting.",
+      "mitigation": "Replace the direct getReserves() dependency with a sufficiently long Uniswap V2 cumulative-price or other historical TWAP-based valuation, and require a minimum observation period. Add maximum-deviation and freshness checks against a stored or independently sourced reference price, validate that the pair is an approved canonical pair, and apply conservative collateral or valuation parameters in downstream consumers.",
+      "vulnerable_code": [
+        {
+          "file": "src/uniswap/UniV2LPOracle.sol",
+          "contract": "UniV2LpOracle",
+          "function": "getPrice",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 1,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Uniswap V2 LP price relies on manipulable spot reserves\",\n    \"description\": \"UniV2LpOracle.getPrice() derives the LP-token price directly from the pair's current getReserves() values using a geometric-mean valuation. These reserves are instantaneous pool state and are not time-weighted, historically bounded, or checked against an independent valuation. Reserve-changing pair operations can therefore alter the value returned by the oracle before a consumer reads it. The supplied source does not include a downstream financial consumer, so the exact exploit transaction cannot be established; however, the attacker-influenceable reserve-to-price path is present in the oracle itself.\",\n    \"impact\": \"If consumed for collateral valuation, borrowing, liquidation, minting, redemption, or settlement, an attacker may cause the protocol to use an inflated or understated LP-token value. This could enable excessive borrowing against LP collateral, incorrect liquidation decisions, or incorrect asset transfers and accounting.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"src/uniswap/UniV2LPOracle.sol\",\n        \"contract\": \"UniV2LpOracle\",\n        \"function\": \"getPrice\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Replace the direct getReserves() dependency with a sufficiently long Uniswap V2 cumulative-price or other historical TWAP-based valuation, and require a minimum observation period. Add maximum-deviation and freshness checks against a stored or independently sourced reference price, validate that the pair is an approved canonical pair, and apply conservative collateral or valuation parameters in downstream consumers.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 0,
+  "MediumIssues": 1,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 315.63442301750183,
+    "session_id": "6c9861c5-6a9e-4acf-92c0-f95568d039cc"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2022-08-sentiment",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Uniswap V2 LP price relies on manipulable spot reserves",
+        "description": "UniV2LpOracle.getPrice() derives the LP-token price directly from the pair's current getReserves() values using a geometric-mean valuation. These reserves are instantaneous pool state and are not time-weighted, historically bounded, or checked against an independent valuation. Reserve-changing pair operations can therefore alter the value returned by the oracle before a consumer reads it. The supplied source does not include a downstream financial consumer, so the exact exploit transaction cannot be established; however, the attacker-influenceable reserve-to-price path is present in the oracle itself.",
+        "impact": "If consumed for collateral valuation, borrowing, liquidation, minting, redemption, or settlement, an attacker may cause the protocol to use an inflated or understated LP-token value. This could enable excessive borrowing against LP collateral, incorrect liquidation decisions, or incorrect asset transfers and accounting.",
+        "mitigation": "Replace the direct getReserves() dependency with a sufficiently long Uniswap V2 cumulative-price or other historical TWAP-based valuation, and require a minimum observation period. Add maximum-deviation and freshness checks against a stored or independently sourced reference price, validate that the pair is an approved canonical pair, and apply conservative collateral or valuation parameters in downstream consumers.",
+        "vulnerable_code": [
+          {
+            "file": "src/uniswap/UniV2LPOracle.sol",
+            "contract": "UniV2LpOracle",
+            "function": "getPrice",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

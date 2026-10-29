@@ -1,0 +1,227 @@
+{
+  "Findings": [
+    {
+      "Issue": "Spot-price manipulation can inflate PyroFlan issuance",
+      "Severity": "High",
+      "Description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from instantaneous Flan and stablecoin balances of the configured Flan/stablecoin LP. These balances can be influenced through swaps, temporary liquidity changes, or direct token transfers before execution. The resulting tiltedPrice determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The final amount is passed directly to PyroTokenLike(config.pyroFlan).mint(msg.sender, flanToMint + premium). The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not validate either price against a historical, independent, or time-weighted reference and does not cap the premium.",
+      "Impact": "An attacker may cause the backstop to mint more PyroFlan than justified by the supplied stablecoin. Depending on the omitted PyroFlan redemption and market mechanics, this can dilute existing PyroFlan holders, increase redemption liabilities, consume protocol-controlled liquidity, and transfer value to the attacker. Manipulated downward prices can also cause purchases to revert because priceBefore - tiltedPrice underflows.",
+      "Location": "contracts/FlanBackstop.sol — FlanBackstop.purchasePyroFlan",
+      "Mitigation": "Replace same-transaction balance-ratio pricing with a sufficiently delayed and manipulation-resistant reference, such as a Uniswap cumulative-price TWAP, an independently maintained oracle, or a medianized set of independent sources. Validate freshness and deviation from the reference, calculate issuance from the trusted price rather than tiltedPrice, and impose independent caps on total PyroFlan output and the premium. Also validate the actual stablecoin amounts received by each LP and explicitly handle priceBefore <= tiltedPrice and zero-balance cases.",
+      "finding_id": "SAF-001"
+    },
+    {
+      "Issue": "LP EYE balance donations can inflate Fate valuation",
+      "Severity": "Medium",
+      "Description": "Limbo.setEYEBasedAssetStake and Limbo.burnAsset value approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. The EYE balance of an LP contract can be increased independently of LP supply by transferring EYE directly to the LP. This changes eyePerUnit and therefore the implied EYE value used to validate staking and calculate Fate creation. In burnAsset, the same manipulated conversion directly determines fateCreated.",
+      "Impact": "An attacker holding an approved LP token may increase the LP's apparent EYE backing and obtain disproportionate Fate. Excess Fate can influence proposal creation and voting and may also be converted into Flan through convertFateToFlan, causing governance distortion and potential excess Flan issuance.",
+      "Location": "contracts/Limbo.sol — Limbo.setEYEBasedAssetStake; contracts/Limbo.sol — Limbo.burnAsset",
+      "Mitigation": "Do not value LP tokens solely from the LP contract's raw EYE balance. Use canonical, synchronized reserves and account for unsolicited token donations, for example by valuing only recognized reserves or using the lower of recorded reserves and balances. Prefer a delayed or time-weighted valuation and add tests covering direct EYE donations, reserve synchronization, total-supply changes, and subsequent Fate creation.",
+      "finding_id": "SAF-002"
+    },
+    {
+      "Issue": "Raw external-pair balances can cause excess Flan minting during stabilization",
+      "Severity": "Medium",
+      "Description": "UniswapHelper.stabilizeFlan calculates finalSCXBalanceOnLP and existingFlanOnLP from raw ERC20 balances held by the configured Flan/SCX pair. DesiredFinalFlanOnLP and the amount of Flan minted to the pair are then derived from these values and the stored Behodler quote. Direct token transfers or other balance changes can alter the apparent pair state without representing a validated market price or synchronized reserve state. The resulting LP position is minted to the black hole, so the protocol cannot recover the liquidity position.",
+      "Impact": "Manipulated pair balances can cause the helper to mint an unjustified amount of Flan into the external pair or mint too little during migration. This can dilute Flan, distort the intended Flan/SCX parity mechanism, and create incorrect migration liquidity outcomes. The two-snapshot Behodler quote controls reduce some quote manipulation risk but do not authenticate the external pair balances used by this function.",
+      "Location": "contracts/UniswapHelper.sol — UniswapHelper.stabilizeFlan",
+      "Mitigation": "Use canonical pair reserves and validate synchronization before calculating the target balance. Add independent and delayed price validation, maximum SCX and Flan balance-change limits, and a governance-controlled maximum Flan issuance per migration. Do not allow raw balance changes or unsolicited token donations to determine the mint amount.",
+      "finding_id": "SAF-003"
+    },
+    {
+      "Issue": "Spot AMM pricing can cause unfavorable protocol buybacks",
+      "Severity": "Medium",
+      "Description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current Flan and input-token balances of the configured pair using getAmountOut, then executes a swap and burns 99% of the received Flan while sending 1% to the caller. The calculation uses mutable spot balances and does not use a TWAP, independent oracle, minimum output, or caller-supplied slippage bound.",
+      "Impact": "An attacker can manipulate the relevant pair before the buyback and cause protocol-held tokens to be exchanged for less Flan than expected. This can reduce the amount of Flan acquired and burned, transfer value to an arbitrageur or caller, and permanently dispose of protocol assets at an unfavorable price. The operation is also susceptible to transaction-ordering and sandwich effects.",
+      "Location": "contracts/UniswapHelper.sol — UniswapHelper.buyFlanAndBurn",
+      "Mitigation": "Price the buyback using a sufficiently delayed TWAP or independent oracle and enforce a minimum acceptable amountOut based on that reference. Validate the expected pair and canonical reserves, add explicit slippage and maximum-loss controls, and consider batching or delaying buybacks to reduce transaction-ordering manipulation.",
+      "finding_id": "SAF-004"
+    }
+  ],
+  "Predictions": [
+    {
+      "finding_id": "SAF-001",
+      "title": "Spot-price manipulation can inflate PyroFlan issuance",
+      "description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from instantaneous Flan and stablecoin balances of the configured Flan/stablecoin LP. These balances can be influenced through swaps, temporary liquidity changes, or direct token transfers before execution. The resulting tiltedPrice determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The final amount is passed directly to PyroTokenLike(config.pyroFlan).mint(msg.sender, flanToMint + premium). The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not validate either price against a historical, independent, or time-weighted reference and does not cap the premium.",
+      "impact": "An attacker may cause the backstop to mint more PyroFlan than justified by the supplied stablecoin. Depending on the omitted PyroFlan redemption and market mechanics, this can dilute existing PyroFlan holders, increase redemption liabilities, consume protocol-controlled liquidity, and transfer value to the attacker. Manipulated downward prices can also cause purchases to revert because priceBefore - tiltedPrice underflows.",
+      "mitigation": "Replace same-transaction balance-ratio pricing with a sufficiently delayed and manipulation-resistant reference, such as a Uniswap cumulative-price TWAP, an independently maintained oracle, or a medianized set of independent sources. Validate freshness and deviation from the reference, calculate issuance from the trusted price rather than tiltedPrice, and impose independent caps on total PyroFlan output and the premium. Also validate the actual stablecoin amounts received by each LP and explicitly handle priceBefore <= tiltedPrice and zero-balance cases.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/FlanBackstop.sol",
+          "contract": "FlanBackstop",
+          "function": "purchasePyroFlan",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "High"
+    },
+    {
+      "finding_id": "SAF-002",
+      "title": "LP EYE balance donations can inflate Fate valuation",
+      "description": "Limbo.setEYEBasedAssetStake and Limbo.burnAsset value approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. The EYE balance of an LP contract can be increased independently of LP supply by transferring EYE directly to the LP. This changes eyePerUnit and therefore the implied EYE value used to validate staking and calculate Fate creation. In burnAsset, the same manipulated conversion directly determines fateCreated.",
+      "impact": "An attacker holding an approved LP token may increase the LP's apparent EYE backing and obtain disproportionate Fate. Excess Fate can influence proposal creation and voting and may also be converted into Flan through convertFateToFlan, causing governance distortion and potential excess Flan issuance.",
+      "mitigation": "Do not value LP tokens solely from the LP contract's raw EYE balance. Use canonical, synchronized reserves and account for unsolicited token donations, for example by valuing only recognized reserves or using the lower of recorded reserves and balances. Prefer a delayed or time-weighted valuation and add tests covering direct EYE donations, reserve synchronization, total-supply changes, and subsequent Fate creation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/Limbo.sol",
+          "contract": "Limbo",
+          "function": "setEYEBasedAssetStake",
+          "start_line": null,
+          "end_line": null
+        },
+        {
+          "file": "contracts/Limbo.sol",
+          "contract": "Limbo",
+          "function": "burnAsset",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-003",
+      "title": "Raw external-pair balances can cause excess Flan minting during stabilization",
+      "description": "UniswapHelper.stabilizeFlan calculates finalSCXBalanceOnLP and existingFlanOnLP from raw ERC20 balances held by the configured Flan/SCX pair. DesiredFinalFlanOnLP and the amount of Flan minted to the pair are then derived from these values and the stored Behodler quote. Direct token transfers or other balance changes can alter the apparent pair state without representing a validated market price or synchronized reserve state. The resulting LP position is minted to the black hole, so the protocol cannot recover the liquidity position.",
+      "impact": "Manipulated pair balances can cause the helper to mint an unjustified amount of Flan into the external pair or mint too little during migration. This can dilute Flan, distort the intended Flan/SCX parity mechanism, and create incorrect migration liquidity outcomes. The two-snapshot Behodler quote controls reduce some quote manipulation risk but do not authenticate the external pair balances used by this function.",
+      "mitigation": "Use canonical pair reserves and validate synchronization before calculating the target balance. Add independent and delayed price validation, maximum SCX and Flan balance-change limits, and a governance-controlled maximum Flan issuance per migration. Do not allow raw balance changes or unsolicited token donations to determine the mint amount.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "stabilizeFlan",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    },
+    {
+      "finding_id": "SAF-004",
+      "title": "Spot AMM pricing can cause unfavorable protocol buybacks",
+      "description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current Flan and input-token balances of the configured pair using getAmountOut, then executes a swap and burns 99% of the received Flan while sending 1% to the caller. The calculation uses mutable spot balances and does not use a TWAP, independent oracle, minimum output, or caller-supplied slippage bound.",
+      "impact": "An attacker can manipulate the relevant pair before the buyback and cause protocol-held tokens to be exchanged for less Flan than expected. This can reduce the amount of Flan acquired and burned, transfer value to an arbitrageur or caller, and permanently dispose of protocol assets at an unfavorable price. The operation is also susceptible to transaction-ordering and sandwich effects.",
+      "mitigation": "Price the buyback using a sufficiently delayed TWAP or independent oracle and enforce a minimum acceptable amountOut based on that reference. Validate the expected pair and canonical reserves, add explicit slippage and maximum-loss controls, and consider batching or delaying buybacks to reduce transaction-ordering manipulation.",
+      "vulnerable_code": [
+        {
+          "file": "contracts/UniswapHelper.sol",
+          "contract": "UniswapHelper",
+          "function": "buyFlanAndBurn",
+          "start_line": null,
+          "end_line": null
+        }
+      ],
+      "severity": "Medium"
+    }
+  ],
+  "PredictionSchema": "benchmark_eval.PredictionCase.predictions/v1",
+  "OutputWarnings": [],
+  "FindingNumber": 4,
+  "FullReport": "[\n  {\n    \"finding_id\": \"SAF-001\",\n    \"title\": \"Spot-price manipulation can inflate PyroFlan issuance\",\n    \"description\": \"FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from instantaneous Flan and stablecoin balances of the configured Flan/stablecoin LP. These balances can be influenced through swaps, temporary liquidity changes, or direct token transfers before execution. The resulting tiltedPrice determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The final amount is passed directly to PyroTokenLike(config.pyroFlan).mint(msg.sender, flanToMint + premium). The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not validate either price against a historical, independent, or time-weighted reference and does not cap the premium.\",\n    \"impact\": \"An attacker may cause the backstop to mint more PyroFlan than justified by the supplied stablecoin. Depending on the omitted PyroFlan redemption and market mechanics, this can dilute existing PyroFlan holders, increase redemption liabilities, consume protocol-controlled liquidity, and transfer value to the attacker. Manipulated downward prices can also cause purchases to revert because priceBefore - tiltedPrice underflows.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/FlanBackstop.sol\",\n        \"contract\": \"FlanBackstop\",\n        \"function\": \"purchasePyroFlan\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Replace same-transaction balance-ratio pricing with a sufficiently delayed and manipulation-resistant reference, such as a Uniswap cumulative-price TWAP, an independently maintained oracle, or a medianized set of independent sources. Validate freshness and deviation from the reference, calculate issuance from the trusted price rather than tiltedPrice, and impose independent caps on total PyroFlan output and the premium. Also validate the actual stablecoin amounts received by each LP and explicitly handle priceBefore <= tiltedPrice and zero-balance cases.\",\n    \"severity\": \"High\"\n  },\n  {\n    \"finding_id\": \"SAF-002\",\n    \"title\": \"LP EYE balance donations can inflate Fate valuation\",\n    \"description\": \"Limbo.setEYEBasedAssetStake and Limbo.burnAsset value approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. The EYE balance of an LP contract can be increased independently of LP supply by transferring EYE directly to the LP. This changes eyePerUnit and therefore the implied EYE value used to validate staking and calculate Fate creation. In burnAsset, the same manipulated conversion directly determines fateCreated.\",\n    \"impact\": \"An attacker holding an approved LP token may increase the LP's apparent EYE backing and obtain disproportionate Fate. Excess Fate can influence proposal creation and voting and may also be converted into Flan through convertFateToFlan, causing governance distortion and potential excess Flan issuance.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/Limbo.sol\",\n        \"contract\": \"Limbo\",\n        \"function\": \"setEYEBasedAssetStake\",\n        \"start_line\": null,\n        \"end_line\": null\n      },\n      {\n        \"file\": \"contracts/Limbo.sol\",\n        \"contract\": \"Limbo\",\n        \"function\": \"burnAsset\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Do not value LP tokens solely from the LP contract's raw EYE balance. Use canonical, synchronized reserves and account for unsolicited token donations, for example by valuing only recognized reserves or using the lower of recorded reserves and balances. Prefer a delayed or time-weighted valuation and add tests covering direct EYE donations, reserve synchronization, total-supply changes, and subsequent Fate creation.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-003\",\n    \"title\": \"Raw external-pair balances can cause excess Flan minting during stabilization\",\n    \"description\": \"UniswapHelper.stabilizeFlan calculates finalSCXBalanceOnLP and existingFlanOnLP from raw ERC20 balances held by the configured Flan/SCX pair. DesiredFinalFlanOnLP and the amount of Flan minted to the pair are then derived from these values and the stored Behodler quote. Direct token transfers or other balance changes can alter the apparent pair state without representing a validated market price or synchronized reserve state. The resulting LP position is minted to the black hole, so the protocol cannot recover the liquidity position.\",\n    \"impact\": \"Manipulated pair balances can cause the helper to mint an unjustified amount of Flan into the external pair or mint too little during migration. This can dilute Flan, distort the intended Flan/SCX parity mechanism, and create incorrect migration liquidity outcomes. The two-snapshot Behodler quote controls reduce some quote manipulation risk but do not authenticate the external pair balances used by this function.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"stabilizeFlan\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Use canonical pair reserves and validate synchronization before calculating the target balance. Add independent and delayed price validation, maximum SCX and Flan balance-change limits, and a governance-controlled maximum Flan issuance per migration. Do not allow raw balance changes or unsolicited token donations to determine the mint amount.\",\n    \"severity\": \"Medium\"\n  },\n  {\n    \"finding_id\": \"SAF-004\",\n    \"title\": \"Spot AMM pricing can cause unfavorable protocol buybacks\",\n    \"description\": \"Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current Flan and input-token balances of the configured pair using getAmountOut, then executes a swap and burns 99% of the received Flan while sending 1% to the caller. The calculation uses mutable spot balances and does not use a TWAP, independent oracle, minimum output, or caller-supplied slippage bound.\",\n    \"impact\": \"An attacker can manipulate the relevant pair before the buyback and cause protocol-held tokens to be exchanged for less Flan than expected. This can reduce the amount of Flan acquired and burned, transfer value to an arbitrageur or caller, and permanently dispose of protocol assets at an unfavorable price. The operation is also susceptible to transaction-ordering and sandwich effects.\",\n    \"vulnerable_code\": [\n      {\n        \"file\": \"contracts/UniswapHelper.sol\",\n        \"contract\": \"UniswapHelper\",\n        \"function\": \"buyFlanAndBurn\",\n        \"start_line\": null,\n        \"end_line\": null\n      }\n    ],\n    \"mitigation\": \"Price the buyback using a sufficiently delayed TWAP or independent oracle and enforce a minimum acceptable amountOut based on that reference. Validate the expected pair and canonical reserves, add explicit slippage and maximum-loss controls, and consider batching or delaying buybacks to reduce transaction-ordering manipulation.\",\n    \"severity\": \"Medium\"\n  }\n]",
+  "ModelUsed": "codex-gateway",
+  "CriticalIssues": 1,
+  "MediumIssues": 3,
+  "LowIssues": 0,
+  "ExecutionSummary": {
+    "total_tasks": 12,
+    "completed_tasks": 12,
+    "failed_tasks": 0,
+    "total_execution_time": 461.0778410434723,
+    "session_id": "547dfbaa-3017-41bf-9bac-27ca6ce8d472"
+  },
+  "model_used": "codex-gateway",
+  "available_models": {
+    "openai": false,
+    "codex-gateway": true,
+    "gemini": false,
+    "deepseek": false,
+    "claude": false,
+    "claude-opus-4-0": false,
+    "claude-sonnet-4-0": false,
+    "claude-3-7-sonnet-latest": false
+  },
+  "PredictionCase": {
+    "repo_id": "2022-01-behodler",
+    "detector_metadata": {
+      "detector_version": "smartauditflow-merged-pr1-6efce2f0-20261029",
+      "llm_model": "openai-codex/gpt-5.6-luna"
+    },
+    "predictions": [
+      {
+        "finding_id": "SAF-001",
+        "title": "Spot-price manipulation can inflate PyroFlan issuance",
+        "description": "FlanBackstop.purchasePyroFlan derives priceBefore and tiltedPrice from instantaneous Flan and stablecoin balances of the configured Flan/stablecoin LP. These balances can be influenced through swaps, temporary liquidity changes, or direct token transfers before execution. The resulting tiltedPrice determines flanToMint, while the difference between priceBefore and tiltedPrice determines the premium. The final amount is passed directly to PyroTokenLike(config.pyroFlan).mint(msg.sender, flanToMint + premium). The acceptableHighestPrice check only imposes an absolute upper bound on tiltedPrice; it does not validate either price against a historical, independent, or time-weighted reference and does not cap the premium.",
+        "impact": "An attacker may cause the backstop to mint more PyroFlan than justified by the supplied stablecoin. Depending on the omitted PyroFlan redemption and market mechanics, this can dilute existing PyroFlan holders, increase redemption liabilities, consume protocol-controlled liquidity, and transfer value to the attacker. Manipulated downward prices can also cause purchases to revert because priceBefore - tiltedPrice underflows.",
+        "mitigation": "Replace same-transaction balance-ratio pricing with a sufficiently delayed and manipulation-resistant reference, such as a Uniswap cumulative-price TWAP, an independently maintained oracle, or a medianized set of independent sources. Validate freshness and deviation from the reference, calculate issuance from the trusted price rather than tiltedPrice, and impose independent caps on total PyroFlan output and the premium. Also validate the actual stablecoin amounts received by each LP and explicitly handle priceBefore <= tiltedPrice and zero-balance cases.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/FlanBackstop.sol",
+            "contract": "FlanBackstop",
+            "function": "purchasePyroFlan",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "High"
+      },
+      {
+        "finding_id": "SAF-002",
+        "title": "LP EYE balance donations can inflate Fate valuation",
+        "description": "Limbo.setEYEBasedAssetStake and Limbo.burnAsset value approved LP assets using IERC20(domainConfig.eye).balanceOf(asset) divided by the LP total supply. The EYE balance of an LP contract can be increased independently of LP supply by transferring EYE directly to the LP. This changes eyePerUnit and therefore the implied EYE value used to validate staking and calculate Fate creation. In burnAsset, the same manipulated conversion directly determines fateCreated.",
+        "impact": "An attacker holding an approved LP token may increase the LP's apparent EYE backing and obtain disproportionate Fate. Excess Fate can influence proposal creation and voting and may also be converted into Flan through convertFateToFlan, causing governance distortion and potential excess Flan issuance.",
+        "mitigation": "Do not value LP tokens solely from the LP contract's raw EYE balance. Use canonical, synchronized reserves and account for unsolicited token donations, for example by valuing only recognized reserves or using the lower of recorded reserves and balances. Prefer a delayed or time-weighted valuation and add tests covering direct EYE donations, reserve synchronization, total-supply changes, and subsequent Fate creation.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/Limbo.sol",
+            "contract": "Limbo",
+            "function": "setEYEBasedAssetStake",
+            "start_line": null,
+            "end_line": null
+          },
+          {
+            "file": "contracts/Limbo.sol",
+            "contract": "Limbo",
+            "function": "burnAsset",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-003",
+        "title": "Raw external-pair balances can cause excess Flan minting during stabilization",
+        "description": "UniswapHelper.stabilizeFlan calculates finalSCXBalanceOnLP and existingFlanOnLP from raw ERC20 balances held by the configured Flan/SCX pair. DesiredFinalFlanOnLP and the amount of Flan minted to the pair are then derived from these values and the stored Behodler quote. Direct token transfers or other balance changes can alter the apparent pair state without representing a validated market price or synchronized reserve state. The resulting LP position is minted to the black hole, so the protocol cannot recover the liquidity position.",
+        "impact": "Manipulated pair balances can cause the helper to mint an unjustified amount of Flan into the external pair or mint too little during migration. This can dilute Flan, distort the intended Flan/SCX parity mechanism, and create incorrect migration liquidity outcomes. The two-snapshot Behodler quote controls reduce some quote manipulation risk but do not authenticate the external pair balances used by this function.",
+        "mitigation": "Use canonical pair reserves and validate synchronization before calculating the target balance. Add independent and delayed price validation, maximum SCX and Flan balance-change limits, and a governance-controlled maximum Flan issuance per migration. Do not allow raw balance changes or unsolicited token donations to determine the mint amount.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "stabilizeFlan",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      },
+      {
+        "finding_id": "SAF-004",
+        "title": "Spot AMM pricing can cause unfavorable protocol buybacks",
+        "description": "Limbo.claimSecondaryRewards transfers the entire Limbo balance of an eligible token to UniswapHelper.buyFlanAndBurn. The helper calculates amountOut from the current Flan and input-token balances of the configured pair using getAmountOut, then executes a swap and burns 99% of the received Flan while sending 1% to the caller. The calculation uses mutable spot balances and does not use a TWAP, independent oracle, minimum output, or caller-supplied slippage bound.",
+        "impact": "An attacker can manipulate the relevant pair before the buyback and cause protocol-held tokens to be exchanged for less Flan than expected. This can reduce the amount of Flan acquired and burned, transfer value to an arbitrageur or caller, and permanently dispose of protocol assets at an unfavorable price. The operation is also susceptible to transaction-ordering and sandwich effects.",
+        "mitigation": "Price the buyback using a sufficiently delayed TWAP or independent oracle and enforce a minimum acceptable amountOut based on that reference. Validate the expected pair and canonical reserves, add explicit slippage and maximum-loss controls, and consider batching or delaying buybacks to reduce transaction-ordering manipulation.",
+        "vulnerable_code": [
+          {
+            "file": "contracts/UniswapHelper.sol",
+            "contract": "UniswapHelper",
+            "function": "buyFlanAndBurn",
+            "start_line": null,
+            "end_line": null
+          }
+        ],
+        "severity": "Medium"
+      }
+    ]
+  }
+}

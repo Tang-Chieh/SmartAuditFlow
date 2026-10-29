@@ -1,0 +1,18 @@
+{
+  "status": "completed",
+  "session_id": "3499eb3e-ff53-46a6-890a-6e9b9a0c058e",
+  "model_provider": "codex-gateway",
+  "model_id": "openai-codex/gpt-5.6-luna",
+  "gateway_base_url": "http://127.0.0.1:4000/v1",
+  "workflow_nodes": [
+    "initial-analysis",
+    "audit-plan",
+    "parameter-extractor",
+    "iteration",
+    "format-converter"
+  ],
+  "max_audit_tasks": 12,
+  "result_findings": 4,
+  "prediction_case_written": true,
+  "credential_value_saved": false
+}

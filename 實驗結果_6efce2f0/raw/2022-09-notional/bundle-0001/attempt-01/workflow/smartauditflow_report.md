@@ -1,0 +1,1 @@
+Report generation failed: All AI models failed. Last error: Codex-Gateway model call attempt failed: Codex-Gateway API call failed after 9.70s: Error code: 429 - {'error': {'message': 'Codex error event: The usage limit has been reached (code=usage_limit_reached)', 'type': 'rate_limit_error'}}
